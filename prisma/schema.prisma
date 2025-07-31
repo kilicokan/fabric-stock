@@ -1,0 +1,37 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model FabricType {
+  id          Int            @id @default(autoincrement())
+  name        String
+  color       String
+  entries     FabricEntry[]
+  exits       FabricExit[]
+}
+
+model FabricEntry {
+  id           Int      @id @default(autoincrement())
+  name         String
+  color        String
+  weightKg     Float?   // Opsiyonel ağırlık (kg)
+  lengthMeter  Float?   // Opsiyonel uzunluk (metre)
+  createdAt    DateTime @default(now())
+}
+
+
+model FabricExit {
+  id           Int      @id @default(autoincrement())
+  fabricType   String
+  color        String
+  weightKg     Float?   // opsiyonel
+  lengthMeter  Float?   // opsiyonel
+  cuttingTable String
+  exitDate     DateTime @default(now())
+}
+
