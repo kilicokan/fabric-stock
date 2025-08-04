@@ -8,30 +8,49 @@ datasource db {
 }
 
 model FabricType {
-  id          Int            @id @default(autoincrement())
-  name        String
-  color       String
-  entries     FabricEntry[]
-  exits       FabricExit[]
+  id      Int           @id @default(autoincrement())
+  name    String
+  entries FabricEntry[]
+}
+
+model Color {
+  id      Int           @id @default(autoincrement())
+  name    String
+  entries FabricEntry[]
+}
+
+model CuttingTable {
+  id    Int          @id @default(autoincrement())
+  name  String
+  exits FabricExit[]
 }
 
 model FabricEntry {
-  id           Int      @id @default(autoincrement())
-  name         String
-  color        String
-  weightKg     Float?   // Opsiyonel ağırlık (kg)
-  lengthMeter  Float?   // Opsiyonel uzunluk (metre)
-  createdAt    DateTime @default(now())
+  id           Int          @id @default(autoincrement())
+  fabricTypeId Int
+  colorId      Int
+  weightKg     Float?
+  lengthMeter  Float?
+  entryDate    DateTime     @default(now())
+  fabricType   FabricType   @relation(fields: [fabricTypeId], references: [id])
+  color        Color        @relation(fields: [colorId], references: [id])
+  exits        FabricExit[]
 }
-
 
 model FabricExit {
-  id           Int      @id @default(autoincrement())
-  fabricType   String
-  color        String
-  weightKg     Float?   // opsiyonel
-  lengthMeter  Float?   // opsiyonel
-  cuttingTable String
-  exitDate     DateTime @default(now())
+  id             Int          @id @default(autoincrement())
+  fabricEntryId  Int
+  cuttingTableId Int
+  weightKg       Float?
+  meter          Float?
+  exitDate       DateTime     @default(now())
+  fabricEntry    FabricEntry  @relation(fields: [fabricEntryId], references: [id])
+  cuttingTable   CuttingTable @relation(fields: [cuttingTableId], references: [id])
 }
 
+model AdminUser {
+  id        Int      @id @default(autoincrement())
+  username  String   @unique
+  password  String
+  createdAt DateTime @default(now())
+}
