@@ -1,45 +1,66 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import axios from "axios";
 
-type Entry = {
-  id: number;
-  name: string;
-  color: string;
-  weightKg: number | null;
-  lengthMeter: number | null;
-  createdAt: string;
-};
+export default function FabricEntry() {
+  const [formData, setFormData] = useState({
+    fabricType: "",
+    color: "",
+    weightKg: "",
+    lengthMeter: "",
+  });
 
-export default function FabricEntries() {
-  const [entries, setEntries] = useState<Entry[]>([]);
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setFormData({ ...formData, [e.target.name]: e.target.value });
+  };
 
-  useEffect(() => {
-    axios.get("/api/fabric-entry/list").then((res) => {
-      setEntries(res.data);
-    });
-  }, []);
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    try {
+      await axios.post("/api/fabric-entry", formData);
+      alert("Kumaş girişi başarıyla kaydedildi!");
+      setFormData({ fabricType: "", color: "", weightKg: "", lengthMeter: "" });
+    } catch (err) {
+      console.error(err);
+      alert("Kayıt sırasında hata oluştu!");
+    }
+  };
 
   return (
-    <div className="max-w-2xl mx-auto mt-10 px-4">
-      <h1 className="text-xl font-bold mb-4">Kumaş Giriş Listesi</h1>
-
-      <div className="space-y-4">
-        {entries.map((entry) => (
-          <div key={entry.id} className="border rounded p-4 shadow-sm bg-white">
-            <p><strong>Kumaş Türü:</strong> {entry.name}</p>
-            <p><strong>Renk:</strong> {entry.color}</p>
-            {entry.weightKg !== null && (
-              <p><strong>Ağırlık:</strong> {entry.weightKg} kg</p>
-            )}
-            {entry.lengthMeter !== null && (
-              <p><strong>Uzunluk:</strong> {entry.lengthMeter} m</p>
-            )}
-            <p className="text-xs text-gray-500">
-              Giriş Tarihi: {new Date(entry.createdAt).toLocaleString("tr-TR")}
-            </p>
-          </div>
-        ))}
-      </div>
+    <div>
+      <h1>Kumaş Girişi</h1>
+      <form onSubmit={handleSubmit}>
+        <input
+          type="text"
+          name="fabricType"
+          placeholder="Kumaş Türü"
+          value={formData.fabricType}
+          onChange={handleChange}
+          required
+        />
+        <input
+          type="text"
+          name="color"
+          placeholder="Renk"
+          value={formData.color}
+          onChange={handleChange}
+          required
+        />
+        <input
+          type="number"
+          name="weightKg"
+          placeholder="Ağırlık (Kg)"
+          value={formData.weightKg}
+          onChange={handleChange}
+        />
+        <input
+          type="number"
+          name="lengthMeter"
+          placeholder="Uzunluk (Metre)"
+          value={formData.lengthMeter}
+          onChange={handleChange}
+        />
+        <button type="submit">Kaydet</button>
+      </form>
     </div>
   );
 }

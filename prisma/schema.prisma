@@ -10,31 +10,30 @@ datasource db {
 model FabricType {
   id      Int           @id @default(autoincrement())
   name    String
-  entries FabricEntry[]
+  entries FabricEntry[] // ters ilişki
 }
 
 model Color {
   id      Int           @id @default(autoincrement())
   name    String
-  entries FabricEntry[]
+  entries FabricEntry[] // ters ilişki
 }
 
 model CuttingTable {
   id    Int          @id @default(autoincrement())
   name  String
-  exits FabricExit[]
+  exits FabricExit[] // FabricExit ile ilişki
 }
 
 model FabricEntry {
-  id           Int          @id @default(autoincrement())
-  fabricTypeId Int
-  colorId      Int
-  weightKg     Float?
-  lengthMeter  Float?
-  entryDate    DateTime     @default(now())
-  fabricType   FabricType   @relation(fields: [fabricTypeId], references: [id])
-  color        Color        @relation(fields: [colorId], references: [id])
-  exits        FabricExit[]
+  id            Int          @id @default(autoincrement())
+  fabricTypeId  Int
+  fabricType    FabricType   @relation(fields: [fabricTypeId], references: [id])
+  colorId       Int
+  color         Color        @relation(fields: [colorId], references: [id])
+  quantity      Float
+  createdAt     DateTime     @default(now())
+  fabricExits   FabricExit[] @relation("FabricEntryToFabricExit") // Ters ilişki
 }
 
 model FabricExit {
@@ -44,7 +43,7 @@ model FabricExit {
   weightKg       Float?
   meter          Float?
   exitDate       DateTime     @default(now())
-  fabricEntry    FabricEntry  @relation(fields: [fabricEntryId], references: [id])
+  fabricEntry    FabricEntry  @relation("FabricEntryToFabricExit", fields: [fabricEntryId], references: [id])
   cuttingTable   CuttingTable @relation(fields: [cuttingTableId], references: [id])
 }
 
