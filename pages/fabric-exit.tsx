@@ -34,7 +34,7 @@ export default function FabricExit() {
 
   return (
     <div>
-      <h1>Kumaş Çıkışı</h1>
+      <h1>📤 Kumaş Çıkışı Sayfası</h1>
       <form onSubmit={handleSubmit}>
         <input
           type="text"

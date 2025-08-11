@@ -5,64 +5,80 @@ import { useRouter } from "next/router";
 export default function AdminLogin() {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
   const router = useRouter();
 
-  const handleLogin = async (e: any) => {
-  e.preventDefault();
-  try {
-    const res = await axios.post("/api/admin/login", { username, password });
-    if (res.data.success) {
-      localStorage.setItem("token", res.data.token); // ✅ Token saklanıyor
-      alert("✅ Giriş başarılı!");
-      router.push("/admin/dashboard");
-    } else {
-      alert("❌ Hatalı kullanıcı adı veya şifre");
+  const handleLogin = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setLoading(true);
+    setError("");
+    
+    try {
+      const res = await axios.post("/api/admin/login", { username, password });
+      if (res.data.success) {
+        localStorage.setItem("token", res.data.token);
+        router.push("admin//dasboard");
+      } else {
+        setError("Hatalı kullanıcı adı veya şifre");
+      }
+    } catch (err) {
+      console.error("Login hatası:", err);
+      setError("Sunucu hatası oluştu. Lütfen tekrar deneyin.");
+    } finally {
+      setLoading(false);
     }
-  } catch (err) {
-    console.error("Login hatası:", err);
-    alert("Sunucu hatası");
-  }
-};
+  };
 
   return (
-    <div className="max-w-sm mx-auto mt-20 p-4 border rounded">
-      <h1 className="text-xl font-bold mb-4">🔑 Admin Giriş</h1>
-      <form onSubmit={handleLogin} className="space-y-3">
-        <input
-          type="text"
-          placeholder="Kullanıcı Adı"
-          value={username}
-          onChange={(e) => setUsername(e.target.value)}
-          className="w-full p-2 border rounded"
-        />
-        <input
-          type="password"
-          placeholder="Şifre"
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
-          className="w-full p-2 border rounded"
-        />
-        <button type="submit" className="w-full bg-blue-600 text-white p-2 rounded">
-          Giriş Yap
+    <div style={{ maxWidth: '400px', margin: '0 auto', padding: '20px', border: '1px solid #ddd', borderRadius: '8px' }}>
+      <h1 style={{ fontSize: '1.5rem', fontWeight: 'bold', marginBottom: '1rem', textAlign: 'center' }}>🔑 Admin Giriş</h1>
+      
+      {error && (
+        <p style={{ color: 'red', marginBottom: '1rem' }}>{error}</p>
+      )}
+
+      <form onSubmit={handleLogin} style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+        <div>
+          <label style={{ display: 'block', marginBottom: '0.25rem', fontSize: '0.875rem' }}>Kullanıcı Adı</label>
+          <input
+            type="text"
+            placeholder="admin"
+            value={username}
+            onChange={(e) => setUsername(e.target.value)}
+            style={{ width: '100%', padding: '0.5rem', border: '1px solid #ddd', borderRadius: '4px' }}
+            required
+          />
+        </div>
+
+        <div>
+          <label style={{ display: 'block', marginBottom: '0.25rem', fontSize: '0.875rem' }}>Şifre</label>
+          <input
+            type="password"
+            placeholder="••••••••"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            style={{ width: '100%', padding: '0.5rem', border: '1px solid #ddd', borderRadius: '4px' }}
+            required
+          />
+        </div>
+
+        <button
+          type="submit"
+          disabled={loading}
+          style={{
+            width: '100%',
+            padding: '0.5rem',
+            borderRadius: '4px',
+            backgroundColor: loading ? '#9ca3af' : '#2563eb',
+            color: 'white',
+            border: 'none',
+            cursor: loading ? 'not-allowed' : 'pointer'
+          }}
+        >
+          {loading ? 'Giriş Yapılıyor...' : 'Giriş Yap'}
         </button>
       </form>
     </div>
   );
 }
-
-const handleLogin = async (e: any) => {
-  e.preventDefault();
-  try {
-    const res = await axios.post("/api/admin/login", { username, password });
-    if (res.data.success) {
-      localStorage.setItem("token", res.data.token); // ✅ Token saklanıyor
-      alert("✅ Giriş başarılı!");
-      router.push("/admin/dashboard");
-    } else {
-      alert("❌ Hatalı kullanıcı adı veya şifre");
-    }
-  } catch (err) {
-    console.error("Login hatası:", err);
-    alert("Sunucu hatası");
-  }
-};

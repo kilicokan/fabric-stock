@@ -1,6 +1,5 @@
 import type { AppProps } from 'next/app';
 import '../styles/globals.css';
-import Sidebar from "../components/Sidebar";
 import Link from 'next/link';
 import { useRouter } from 'next/router';
 
@@ -8,29 +7,45 @@ export default function MyApp({ Component, pageProps }: AppProps) {
   const router = useRouter();
 
   return (
-    <div style={{ display: 'flex', height: '100vh' }}>
-      {/* Sidebar */}
+    <div style={{ display: "flex" }}>
       <aside style={{
         width: '250px',
-        backgroundColor: '#1a1a2e',
+        backgroundColor: '#0f3460',
         color: 'white',
         padding: '20px',
+        height: '100vh',
         display: 'flex',
         flexDirection: 'column',
-        gap: '15px'
+        gap: '10px'
       }}>
         <h2 style={{ textAlign: 'center', marginBottom: '30px' }}>📦 MIRA STOK</h2>
         
-        <Link href="/fabric-entry" style={linkStyle(router.pathname === '/fabric-entry')}>
+        <Link 
+          href="/fabric-entry" 
+          style={linkStyle(router.pathname === '/fabric-entry')}
+          className="nav-link"
+        >
           Kumaş Girişi
         </Link>
-        <Link href="/fabric-exit" style={linkStyle(router.pathname === '/fabric-exit')}>
+        <Link 
+          href="/fabric-exit" 
+          style={linkStyle(router.pathname === '/fabric-exit')}
+          className="nav-link"
+        >
           Kumaş Çıkışı
         </Link>
-        <Link href="/reports" style={linkStyle(router.pathname === '/reports')}>
+        <Link 
+          href="/reports" 
+          style={linkStyle(router.pathname === '/reports')}
+          className="nav-link"
+        >
           Raporlar
         </Link>
-        <Link href="/users" style={linkStyle(router.pathname === '/users')}>
+        <Link 
+          href="/users" 
+          style={linkStyle(router.pathname === '/users')}
+          className="nav-link"
+        >
           Kullanıcı Yönetimi
         </Link>
       </aside>
@@ -50,6 +65,8 @@ function linkStyle(active: boolean) {
     borderRadius: '5px',
     color: 'white',
     textDecoration: 'none',
-    fontWeight: active ? 'bold' : 'normal'
+    fontWeight: active ? 'bold' : 'normal',
+    display: 'block',
+    marginBottom: '5px'
   };
 }

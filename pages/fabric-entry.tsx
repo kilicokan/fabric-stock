@@ -27,7 +27,7 @@ export default function FabricEntry() {
 
   return (
     <div>
-      <h1>Kumaş Girişi</h1>
+      <h1>📥 Kumaş Girişi Sayfası</h1>
       <form onSubmit={handleSubmit}>
         <input
           type="text"
