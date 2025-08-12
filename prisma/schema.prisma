@@ -7,6 +7,14 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+model Product {
+  id        Int      @id @default(autoincrement())
+  modelNo   String   @unique
+  name      String
+  createdAt DateTime @default(now())
+}
+
+
 model FabricType {
   id      Int           @id @default(autoincrement())
   name    String
@@ -37,14 +45,21 @@ model FabricEntry {
 }
 
 model FabricExit {
-  id             Int          @id @default(autoincrement())
-  fabricEntryId  Int
-  cuttingTableId Int
-  weightKg       Float?
-  meter          Float?
-  exitDate       DateTime     @default(now())
-  fabricEntry    FabricEntry  @relation("FabricEntryToFabricExit", fields: [fabricEntryId], references: [id])
-  cuttingTable   CuttingTable @relation(fields: [cuttingTableId], references: [id])
+  id              Int           @id @default(autoincrement())
+  modelNo         String
+  orderNo         String
+  customerId      String
+  layerCount      Int
+  productWeight   Float
+  createdAt       DateTime      @default(now())
+
+  // Kesim masası ile ilişki
+  cuttingTableId  Int
+  cuttingTable    CuttingTable  @relation(fields: [cuttingTableId], references: [id])
+
+  // Kumaş girişi ile ilişki
+  fabricEntryId   Int
+  fabricEntry     FabricEntry   @relation("FabricEntryToFabricExit", fields: [fabricEntryId], references: [id])
 }
 
 model AdminUser {
