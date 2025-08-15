@@ -7,6 +7,7 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+// Ürün tablosu
 model Product {
   id        Int      @id @default(autoincrement())
   modelNo   String   @unique
@@ -14,44 +15,53 @@ model Product {
   createdAt DateTime @default(now())
 }
 
-
+// Kumaş tipi tablosu
 model FabricType {
   id      Int           @id @default(autoincrement())
   name    String
   entries FabricEntry[] // ters ilişki
 }
 
+// Renk tablosu
 model Color {
   id      Int           @id @default(autoincrement())
   name    String
   entries FabricEntry[] // ters ilişki
 }
 
+// Kesim masası tablosu
 model CuttingTable {
   id    Int          @id @default(autoincrement())
   name  String
   exits FabricExit[] // FabricExit ile ilişki
 }
 
+// Kumaş giriş tablosu
 model FabricEntry {
   id            Int          @id @default(autoincrement())
   fabricTypeId  Int
   fabricType    FabricType   @relation(fields: [fabricTypeId], references: [id])
   colorId       Int
   color         Color        @relation(fields: [colorId], references: [id])
-  quantity      Float
-  createdAt     DateTime     @default(now())
+  quantityKg    Float
+  lengthMeter   Float?
+  entryDate     DateTime     @default(now())
   fabricExits   FabricExit[] @relation("FabricEntryToFabricExit") // Ters ilişki
 }
 
+// Kumaş çıkış tablosu
 model FabricExit {
   id              Int           @id @default(autoincrement())
   modelNo         String
   orderNo         String
   customerId      String
   layerCount      Int
-  productWeight   Float
-  createdAt       DateTime      @default(now())
+  productWeightKg Float
+  exitDate        DateTime      @default(now())
+
+  // Ek alanlar
+  weightKg        Float?
+  lengthMeter     Float?
 
   // Kesim masası ile ilişki
   cuttingTableId  Int
@@ -62,9 +72,17 @@ model FabricExit {
   fabricEntry     FabricEntry   @relation("FabricEntryToFabricExit", fields: [fabricEntryId], references: [id])
 }
 
+// Admin kullanıcı tablosu
 model AdminUser {
   id        Int      @id @default(autoincrement())
   username  String   @unique
   password  String
   createdAt DateTime @default(now())
+}
+
+model Customer {
+  id      Int     @id @default(autoincrement())
+  name    String
+  contact String?
+  address String?
 }
