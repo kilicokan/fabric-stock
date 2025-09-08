@@ -1,11 +1,17 @@
 // pages/index.tsx
+
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import axios from "axios";
 
-export default function Home() {
-  const [stockSummary, setStockSummary] = useState([]);
+type StockItem = {
+  fabricType: string;
+  color: string;
+  remainingKg: number;
+};
 
+export default function Home() {
+  const [stockSummary, setStockSummary] = useState<StockItem[]>([]);
 
   useEffect(() => {
     async function fetchStock() {
@@ -33,7 +39,9 @@ export default function Home() {
             <div key={i} className="bg-white rounded shadow p-4 text-center border hover:shadow-md transition">
               <h2 className="text-lg font-semibold text-gray-700">{item.fabricType}</h2>
               <p className="text-sm text-gray-500">{item.color}</p>
-              <p className="text-2xl font-bold text-green-600 mt-2">{item.remainingKg.toFixed(2)} kg</p>
+              <p className="text-2xl font-bold text-green-600 mt-2">
+                {typeof item.remainingKg === "number" ? item.remainingKg.toFixed(2) : "0.00"} kg
+              </p>
             </div>
           ))}
         </section>
@@ -54,3 +62,4 @@ export default function Home() {
     </main>
   );
 }
+// ...existing code...

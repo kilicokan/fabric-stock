@@ -1,23 +1,28 @@
 import { PrismaClient } from "@prisma/client";
-import type { NextApiRequest, NextApiResponse } from "next";
-
 const prisma = new PrismaClient();
 
-export default async function handler(req: NextApiRequest, res: NextApiResponse) {
-  if (req.method === "POST") {
-    const { name, contact, address } = req.body;
-    try {
-      const customer = await prisma.customer.create({
-        data: { name, contact, address }
-      });
-      return res.status(200).json(customer);
-    } catch (error) {
-      return res.status(500).json({ error: "Müşteri eklenemedi" });
+export default async function handler(req, res) {
+  try {
+    if (req.method === "GET") {
+      const customers = await prisma.customer.findMany();
+      return res.status(200).json(customers);
     }
-  } else if (req.method === "GET") {
-    const customers = await prisma.customer.findMany();
-    return res.status(200).json(customers);
-  } else {
-    return res.status(405).json({ error: "Method not allowed" });
+
+    if (req.method === "POST") {
+      const { name, email } = req.body;
+      if (!name) return res.status(400).json({ error: "Müşteri adı gerekli" });
+
+      const newCustomer = await prisma.customer.create({
+        data: { name, email },
+      });
+
+      return res.status(201).json(newCustomer);
+    }
+
+    res.setHeader("Allow", ["GET", "POST"]);
+    return res.status(405).end(`Method ${req.method} Not Allowed`);
+  } catch (error) {
+    console.error("CUSTOMERS API ERROR:", error);
+    return res.status(500).json({ error: error.message });
   }
 }

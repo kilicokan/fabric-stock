@@ -1,61 +1,60 @@
 // components/layout/Sidebar.tsx
-import Link from "next/link";
-import { useRouter } from "next/router";
-import {
-  LayoutDashboard,
-  PackagePlus,
-  Scissors,
-  FileText,
-  Users,
-  UserPlus,
-  Archive,
-  Shirt,
-} from "lucide-react";
+import Link from 'next/link';
+import { useRouter } from 'next/router';
 
-const Sidebar = () => {
+const menuItems = [
+  { name: 'Kumaş Girişi', path: '/fabric-entry', icon: '📥' },
+  { name: 'Kumaş Çıkışı', path: '/fabric-exit', icon: '📤' },
+  { name: 'Raporlar', path: '/reports', icon: '📊' },
+  { name: 'Kullanıcılar', path: '/users', icon: '👥' },
+  // Yeni eklenenler:
+  { name: 'Müşteriler', path: '/customers', icon: '👔' },
+  { name: 'Kumaşlar', path: '/fabrics', icon: '🧵' },
+  { name: 'Ürünler', path: '/products', icon: '👕' }
+];
+
+export default function Sidebar() {
   const router = useRouter();
 
-  const menuItems = [
-    { name: "Kumaş Girişi", href: "/fabric-entry", icon: PackagePlus },
-    { name: "Kumaş Çıkışı", href: "/fabric-exit", icon: Scissors },
-    { name: "Raporlar", href: "/stock", icon: FileText },
-    { name: "Kullanıcı Yönetimi", href: "/users", icon: Users },
-    { name: "Müşteri Ekle", href: "/customers/add", icon: UserPlus },
-    { name: "Kumaş Ekle", href: "/fabrics/add", icon: Archive },
-    { name: "Ürün Ekle", href: "/products/add", icon: Shirt },
-  ];
+  const linkStyle = (active: boolean) => ({
+    padding: '10px 15px',
+    backgroundColor: active ? '#16213e' : 'transparent',
+    borderRadius: '5px',
+    color: 'white',
+    textDecoration: 'none',
+    fontWeight: active ? 'bold' : 'normal',
+    display: 'flex',
+    alignItems: 'center',
+    marginBottom: '5px',
+    transition: 'all 0.3s ease'
+  });
 
   return (
-    <div className="h-screen w-64 bg-gray-900 text-white flex flex-col">
-      {/* Logo */}
-      <div className="p-4 text-2xl font-bold border-b border-gray-700">
-        MIRA OPTA
-      </div>
-
-      {/* Menü */}
-      <nav className="flex-1 p-4 space-y-2">
-        {menuItems.map((item) => {
-          const Icon = item.icon;
-          const isActive = router.pathname === item.href;
-
-          return (
-            <Link
-              key={item.name}
-              href={item.href}
-              className={`flex items-center gap-3 p-2 rounded-lg transition-colors ${
-                isActive
-                  ? "bg-gray-700 text-white"
-                  : "text-gray-300 hover:bg-gray-800 hover:text-white"
-              }`}
-            >
-              <Icon size={20} />
-              <span>{item.name}</span>
-            </Link>
-          );
-        })}
-      </nav>
-    </div>
+    <aside style={{
+      width: '250px',
+      backgroundColor: '#0f3460',
+      color: 'white',
+      padding: '20px',
+      height: '100vh',
+      display: 'flex',
+      flexDirection: 'column',
+      gap: '10px',
+      position: 'sticky',
+      top: 0
+    }}>
+      <h2 style={{ textAlign: 'center', marginBottom: '30px' }}>📦 MIRA STOK</h2>
+      
+      {menuItems.map((item) => (
+        <Link 
+          key={item.path}
+          href={item.path} 
+          style={linkStyle(router.pathname === item.path)}
+          className="nav-link"
+        >
+          <span style={{ marginRight: '10px' }}>{item.icon}</span>
+          {item.name}
+        </Link>
+      ))}
+    </aside>
   );
-};
-
-export default Sidebar;
+}

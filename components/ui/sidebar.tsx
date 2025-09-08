@@ -1,3 +1,4 @@
+// ui/Sidebar.tsx
 import Link from "next/link";
 import { useRouter } from "next/router";
 
@@ -7,11 +8,11 @@ export default function Sidebar() {
   const menuItems = [
     { title: "Kumaş Girişi", icon: "📥", path: "/fabric-entry" },
     { title: "Kumaş Çıkışı", icon: "📤", path: "/fabric-exit" },
-    { title: "Müşteri Ekle", icon: "👥", path: "/customers" },
-    { title: "Kumaş Ekle", icon: "🧵", path: "/fabrics" },
-    { title: "Ürün Ekle", icon: "📦", path: "/products" },
     { title: "Raporlar", icon: "📊", path: "/reports" },
     { title: "Kullanıcı Yönetimi", icon: "👤", path: "/users" },
+    { title: "Müşteri Ekle", icon: "🧑‍🤝‍🧑", path: "/customers" },
+    { title: "Kumaş Ekle", icon: "🧵", path: "/fabrics" },
+    { title: "Ürün Ekle", icon: "📦", path: "/products" },
   ];
 
   return (
@@ -37,10 +38,7 @@ export default function Sidebar() {
               padding: "8px",
             }}
           >
-            <Link
-              href={item.path}
-              style={{ color: "#fff", textDecoration: "none" }}
-            >
+            <Link href={item.path} style={{ color: "#fff", textDecoration: "none" }}>
               {item.icon} {item.title}
             </Link>
           </li>

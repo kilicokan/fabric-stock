@@ -1,7 +1,8 @@
 // components/layout/AdminLayout.tsx
 import React from "react";
-import Sidebar from "@/components/Sidebar";
-import Header from "@/components/Header";
+// Update the import path to the correct location of Sidebar
+import Sidebar from "../Sidebar"; // <-- Change this path if Sidebar is located elsewhere, e.g. './Sidebar' or '../Sidebar/Sidebar'
+import Header from "../Header";
 
 type Props = {
   children: React.ReactNode;

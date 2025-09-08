@@ -1,15 +1,19 @@
-// components/Layout/Layout.tsx
-import Sidebar from './Sidebar';
-import Header from './Header';
+import { NextApiRequest, NextApiResponse } from "next";
+import Sidebar from "./Sidebar";
 
-const Layout = ({ children }: { children: React.ReactNode }) => {
+export default function Layout({ children }: { children: React.ReactNode }) {
   return (
-    <div>
+    <div className="flex">
       <Sidebar />
-      <Header />
-      <main className="ml-64 mt-16 p-6 bg-gray-100 min-h-screen">{children}</main>
+      <main className="flex-1 p-6">{children}</main>
     </div>
   );
-};
+}
 
-export default Layout;
+export function handler(req: NextApiRequest, res: NextApiResponse) {
+  res.status(200).json([
+    { id: 1, fabricType: "Pamuk", color: "Beyaz", weightKg: 100, lengthMeter: 200 },
+    { id: 2, fabricType: "Polyester", color: "Mavi", weightKg: 50, lengthMeter: 120 }
+  ]);
+}
+

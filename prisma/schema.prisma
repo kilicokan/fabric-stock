@@ -72,17 +72,26 @@ model FabricExit {
   fabricEntry     FabricEntry   @relation("FabricEntryToFabricExit", fields: [fabricEntryId], references: [id])
 }
 
-// Admin kullanıcı tablosu
-model AdminUser {
+// Kullanıcı tablosu (JWT için)
+model User {
   id        Int      @id @default(autoincrement())
-  username  String   @unique
-  password  String
+  email     String   @unique
+  password  String   // hash'li saklanacak
+  role      Role     @default(OPERATOR)
   createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }
 
+enum Role {
+  ADMIN
+  OPERATOR
+}
+
+// Müşteri tablosu
 model Customer {
-  id      Int     @id @default(autoincrement())
-  name    String
-  contact String?
-  address String?
+  id        Int      @id @default(autoincrement())
+  name      String
+  phone     String?
+  email     String?
+  createdAt DateTime @default(now())
 }

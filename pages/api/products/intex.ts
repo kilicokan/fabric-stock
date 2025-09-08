@@ -1,27 +1,29 @@
-import type { NextApiRequest, NextApiResponse } from "next";
 import { PrismaClient } from "@prisma/client";
 const prisma = new PrismaClient();
 
-export default async function handler(req: NextApiRequest, res: NextApiResponse) {
+export default async function handler(req, res) {
   try {
     if (req.method === "GET") {
-      const products = await prisma.product.findMany({ orderBy: { id: "desc" } });
+      const products = await prisma.product.findMany();
       return res.status(200).json(products);
     }
 
     if (req.method === "POST") {
       const { modelNo, name } = req.body;
-      if (!modelNo || !name) return res.status(400).json({ error: "modelNo ve name zorunlu" });
+      if (!modelNo || !name)
+        return res.status(400).json({ error: "Model No ve Ürün adı gerekli" });
 
-      const created = await prisma.product.create({ data: { modelNo, name } });
-      return res.status(201).json(created);
+      const newProduct = await prisma.product.create({
+        data: { modelNo, name },
+      });
+
+      return res.status(201).json(newProduct);
     }
 
     res.setHeader("Allow", ["GET", "POST"]);
-    return res.status(405).json({ error: `Method ${req.method} Not Allowed` });
-  } catch (err: any) {
-    console.error("PRODUCTS API ERROR:", err);
-    if (err?.code === "P2002") return res.status(409).json({ error: "Bu modelNo zaten kayıtlı" });
-    return res.status(500).json({ error: "Internal Server Error", details: err?.message });
+    return res.status(405).end(`Method ${req.method} Not Allowed`);
+  } catch (error) {
+    console.error("PRODUCTS API ERROR:", error);
+    return res.status(500).json({ error: error.message });
   }
 }
