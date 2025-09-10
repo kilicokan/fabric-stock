@@ -1,13 +1,7 @@
-import type { NextApiRequest, NextApiResponse } from "next";
-import axios from "axios";
+// pages/api/scale.ts
+export default function handler(req, res) {
+  // 5 ile 50 kg arasında random değer üretelim
+  const randomWeight = (Math.random() * (50 - 5) + 5).toFixed(2);
 
-export default async function handler(req: NextApiRequest, res: NextApiResponse) {
-  try {
-    // ✅ Tartı servisine istek atıyoruz
-    const response = await axios.get("http://localhost:3002/weight");
-    res.status(200).json(response.data);
-  } catch (err) {
-    console.error("Tartı verisi alınamadı:", err);
-    res.status(500).json({ error: "Tartı servisine ulaşılamadı" });
-  }
+  res.status(200).json({ weight: randomWeight });
 }

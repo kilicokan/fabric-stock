@@ -1,7 +1,7 @@
 // pages/_app.tsx
 import type { AppProps } from 'next/app';
 import '../styles/globals.css';
-import Sidebar from '../components/Layout/Sidebar';
+import Sidebar from '../components/layout/Sidebar';
 
 export default function MyApp({ Component, pageProps }: AppProps) {
   return (

@@ -1,7 +1,7 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
-import prisma from "@/lib/prisma"; // prisma client'i import et (lib/prisma.ts içinde tanımlanmalı)
+import prisma from "../../../lib/prisma"; // prisma client'i import et (lib/prisma.ts içinde tanımlanmalı)
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== "POST") {
@@ -11,8 +11,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   const { email, password } = req.body;
 
   try {
-    const user = await prisma.adminUser.findUnique({
-      where: { username: email }, // senin modelinde username alanı vardı
+    const user = await prisma.user.findUnique({
+      where: { email: email }, // email alanı unique olmalı
     });
 
     if (!user) {
@@ -25,14 +25,14 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     }
 
     const token = jwt.sign(
-      { id: user.id, email: user.username, role: "ADMIN" },
+      { id: user.id, email: user.email, role: "ADMIN" },
       process.env.JWT_SECRET as string,
       { expiresIn: "1d" }
     );
 
     return res.status(200).json({
       token,
-      user: { id: user.id, email: user.username, role: "ADMIN" },
+      user: { id: user.id, email: user.email, role: "ADMIN" },
     });
   } catch (error) {
     return res.status(500).json({ message: "Sunucu hatası" });

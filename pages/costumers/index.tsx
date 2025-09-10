@@ -1,5 +1,5 @@
 // pages/costumers/index.tsx
-import Layout from '../../components/Layout/Layout';
+import Layout from '../../components/layout/Layout';
 
 export default function CostumersPage() {
   return (

@@ -2,7 +2,8 @@
 
 import React, { useEffect, useState } from "react";
 import axios from "axios";
-import ExportButtons from '@/components/ui/button';
+// import ExportButtons from '../../components/ui/ExportButtons'; // Ensure this path is correct, or update to the correct path if needed
+import ExportButtons from '../../components/ExportButtons'; // Update this path to the correct location of ExportButtons
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Legend
 } from "recharts";
@@ -10,10 +11,24 @@ import { saveAs } from "file-saver";
 import * as XLSX from "xlsx";
 import jsPDF from "jspdf";
 import "jspdf-autotable";
+import { Card, CardContent } from '../../components/ui/card'; // Ensure this path is correct, or update to the correct path if needed
+
+type StockTotal = {
+  fabricTypeId: string | number;
+  fabricType: string;
+  totalEntry: number;
+  totalUsed: number;
+  totalRemaining: number;
+};
+
+type ConsumptionTable = {
+  cuttingTable: string;
+  totalUsed: number;
+};
 
 export default function StockReport() {
-  const [totals, setTotals] = useState([]);
-  const [consumptionByTable, setConsumptionByTable] = useState([]);
+  const [totals, setTotals] = useState<StockTotal[]>([]);
+  const [consumptionByTable, setConsumptionByTable] = useState<ConsumptionTable[]>([]);
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
 
@@ -60,7 +75,7 @@ export default function StockReport() {
     ]);
 
     (doc as any).autoTable({
-      head: [["Tür", "Giriş (kg)", "Kullanım (kg)", "Kalan (kg)"]],
+      head: [["Kumaş Türü", "Toplam Giriş", "Toplam Kullanım", "Kalan Stok"]],
       body: tableData,
     });
 
@@ -68,17 +83,17 @@ export default function StockReport() {
   };
 
   return (
-  <div className="max-w-6xl mx-auto p-4 space-y-6 text-sm md:text-base">
-    <h1 className="text-xl font-bold mb-4">📊 Stok Raporu</h1>
+    <div className="max-w-6xl mx-auto p-4 space-y-6 text-sm md:text-base">
+      <h1 className="text-xl font-bold mb-4">📊 Stok Raporu</h1>
 
     {/* Butonlar */}
     <ExportButtons exportExcel={exportToExcel} exportPDF={exportToPDF} />
 
     {/* Tarih Filtreleri */}
     <div className="flex flex-col sm:flex-row gap-3 items-center mb-4">
-      <Input type="date" value={startDate} onChange={e => setStartDate(e.target.value)} className="sm:w-auto" />
-      <Input type="date" value={endDate} onChange={e => setEndDate(e.target.value)} className="sm:w-auto" />
-      <button onClick={fetchData}>Filtrele</button>
+      <input type="date" value={startDate} onChange={e => setStartDate(e.target.value)} className="sm:w-auto border rounded px-2 py-1" />
+      <input type="date" value={endDate} onChange={e => setEndDate(e.target.value)} className="sm:w-auto border rounded px-2 py-1" />
+      <button onClick={fetchData} className="px-4 py-2 bg-blue-500 text-white rounded">Filtrele</button>
     </div>
 
     {/* Grafik: Stok Durumu */}

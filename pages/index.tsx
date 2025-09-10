@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
+import { useRouter } from "next/router";
 import axios from "axios";
 
 type StockItem = {
@@ -10,8 +11,20 @@ type StockItem = {
   remainingKg: number;
 };
 
-export default function Home() {
+const Home = () => {
   const [stockSummary, setStockSummary] = useState<StockItem[]>([]);
+  const router = useRouter();
+
+  useEffect(() => {
+    // Check for token in localStorage
+    if (typeof window !== 'undefined') {
+      const token = localStorage.getItem('token');
+      if (!token) {
+        router.replace('/login');
+        return;
+      }
+    }
+  }, [router]);
 
   useEffect(() => {
     async function fetchStock() {
@@ -61,5 +74,7 @@ export default function Home() {
       </div>
     </main>
   );
-}
+};
+
+export default Home;
 // ...existing code...

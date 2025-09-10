@@ -95,3 +95,17 @@ model Customer {
   email     String?
   createdAt DateTime @default(now())
 }
+
+// 🎯 Yeni: Kumaş Kartı (Kumaş Ekle için serbest tablo)
+model Fabric {
+  id            Int      @id @default(autoincrement())
+  code          String?  @unique
+  name          String
+  property      String?
+  width         Float?
+  length        Float?
+  depot         String?
+  unit          String?     // metre, kg, top
+  stockQuantity Float       @default(0)
+  createdAt     DateTime    @default(now())
+}

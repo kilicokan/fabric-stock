@@ -1,0 +1,18 @@
+MİRA STOK KUMAŞ YÖNETİMİ
+
+KUMAŞLAR ANA MENÜSÜNÜN ALTINDA 
+
+-KUMAŞ EKLE 
+-KUMAŞ TEDARİK
+-KUMAŞ PLANLAMA
+-KUMAŞ SİPARİŞLERİ
+-KUMAŞ İRSALİYELERİ
+-KUMAŞ FATURALARI SEKMELERİ OLACAK
+
+KUMAŞ EKLE MENÜSÜNDE 
+
+Sistem içerisine tanıtılacak kumaşlar buraya girilecek 
+
+Malzeme Kodu-Malzeme Adı-Malzeme Tipi-Malzeme Grubu-Kumaş Özelliği-Birim-Stok Miktarı olacak 
+
+
