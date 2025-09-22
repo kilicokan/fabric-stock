@@ -1,15 +1,14 @@
 // components/layout/Sidebar.tsx
 "use client";
 import Link from "next/link";
-import { useRouter } from "next/router";
-import { useState } from "react";
+import { usePathname } from "next/navigation"; // Changed from useRouter
+import { useState, useEffect } from "react";
 
 const menuItems = [
   { name: "Kumaş Girişi", path: "/fabric-entry", icon: "📥" },
   { name: "Kumaş Çıkışı", path: "/fabric-exit", icon: "📤" },
   { name: "Raporlar", path: "/reports", icon: "📊" },
   { name: "Kullanıcılar", path: "/users", icon: "👥" },
-  // Müşteriler menüsü alt açılır
   {
     name: "Müşteriler",
     icon: "👔",
@@ -18,7 +17,6 @@ const menuItems = [
       { name: "Müşteri Kartları", path: "/customers?tab=list" },
     ],
   },
-  // Kumaşlar menüsü alt açılır
   {
     name: "Kumaşlar",
     icon: "🧵",
@@ -27,19 +25,24 @@ const menuItems = [
       { name: "Kumaş Tedarik", path: "/fabrics/supply" },
       { name: "Kumaş Planlama", path: "/fabrics/planning" },
       { name: "Kumaş Siparişleri", path: "/fabrics/orders" },
-      { name: "Kumaş İrsaliyeleri", path: "/fabrics/fabrics-slips" },
-      { name: "Kumaş Faturaları", path: "/fabrics/invoices" },
+      { name: "Kumaş İrsaliyeleri", path: "/fabrics/invoices-slips?type=irsaliyeler" },
+      { name: "Kumaş Faturaları", path: "/fabrics/invoices-slips?type=faturalar" },
     ],
   },
   { name: "Ürünler", path: "/products", icon: "👕" },
 ];
 
 export default function Sidebar() {
-  const router = useRouter();
-  const [openMenus, setOpenMenus] = useState<Record<string, boolean>>({
-    customers: router.pathname.startsWith("/customers"),
-    fabrics: router.pathname.startsWith("/fabrics"),
-  });
+  const pathname = usePathname(); // Replaced useRouter with usePathname
+  const [openMenus, setOpenMenus] = useState<Record<string, boolean>>({});
+
+  // Initialize open menus based on current path
+  useEffect(() => {
+    setOpenMenus({
+      customers: pathname.startsWith("/customers"),
+      fabrics: pathname.startsWith("/fabrics"),
+    });
+  }, [pathname]);
 
   const toggleMenu = (menuName: string) => {
     setOpenMenus(prev => ({
@@ -62,8 +65,10 @@ export default function Sidebar() {
   });
 
   const isActive = (path: string) => {
-    return router.asPath === path || 
-           (path.includes('customers') && router.pathname === '/customers');
+    const pathWithoutQuery = path.split('?')[0];
+    return pathname === pathWithoutQuery || 
+           (pathWithoutQuery.includes('customers') && pathname === '/customers') ||
+           (pathWithoutQuery.includes('fabrics/invoices-slips') && pathname === '/fabrics/invoices-slips');
   };
 
   return (

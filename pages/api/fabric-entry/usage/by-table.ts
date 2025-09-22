@@ -1,24 +1,21 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 
-type StockTotal = {
-  fabricTypeId: string | number;
-  fabricType: string;
-  totalEntry: number;
+type ConsumptionTable = {
+  cuttingTable: string;
   totalUsed: number;
-  totalRemaining: number;
 };
 
 export default function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method === 'GET') {
     const { startDate, endDate } = req.query;
 
-    // Simulate database query (replace with actual database logic, e.g., Prisma/MongoDB)
-    const mockData: StockTotal[] = [
-      { fabricTypeId: 1, fabricType: 'Pamuk', totalEntry: 100, totalUsed: 30, totalRemaining: 70 },
-      { fabricTypeId: 2, fabricType: 'Polyester', totalEntry: 200, totalUsed: 50, totalRemaining: 150 },
+    // Simulate database query
+    const mockData: ConsumptionTable[] = [
+      { cuttingTable: 'Masa 1', totalUsed: 20 },
+      { cuttingTable: 'Masa 2', totalUsed: 30 },
     ];
 
-    // Filter by date if provided (example logic)
+    // Filter by date if provided
     const filteredData = mockData.filter(item => {
       if (!startDate || !endDate) return true;
       // Add date filtering logic here if needed
