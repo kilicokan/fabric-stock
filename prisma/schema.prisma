@@ -9,9 +9,41 @@ datasource db {
 
 // Ürün tablosu
 model Product {
+  id            Int      @id @default(autoincrement())
+  modelNo       String   @unique
+  name          String
+  materialTypeId Int?
+  materialType  MaterialType? @relation(fields: [materialTypeId], references: [id])
+  groupId       Int?
+  group         Group?        @relation(fields: [groupId], references: [id])
+  taxRateId     Int?
+  taxRate       TaxRate?      @relation(fields: [taxRateId], references: [id])
+  description   String?
+  image         String?
+  createdAt     DateTime @default(now())
+}
+
+// Malzeme türü tablosu
+model MaterialType {
   id        Int      @id @default(autoincrement())
-  modelNo   String   @unique
-  name      String
+  name      String   @unique
+  products  Product[] // Ters ilişki
+  createdAt DateTime @default(now())
+}
+
+// Grup tablosu
+model Group {
+  id        Int      @id @default(autoincrement())
+  name      String   @unique
+  products  Product[] // Ters ilişki
+  createdAt DateTime @default(now())
+}
+
+// Vergi oranı tablosu
+model TaxRate {
+  id        Int      @id @default(autoincrement())
+  name      String   @unique
+  products  Product[] // Ters ilişki
   createdAt DateTime @default(now())
 }
 
@@ -58,16 +90,10 @@ model FabricExit {
   layerCount      Int
   productWeightKg Float
   exitDate        DateTime      @default(now())
-
-  // Ek alanlar
   weightKg        Float?
   lengthMeter     Float?
-
-  // Kesim masası ile ilişki
   cuttingTableId  Int
   cuttingTable    CuttingTable  @relation(fields: [cuttingTableId], references: [id])
-
-  // Kumaş girişi ile ilişki
   fabricEntryId   Int
   fabricEntry     FabricEntry   @relation("FabricEntryToFabricExit", fields: [fabricEntryId], references: [id])
 }
@@ -96,7 +122,7 @@ model Customer {
   createdAt DateTime @default(now())
 }
 
-// 🎯 Yeni: Kumaş Kartı (Kumaş Ekle için serbest tablo)
+// Kumaş Kartı
 model Fabric {
   id            Int      @id @default(autoincrement())
   code          String?  @unique
@@ -105,7 +131,7 @@ model Fabric {
   width         Float?
   length        Float?
   depot         String?
-  unit          String?     // metre, kg, top
-  stockQuantity Float       @default(0)
-  createdAt     DateTime    @default(now())
+  unit          String?
+  stockQuantity Float    @default(0)
+  createdAt     DateTime @default(now())
 }
