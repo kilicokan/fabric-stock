@@ -3,6 +3,26 @@ import { useState } from "react";
 // Ana Ürünler Bileşeni
 export default function ProductsPage() {
   const [activeTab, setActiveTab] = useState("list"); // "list" veya "add"
+  const [products, setProducts] = useState([
+    {
+      id: 1,
+      code: "PRD-1001",
+      name: "Pamuklu Kumaş",
+      materialType: "Dokuma Kumaş",
+      groupNo: "GRP-001",
+      taxRate: "%18",
+      image: ""
+    },
+    {
+      id: 2,
+      code: "PRD-1002",
+      name: "Polyester Kumaş",
+      materialType: "Örme Kumaş",
+      groupNo: "GRP-002",
+      taxRate: "%8",
+      image: ""
+    }
+  ]);
 
   return (
     <div style={styles.container}>
@@ -26,35 +46,17 @@ export default function ProductsPage() {
       
       {/* İçerik Alanı */}
       <div style={styles.content}>
-        {activeTab === "list" ? <ProductList /> : <ProductAdd />}
+        {activeTab === "list" ? 
+          <ProductList products={products} setProducts={setProducts} /> : 
+          <ProductAdd products={products} setProducts={setProducts} setActiveTab={setActiveTab} />
+        }
       </div>
     </div>
   );
 }
 
 // Ürün Listesi Bileşeni
-function ProductList() {
-  const [products, setProducts] = useState([
-    {
-      id: 1,
-      code: "PRD-1001",
-      name: "Pamuklu Kumaş",
-      materialType: "Dokuma Kumaş",
-      groupNo: "GRP-001",
-      taxRate: "%18",
-      image: ""
-    },
-    {
-      id: 2,
-      code: "PRD-1002",
-      name: "Polyester Kumaş",
-      materialType: "Örme Kumaş",
-      groupNo: "GRP-002",
-      taxRate: "%8",
-      image: ""
-    }
-  ]);
-
+function ProductList({ products, setProducts }) {
   const [editingProduct, setEditingProduct] = useState(null);
 
   const handleEdit = (product) => {
@@ -141,7 +143,275 @@ function ProductList() {
   );
 }
 
-// Ürün Düzenleme Bileşeni (Modal benzeri)
+// Ürün Ekleme Bileşeni - GÜNCELLENMİŞ
+function ProductAdd({ products, setProducts, setActiveTab }) {
+  const [form, setForm] = useState({ 
+    code: "",
+    image: "",
+    name: "", 
+    materialType: "", 
+    groupNo: "", 
+    taxRate: "" 
+  });
+  
+  const [isManualCode, setIsManualCode] = useState(false);
+  const [imagePreview, setImagePreview] = useState("");
+
+  const handleSubmit = (e) => {
+    e.preventDefault();
+    
+    // Yeni ürün oluştur
+    const newProduct = {
+      id: Math.max(...products.map(p => p.id), 0) + 1, // Yeni ID oluştur
+      code: form.code,
+      name: form.name,
+      materialType: form.materialType,
+      groupNo: form.groupNo,
+      taxRate: form.taxRate,
+      image: form.image
+    };
+    
+    // Ürünleri güncelle
+    setProducts([...products, newProduct]);
+    
+    alert("Ürün başarıyla eklendi!");
+    
+    // Formu temizle
+    setForm({ 
+      code: "",
+      image: "",
+      name: "", 
+      materialType: "", 
+      groupNo: "", 
+      taxRate: "" 
+    });
+    setImagePreview("");
+    setIsManualCode(false);
+    
+    // Listeleme sekmesine geç
+    setActiveTab("list");
+  };
+
+  const handleChange = (e) => {
+    const { name, value } = e.target;
+    setForm(prev => ({ ...prev, [name]: value }));
+  };
+
+  const handleImageChange = (e) => {
+    const file = e.target.files[0];
+    if (file) {
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        setImagePreview(reader.result);
+        setForm(prev => ({ ...prev, image: reader.result }));
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
+  const generateProductCode = () => {
+    const randomCode = "PRD-" + Math.floor(1000 + Math.random() * 9000);
+    setForm(prev => ({ ...prev, code: randomCode }));
+  };
+
+  return (
+    <div>
+      <form onSubmit={handleSubmit} style={styles.form}>
+        {/* Ürün Kodu Alanı */}
+        <div style={styles.inputGroup}>
+          <label style={styles.label}>Ürün Kodu</label>
+          <div style={styles.inputWithButton}>
+            <input
+              type="text"
+              name="code"
+              value={form.code}
+              onChange={handleChange}
+              style={styles.textInput}
+              placeholder="Ürün kodunu giriniz"
+              required
+              disabled={!isManualCode}
+            />
+            {!isManualCode ? (
+              <button 
+                type="button" 
+                style={styles.scaleButton}
+                onClick={generateProductCode}
+              >
+                Kod Oluştur
+              </button>
+            ) : null}
+            <button 
+              type="button" 
+              style={styles.addButton}
+              onClick={() => setIsManualCode(!isManualCode)}
+              title={isManualCode ? "Otomatik koda geç" : "Manuel giriş yap"}
+            >
+              {isManualCode ? "A" : "M"}
+            </button>
+          </div>
+        </div>
+
+        {/* Ürün Görseli Alanı */}
+        <div style={styles.inputGroup}>
+          <label style={styles.label}>Ürün Görseli</label>
+          <div style={{display: 'flex', gap: '1rem', alignItems: 'flex-start'}}>
+            <div style={{width: '100px', height: '100px', border: '1px dashed #ddd', 
+                        borderRadius: '6px', display: 'flex', alignItems: 'center', 
+                        justifyContent: 'center', overflow: 'hidden'}}>
+              {imagePreview ? (
+                <img 
+                  src={imagePreview} 
+                  alt="Ürün önizleme" 
+                  style={{width: '100%', height: '100%', objectFit: 'cover'}}
+                />
+              ) : (
+                <span style={{color: '#6c757d', fontSize: '0.8rem', textAlign: 'center'}}>
+                  Görsel yok
+                </span>
+              )}
+            </div>
+            <div style={{flex: 1}}>
+              <input
+                type="file"
+                accept="image/*"
+                onChange={handleImageChange}
+                style={{width: '100%', padding: '0.5rem'}}
+              />
+            </div>
+          </div>
+        </div>
+
+        {/* Ürün Adı Alanı */}
+        <div style={styles.inputGroup}>
+          <label style={styles.label}>Ürün Adı</label>
+          <input
+            type="text"
+            name="name"
+            value={form.name}
+            onChange={handleChange}
+            style={styles.input}
+            placeholder="Ürün adını giriniz"
+            required
+          />
+        </div>
+
+        {/* Malzeme Türü Alanı */}
+        <div style={styles.inputGroup}>
+          <label style={styles.label}>Malzeme Türü</label>
+          <div style={styles.selectWithButton}>
+            <select
+              name="materialType"
+              value={form.materialType}
+              onChange={handleChange}
+              style={styles.select}
+              required
+            >
+              <option value="">Malzeme türü seçiniz</option>
+              <option value="Dokuma Kumaş">Dokuma Kumaş</option>
+              <option value="Örme Kumaş">Örme Kumaş</option>
+              <option value="Dokunmamış Kumaş">Dokunmamış Kumaş</option>
+            </select>
+            <button
+              type="button"
+              style={styles.addButton}
+              onClick={() => alert("Malzeme türü yönetim sayfası açılacak")}
+              title="Malzeme türü yönet"
+            >
+              +
+            </button>
+          </div>
+        </div>
+
+        {/* Grup No Alanı */}
+        <div style={styles.inputGroup}>
+          <label style={styles.label}>Grup No</label>
+          <div style={styles.selectWithButton}>
+            <select
+              name="groupNo"
+              value={form.groupNo}
+              onChange={handleChange}
+              style={styles.select}
+              required
+            >
+              <option value="">Grup seçiniz</option>
+              <option value="GRP-001">GRP-001 (Dokuma Kumaş Grubu)</option>
+              <option value="GRP-002">GRP-002 (Örme Kumaş Grubu)</option>
+              <option value="GRP-003">GRP-003 (Aksesuar Grubu)</option>
+            </select>
+            <button
+              type="button"
+              style={styles.addButton}
+              onClick={() => alert("Grup kartları yönetim sayfası açılacak")}
+              title="Grup yönet"
+            >
+              +
+            </button>
+          </div>
+        </div>
+
+        {/* KDV Oranı Alanı */}
+        <div style={styles.inputGroup}>
+          <label style={styles.label}>KDV Vergi Oranı</label>
+          <div style={styles.selectWithButton}>
+            <select
+              name="taxRate"
+              value={form.taxRate}
+              onChange={handleChange}
+              style={styles.select}
+              required
+            >
+              <option value="">KDV oranı seçiniz</option>
+              <option value="%1">%1</option>
+              <option value="%8">%8</option>
+              <option value="%18">%18</option>
+            </select>
+            <button
+              type="button"
+              style={styles.addButton}
+              onClick={() => alert("Vergi oranları yönetim sayfası açılacak")}
+              title="Vergi oranı yönet"
+            >
+              +
+            </button>
+          </div>
+        </div>
+
+        {/* Butonlar */}
+        <div style={{display: 'flex', justifyContent: 'space-between', marginTop: '1.5rem'}}>
+          <button
+            type="button"
+            style={{...styles.scaleButton, backgroundColor: '#6c757d'}}
+            onClick={() => {
+              setForm({ 
+                code: "",
+                image: "",
+                name: "", 
+                materialType: "", 
+                groupNo: "", 
+                taxRate: "" 
+              });
+              setImagePreview("");
+              setIsManualCode(false);
+            }}
+          >
+            Formu Temizle
+          </button>
+          <button
+            type="submit"
+            style={styles.submitButton}
+          >
+            Ürünü Kaydet
+          </button>
+        </div>
+      </form>
+    </div>
+  );
+}
+
+// ProductEdit bileşeni ve stiller aynı kalacak...
+// (Değişiklik yapılmadı, bu kısmı kısaltmak için buraya eklemedim)
+
+// Ürün Düzenleme Bileşeni (Modal benzeri) - DEĞİŞMEDİ
 function ProductEdit({ product, onSave, onCancel }) {
   const [form, setForm] = useState(product);
   
@@ -251,253 +521,9 @@ function ProductEdit({ product, onSave, onCancel }) {
   );
 }
 
-// Ürün Ekleme Bileşeni (Önceki ile aynı)
-function ProductAdd() {
-  const [form, setForm] = useState({ 
-    productCode: "",
-    productImage: "",
-    productName: "", 
-    materialType: "", 
-    groupNo: "", 
-    taxRate: "" 
-  });
-  
-  const [isManualCode, setIsManualCode] = useState(false);
-  const [imagePreview, setImagePreview] = useState("");
-
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-    alert("Ürün başarıyla eklendi!");
-    setForm({ 
-      productCode: "",
-      productImage: "",
-      productName: "", 
-      materialType: "", 
-      groupNo: "", 
-      taxRate: "" 
-    });
-    setImagePreview("");
-    setIsManualCode(false);
-  };
-
-  const handleChange = (e) => {
-    const { name, value } = e.target;
-    setForm(prev => ({ ...prev, [name]: value }));
-  };
-
-  const handleImageChange = (e) => {
-    const file = e.target.files[0];
-    if (file) {
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        setImagePreview(reader.result);
-        setForm(prev => ({ ...prev, productImage: reader.result }));
-      };
-      reader.readAsDataURL(file);
-    }
-  };
-
-  const generateProductCode = () => {
-    const randomCode = "PRD-" + Math.floor(1000 + Math.random() * 9000);
-    setForm(prev => ({ ...prev, productCode: randomCode }));
-  };
-
-  return (
-    <div>
-      <form onSubmit={handleSubmit} style={styles.form}>
-        {/* Ürün Kodu Alanı */}
-        <div style={styles.inputGroup}>
-          <label style={styles.label}>Ürün Kodu</label>
-          <div style={styles.inputWithButton}>
-            <input
-              type="text"
-              name="productCode"
-              value={form.productCode}
-              onChange={handleChange}
-              style={styles.textInput}
-              placeholder="Ürün kodunu giriniz"
-              required
-              disabled={!isManualCode}
-            />
-            {!isManualCode ? (
-              <button 
-                type="button" 
-                style={styles.scaleButton}
-                onClick={generateProductCode}
-              >
-                Kod Oluştur
-              </button>
-            ) : null}
-            <button 
-              type="button" 
-              style={styles.addButton}
-              onClick={() => setIsManualCode(!isManualCode)}
-              title={isManualCode ? "Otomatik koda geç" : "Manuel giriş yap"}
-            >
-              {isManualCode ? "A" : "M"}
-            </button>
-          </div>
-        </div>
-
-        {/* Ürün Görseli Alanı */}
-        <div style={styles.inputGroup}>
-          <label style={styles.label}>Ürün Görseli</label>
-          <div style={{display: 'flex', gap: '1rem', alignItems: 'flex-start'}}>
-            <div style={{width: '100px', height: '100px', border: '1px dashed #ddd', 
-                        borderRadius: '6px', display: 'flex', alignItems: 'center', 
-                        justifyContent: 'center', overflow: 'hidden'}}>
-              {imagePreview ? (
-                <img 
-                  src={imagePreview} 
-                  alt="Ürün önizleme" 
-                  style={{width: '100%', height: '100%', objectFit: 'cover'}}
-                />
-              ) : (
-                <span style={{color: '#6c757d', fontSize: '0.8rem', textAlign: 'center'}}>
-                  Görsel yok
-                </span>
-              )}
-            </div>
-            <div style={{flex: 1}}>
-              <input
-                type="file"
-                accept="image/*"
-                onChange={handleImageChange}
-                style={{width: '100%', padding: '0.5rem'}}
-              />
-            </div>
-          </div>
-        </div>
-
-        {/* Ürün Adı Alanı */}
-        <div style={styles.inputGroup}>
-          <label style={styles.label}>Ürün Adı</label>
-          <input
-            type="text"
-            name="productName"
-            value={form.productName}
-            onChange={handleChange}
-            style={styles.input}
-            placeholder="Ürün adını giriniz"
-            required
-          />
-        </div>
-
-        {/* Malzeme Türü Alanı */}
-        <div style={styles.inputGroup}>
-          <label style={styles.label}>Malzeme Türü</label>
-          <div style={styles.selectWithButton}>
-            <select
-              name="materialType"
-              value={form.materialType}
-              onChange={handleChange}
-              style={styles.select}
-              required
-            >
-              <option value="">Malzeme türü seçiniz</option>
-              <option value="Dokuma Kumaş">Dokuma Kumaş</option>
-              <option value="Örme Kumaş">Örme Kumaş</option>
-              <option value="Dokunmamış Kumaş">Dokunmamış Kumaş</option>
-            </select>
-            <button
-              type="button"
-              style={styles.addButton}
-              onClick={() => alert("Malzeme türü yönetim sayfası açılacak")}
-              title="Malzeme türü yönet"
-            >
-              +
-            </button>
-          </div>
-        </div>
-
-        {/* Grup No Alanı */}
-        <div style={styles.inputGroup}>
-          <label style={styles.label}>Grup No</label>
-          <div style={styles.selectWithButton}>
-            <select
-              name="groupNo"
-              value={form.groupNo}
-              onChange={handleChange}
-              style={styles.select}
-              required
-            >
-              <option value="">Grup seçiniz</option>
-              <option value="GRP-001">GRP-001 (Dokuma Kumaş Grubu)</option>
-              <option value="GRP-002">GRP-002 (Örme Kumaş Grubu)</option>
-              <option value="GRP-003">GRP-003 (Aksesuar Grubu)</option>
-            </select>
-            <button
-              type="button"
-              style={styles.addButton}
-              onClick={() => alert("Grup kartları yönetim sayfası açılacak")}
-              title="Grup yönet"
-            >
-              +
-            </button>
-          </div>
-        </div>
-
-        {/* KDV Oranı Alanı */}
-        <div style={styles.inputGroup}>
-          <label style={styles.label}>KDV Vergi Oranı</label>
-          <div style={styles.selectWithButton}>
-            <select
-              name="taxRate"
-              value={form.taxRate}
-              onChange={handleChange}
-              style={styles.select}
-              required
-            >
-              <option value="">KDV oranı seçiniz</option>
-              <option value="%1">%1</option>
-              <option value="%8">%8</option>
-              <option value="%18">%18</option>
-            </select>
-            <button
-              type="button"
-              style={styles.addButton}
-              onClick={() => alert("Vergi oranları yönetim sayfası açılacak")}
-              title="Vergi oranı yönet"
-            >
-              +
-            </button>
-          </div>
-        </div>
-
-        {/* Butonlar */}
-        <div style={{display: 'flex', justifyContent: 'space-between', marginTop: '1.5rem'}}>
-          <button
-            type="button"
-            style={{...styles.scaleButton, backgroundColor: '#6c757d'}}
-            onClick={() => {
-              setForm({ 
-                productCode: "",
-                productImage: "",
-                productName: "", 
-                materialType: "", 
-                groupNo: "", 
-                taxRate: "" 
-              });
-              setImagePreview("");
-              setIsManualCode(false);
-            }}
-          >
-            Formu Temizle
-          </button>
-          <button
-            type="submit"
-            style={styles.submitButton}
-          >
-            Ürünü Kaydet
-          </button>
-        </div>
-      </form>
-    </div>
-  );
-}
-
-// Stiller
+// Stiller aynı kalacak...
 const styles = {
+  // ... önceki stillerin tamamı burada kalacak
   container: {
     maxWidth: "900px",
     margin: "2rem auto",

@@ -1,41 +1,28 @@
-const { app, BrowserWindow } = require("electron");
-const path = require("path");
+const { app, BrowserWindow } = require('electron');
+const path = require('path');
 
-let mainWindow;
-
-const createWindow = () => {
-  mainWindow = new BrowserWindow({
-    width: 1280,
+function createWindow () {
+  const win = new BrowserWindow({
+    width: 1200,
     height: 800,
     webPreferences: {
-      preload: path.join(__dirname, "preload.js"),
-      nodeIntegration: false,
-      contextIsolation: true,
-    },
+      nodeIntegration: true,
+      contextIsolation: false,
+    }
   });
 
-  // Next.js dev veya prod build'e göre URL
-  const startUrl =
-    process.env.ELECTRON_START_URL ||
-    `file://${path.join(__dirname, "../out/index.html")}`;
+  // Next.js server çalışıyor: http://localhost:3000
+  win.loadURL('http://localhost:3000');
+}
 
-  mainWindow.loadURL(startUrl);
+app.whenReady().then(() => {
+  createWindow();
 
-  mainWindow.on("closed", () => {
-    mainWindow = null;
+  app.on('activate', function () {
+    if (BrowserWindow.getAllWindows().length === 0) createWindow();
   });
-};
-
-app.on("ready", createWindow);
-
-app.on("window-all-closed", () => {
-  if (process.platform !== "darwin") {
-    app.quit();
-  }
 });
 
-app.on("activate", () => {
-  if (mainWindow === null) {
-    createWindow();
-  }
+app.on('window-all-closed', function () {
+  if (process.platform !== 'darwin') app.quit();
 });

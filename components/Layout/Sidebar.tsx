@@ -1,14 +1,21 @@
 // components/layout/Sidebar.tsx
 "use client";
 import Link from "next/link";
-import { usePathname } from "next/navigation"; // Changed from useRouter
+import { usePathname } from "next/navigation";
 import { useState, useEffect } from "react";
 
 const menuItems = [
   { name: "Kumaş Girişi", path: "/fabric-entry", icon: "📥" },
   { name: "Kumaş Çıkışı", path: "/fabric-exit", icon: "📤" },
   { name: "Raporlar", path: "/reports", icon: "📊" },
-  { name: "Kullanıcılar", path: "/users", icon: "👥" },
+  {
+    name: "Kullanıcı Yönetimi",
+    icon: "👤",
+    children: [
+      { name: "Kullanıcı Listesi", path: "/user-management" },
+      { name: "Yeni Kullanıcı Ekle", path: "/user-management?tab=add" },
+    ],
+  },
   {
     name: "Müşteriler",
     icon: "👔",
@@ -33,21 +40,21 @@ const menuItems = [
 ];
 
 export default function Sidebar() {
-  const pathname = usePathname(); // Replaced useRouter with usePathname
+  const pathname = usePathname();
   const [openMenus, setOpenMenus] = useState<Record<string, boolean>>({});
 
-  // Initialize open menus based on current path
   useEffect(() => {
     setOpenMenus({
       customers: pathname.startsWith("/customers"),
       fabrics: pathname.startsWith("/fabrics"),
+      users: pathname.startsWith("/user-management"),
     });
   }, [pathname]);
 
   const toggleMenu = (menuName: string) => {
     setOpenMenus(prev => ({
       ...prev,
-      [menuName]: !prev[menuName]
+      [menuName]: !prev[menuName],
     }));
   };
 
@@ -66,9 +73,10 @@ export default function Sidebar() {
 
   const isActive = (path: string) => {
     const pathWithoutQuery = path.split('?')[0];
-    return pathname === pathWithoutQuery || 
-           (pathWithoutQuery.includes('customers') && pathname === '/customers') ||
-           (pathWithoutQuery.includes('fabrics/invoices-slips') && pathname === '/fabrics/invoices-slips');
+    return pathname === pathWithoutQuery ||
+      (pathWithoutQuery.includes('customers') && pathname === '/customers') ||
+      (pathWithoutQuery.includes('fabrics/invoices-slips') && pathname === '/fabrics/invoices-slips') ||
+      (pathWithoutQuery.includes('user-management') && pathname.startsWith('/user-management'));
   };
 
   return (
@@ -90,9 +98,9 @@ export default function Sidebar() {
 
       {menuItems.map((item) => {
         if (item.children) {
-          const menuKey = item.name.toLowerCase();
+          const menuKey = item.name.toLowerCase().replace(/\s/g, '');
           const isOpen = openMenus[menuKey];
-          
+
           return (
             <div key={item.name}>
               <button

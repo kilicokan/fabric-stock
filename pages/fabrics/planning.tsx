@@ -1,7 +1,8 @@
-import { useEffect, useState, useRef } from "react";
-import jsPDF from "jspdf";
-import "jspdf-autotable";
-import * as XLSX from "xlsx";
+import { useEffect, useState, useRef } from 'react';
+import axios from 'axios';
+import jsPDF from 'jspdf';
+import 'jspdf-autotable';
+import * as XLSX from 'xlsx';
 
 type PlanningRow = {
   id: number;
@@ -10,6 +11,10 @@ type PlanningRow = {
   quantityKg: number;
   quantityMeter: number;
   exitDate: string;
+  modelNo?: string;
+  orderNo?: string;
+  customerId?: string;
+  color?: string;
 };
 
 export default function FabricsPlanningPage() {
@@ -17,18 +22,18 @@ export default function FabricsPlanningPage() {
   const [filteredRows, setFilteredRows] = useState<PlanningRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [filters, setFilters] = useState({
-    fabricType: "",
-    tableName: "",
-    minKg: "",
-    maxKg: "",
-    minMeter: "",
-    maxMeter: "",
-    startDate: "",
-    endDate: ""
+    fabricType: '',
+    tableName: '',
+    minKg: '',
+    maxKg: '',
+    minMeter: '',
+    maxMeter: '',
+    startDate: '',
+    endDate: ''
   });
   const [sortConfig, setSortConfig] = useState({
-    key: "",
-    direction: "asc"
+    key: '',
+    direction: 'asc'
   });
   const tableRef = useRef<HTMLDivElement>(null);
 
@@ -36,60 +41,23 @@ export default function FabricsPlanningPage() {
     const fetchData = async () => {
       setLoading(true);
       try {
-        // Örnek veri
-        const data: PlanningRow[] = [
-          {
-            id: 1,
-            fabricType: "Pamuk",
-            tableName: "Masa 1",
-            quantityKg: 25,
-            quantityMeter: 60,
-            exitDate: "2025-09-10"
-          },
-          {
-            id: 2,
-            fabricType: "Polyester",
-            tableName: "Masa 2",
-            quantityKg: 40,
-            quantityMeter: 100,
-            exitDate: "2025-09-11"
-          },
-          {
-            id: 3,
-            fabricType: "Keten",
-            tableName: "Masa 1",
-            quantityKg: 30,
-            quantityMeter: 75,
-            exitDate: "2025-09-12"
-          },
-          {
-            id: 4,
-            fabricType: "Pamuk",
-            tableName: "Masa 3",
-            quantityKg: 20,
-            quantityMeter: 50,
-            exitDate: "2025-09-13"
-          },
-          {
-            id: 5,
-            fabricType: "İpek",
-            tableName: "Masa 2",
-            quantityKg: 15,
-            quantityMeter: 45,
-            exitDate: "2025-09-14"
-          },
-          {
-            id: 6,
-            fabricType: "Polyester",
-            tableName: "Masa 4",
-            quantityKg: 35,
-            quantityMeter: 85,
-            exitDate: "2025-09-15"
-          }
-        ];
+        const response = await axios.get('/api/fabric-exits');
+        const data = response.data.map((item: any, index: number) => ({
+          id: item.id || index + 1,
+          fabricType: item.fabricType || item.fabricEntry?.fabricType?.name || 'Bilinmiyor',
+          tableName: item.cuttingTable?.name || 'Bilinmiyor',
+          quantityKg: item.productWeightKg || 0,
+          quantityMeter: item.productLengthMeter || 0,
+          exitDate: item.createdAt ? new Date(item.createdAt).toISOString().split('T')[0] : new Date().toISOString().split('T')[0],
+          modelNo: item.modelNo,
+          orderNo: item.orderNo,
+          customerId: item.customerId,
+          color: item.color
+        }));
         setRows(data);
         setFilteredRows(data);
       } catch (err) {
+        console.error('Veri alınamadı:', err);
         setRows([]);
         setFilteredRows([]);
       } finally {
@@ -99,29 +67,27 @@ export default function FabricsPlanningPage() {
     fetchData();
   }, []);
 
-  // Filtreleme işlevi
   useEffect(() => {
     let result = rows.filter(row => {
       return (
-        (filters.fabricType === "" || row.fabricType.toLowerCase().includes(filters.fabricType.toLowerCase())) &&
-        (filters.tableName === "" || row.tableName.toLowerCase().includes(filters.tableName.toLowerCase())) &&
-        (filters.minKg === "" || row.quantityKg >= Number(filters.minKg)) &&
-        (filters.maxKg === "" || row.quantityKg <= Number(filters.maxKg)) &&
-        (filters.minMeter === "" || row.quantityMeter >= Number(filters.minMeter)) &&
-        (filters.maxMeter === "" || row.quantityMeter <= Number(filters.maxMeter)) &&
-        (filters.startDate === "" || new Date(row.exitDate) >= new Date(filters.startDate)) &&
-        (filters.endDate === "" || new Date(row.exitDate) <= new Date(filters.endDate))
+        (filters.fabricType === '' || row.fabricType.toLowerCase().includes(filters.fabricType.toLowerCase())) &&
+        (filters.tableName === '' || row.tableName.toLowerCase().includes(filters.tableName.toLowerCase())) &&
+        (filters.minKg === '' || row.quantityKg >= Number(filters.minKg)) &&
+        (filters.maxKg === '' || row.quantityKg <= Number(filters.maxKg)) &&
+        (filters.minMeter === '' || row.quantityMeter >= Number(filters.minMeter)) &&
+        (filters.maxMeter === '' || row.quantityMeter <= Number(filters.maxMeter)) &&
+        (filters.startDate === '' || new Date(row.exitDate) >= new Date(filters.startDate)) &&
+        (filters.endDate === '' || new Date(row.exitDate) <= new Date(filters.endDate))
       );
     });
 
-    // Sıralama uygula
     if (sortConfig.key) {
       result.sort((a, b) => {
         if (a[sortConfig.key] < b[sortConfig.key]) {
-          return sortConfig.direction === "asc" ? -1 : 1;
+          return sortConfig.direction === 'asc' ? -1 : 1;
         }
-        if ( > b[sortConfig.key]) {a[sortConfig.key]
-          return sortConfig.direction === "asc" ? 1 : -1;
+        if (a[sortConfig.key] > b[sortConfig.key]) {
+          return sortConfig.direction === 'asc' ? 1 : -1;
         }
         return 0;
       });
@@ -136,66 +102,69 @@ export default function FabricsPlanningPage() {
   };
 
   const handleSort = (key: string) => {
-    let direction = "asc";
-    if (sortConfig.key === key && sortConfig.direction === "asc") {
-      direction = "desc";
+    let direction = 'asc';
+    if (sortConfig.key === key && sortConfig.direction === 'asc') {
+      direction = 'desc';
     }
     setSortConfig({ key, direction });
   };
 
   const resetFilters = () => {
     setFilters({
-      fabricType: "",
-      tableName: "",
-      minKg: "",
-      maxKg: "",
-      minMeter: "",
-      maxMeter: "",
-      startDate: "",
-      endDate: ""
+      fabricType: '',
+      tableName: '',
+      minKg: '',
+      maxKg: '',
+      minMeter: '',
+      maxMeter: '',
+      startDate: '',
+      endDate: ''
     });
-    setSortConfig({ key: "", direction: "asc" });
+    setSortConfig({ key: '', direction: 'asc' });
   };
 
-  // Excel'e aktarma
   const exportToExcel = () => {
     const worksheet = XLSX.utils.json_to_sheet(filteredRows);
     const workbook = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(workbook, worksheet, "Kumaş Çıkış Planı");
-    XLSX.writeFile(workbook, "kumas_cikis_plani.xlsx");
+    XLSX.utils.book_append_sheet(workbook, worksheet, 'Kumaş Çıkış Planı');
+    XLSX.writeFile(workbook, 'kumas_cikis_plani.xlsx');
   };
 
-  // PDF'e aktarma
   const exportToPDF = () => {
     const doc = new jsPDF();
     
-    // Başlık
     doc.setFontSize(16);
     doc.setTextColor(40, 40, 40);
-    doc.text("Kumaş Çıkış Planı Raporu", 14, 15);
+    doc.text('Kumaş Çıkış Planı Raporu', 14, 15);
     
-    // Tarih
     doc.setFontSize(10);
     doc.setTextColor(100, 100, 100);
     doc.text(`Oluşturulma Tarihi: ${new Date().toLocaleDateString('tr-TR')}`, 14, 22);
     
-    // Toplam kayıt
     doc.text(`Toplam Kayıt: ${filteredRows.length}`, 14, 28);
     
-    // Tablo
-    const tableColumn = ["Kumaş Tipi", "Masa", "Miktar (kg)", "Miktar (metre)", "Çıkış Tarihi"];
-    const tableRows: any[] = [];
-    
-    filteredRows.forEach(row => {
-      const rowData = [
-        row.fabricType,
-        row.tableName,
-        `${row.quantityKg} kg`,
-        `${row.quantityMeter} m`,
-        new Date(row.exitDate).toLocaleDateString('tr-TR')
-      ];
-      tableRows.push(rowData);
-    });
+    const tableColumn = [
+      'Kumaş Tipi',
+      'Masa',
+      'Miktar (kg)',
+      'Miktar (metre)',
+      'Çıkış Tarihi',
+      'Model No',
+      'Sipariş No',
+      'Müşteri ID',
+      'Renk'
+    ];
+    const tableRows: any[] = filteredRows.map(row => [
+      row.fabricType,
+      row.tableName,
+      `${row.quantityKg} kg`,
+      `${row.quantityMeter} m`,
+      new Date(row.exitDate).toLocaleDateString('tr-TR'),
+      row.modelNo || '-',
+      row.orderNo || '-',
+      row.customerId || '-',
+      row.color || '-'
+    ]);
     
     (doc as any).autoTable({
       head: [tableColumn],
@@ -216,7 +185,7 @@ export default function FabricsPlanningPage() {
       }
     });
     
-    doc.save("kumas_cikis_plani.pdf");
+    doc.save('kumas_cikis_plani.pdf');
   };
 
   return (
@@ -245,7 +214,6 @@ export default function FabricsPlanningPage() {
         </div>
       </div>
       
-      {/* Filtreleme Paneli */}
       <div className="bg-white rounded-lg shadow-md p-4 mb-6">
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
           <div>
@@ -342,7 +310,6 @@ export default function FabricsPlanningPage() {
         </div>
       </div>
 
-      {/* Tablo */}
       <div className="bg-white rounded-lg shadow overflow-hidden" ref={tableRef}>
         <div className="overflow-x-auto">
           <table className="min-w-full divide-y divide-gray-200">
@@ -350,56 +317,100 @@ export default function FabricsPlanningPage() {
               <tr>
                 <th 
                   className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100"
-                  onClick={() => handleSort("fabricType")}
+                  onClick={() => handleSort('fabricType')}
                 >
                   <div className="flex items-center">
                     <span>Kumaş Tipi</span>
-                    {sortConfig.key === "fabricType" && (
-                      <span className="ml-1">{sortConfig.direction === "asc" ? "↑" : "↓"}</span>
+                    {sortConfig.key === 'fabricType' && (
+                      <span className="ml-1">{sortConfig.direction === 'asc' ? '↑' : '↓'}</span>
                     )}
                   </div>
                 </th>
                 <th 
                   className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100"
-                  onClick={() => handleSort("tableName")}
+                  onClick={() => handleSort('tableName')}
                 >
                   <div className="flex items-center">
                     <span>Masa</span>
-                    {sortConfig.key === "tableName" && (
-                      <span className="ml-1">{sortConfig.direction === "asc" ? "↑" : "↓"}</span>
+                    {sortConfig.key === 'tableName' && (
+                      <span className="ml-1">{sortConfig.direction === 'asc' ? '↑' : '↓'}</span>
                     )}
                   </div>
                 </th>
                 <th 
                   className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100"
-                  onClick={() => handleSort("quantityKg")}
+                  onClick={() => handleSort('quantityKg')}
                 >
                   <div className="flex items-center">
                     <span>Miktar (kg)</span>
-                    {sortConfig.key === "quantityKg" && (
-                      <span className="ml-1">{sortConfig.direction === "asc" ? "↑" : "↓"}</span>
+                    {sortConfig.key === 'quantityKg' && (
+                      <span className="ml-1">{sortConfig.direction === 'asc' ? '↑' : '↓'}</span>
                     )}
                   </div>
                 </th>
                 <th 
                   className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100"
-                  onClick={() => handleSort("quantityMeter")}
+                  onClick={() => handleSort('quantityMeter')}
                 >
                   <div className="flex items-center">
                     <span>Miktar (metre)</span>
-                    {sortConfig.key === "quantityMeter" && (
-                      <span className="ml-1">{sortConfig.direction === "asc" ? "↑" : "↓"}</span>
+                    {sortConfig.key === 'quantityMeter' && (
+                      <span className="ml-1">{sortConfig.direction === 'asc' ? '↑' : '↓'}</span>
                     )}
                   </div>
                 </th>
                 <th 
                   className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100"
-                  onClick={() => handleSort("exitDate")}
+                  onClick={() => handleSort('exitDate')}
                 >
                   <div className="flex items-center">
                     <span>Çıkış Tarihi</span>
-                    {sortConfig.key === "exitDate" && (
-                      <span className="ml-1">{sortConfig.direction === "asc" ? "↑" : "↓"}</span>
+                    {sortConfig.key === 'exitDate' && (
+                      <span className="ml-1">{sortConfig.direction === 'asc' ? '↑' : '↓'}</span>
+                    )}
+                  </div>
+                </th>
+                <th 
+                  className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100"
+                  onClick={() => handleSort('modelNo')}
+                >
+                  <div className="flex items-center">
+                    <span>Model No</span>
+                    {sortConfig.key === 'modelNo' && (
+                      <span className="ml-1">{sortConfig.direction === 'asc' ? '↑' : '↓'}</span>
+                    )}
+                  </div>
+                </th>
+                <th 
+                  className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100"
+                  onClick={() => handleSort('orderNo')}
+                >
+                  <div className="flex items-center">
+                    <span>Sipariş No</span>
+                    {sortConfig.key === 'orderNo' && (
+                      <span className="ml-1">{sortConfig.direction === 'asc' ? '↑' : '↓'}</span>
+                    )}
+                  </div>
+                </th>
+                <th 
+                  className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100"
+                  onClick={() => handleSort('customerId')}
+                >
+                  <div className="flex items-center">
+                    <span>Müşteri ID</span>
+                    {sortConfig.key === 'customerId' && (
+                      <span className="ml-1">{sortConfig.direction === 'asc' ? '↑' : '↓'}</span>
+                    )}
+                  </div>
+                </th>
+                <th 
+                  className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100"
+                  onClick={() => handleSort('color')}
+                >
+                  <div className="flex items-center">
+                    <span>Renk</span>
+                    {sortConfig.key === 'color' && (
+                      <span className="ml-1">{sortConfig.direction === 'asc' ? '↑' : '↓'}</span>
                     )}
                   </div>
                 </th>
@@ -408,7 +419,7 @@ export default function FabricsPlanningPage() {
             <tbody className="bg-white divide-y divide-gray-200">
               {loading ? (
                 <tr>
-                  <td colSpan={5} className="px-6 py-4 text-center">
+                  <td colSpan={9} className="px-6 py-4 text-center">
                     <div className="flex justify-center items-center">
                       <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-500"></div>
                       <span className="ml-2">Yükleniyor...</span>
@@ -417,7 +428,7 @@ export default function FabricsPlanningPage() {
                 </tr>
               ) : filteredRows.length === 0 ? (
                 <tr>
-                  <td colSpan={5} className="px-6 py-4 text-center text-gray-500">
+                  <td colSpan={9} className="px-6 py-4 text-center text-gray-500">
                     Filtreleme kriterlerinize uygun kayıt bulunamadı.
                   </td>
                 </tr>
@@ -443,6 +454,10 @@ export default function FabricsPlanningPage() {
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
                       {new Date(row.exitDate).toLocaleDateString('tr-TR')}
                     </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">{row.modelNo || '-'}</td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">{row.orderNo || '-'}</td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">{row.customerId || '-'}</td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">{row.color || '-'}</td>
                   </tr>
                 ))
               )}

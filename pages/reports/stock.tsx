@@ -41,29 +41,23 @@ export default function StockReport() {
     if (endDate) requestParams.endDate = endDate;
 
   const fetchData = async () => {
-    try {
-      const [stockResponse, usageResponse] = await Promise.all([
-        axios.get("/api/fabric-entry/remaining-stock/by-fabric-type", { params: requestParams }),
-        axios.get("/api/fabric-entry/usage/by-table", { params: requestParams })
-      const params: any = {};
-      if (startDate) params.startDate = startDate;
-      if (endDate) params.endDate = endDate;
-
-      const [stockRes, usageRes] = await Promise.all([
-        axios.get("/api/fabric-entry/remaining-stock/by-fabric-type", { params }),
-        axios.get("/api/fabric-entry/usage/by-table", { params })
-      ]);
-
-      setTotals(stockResponse.data);
-      setConsumptionByTable(usageResponse.data);
-    } catch (error) {
-      console.error("Error fetching reports:", error);
-      setTotals(stockRes.data);
-      setConsumptionByTable(usageRes.data);
-    } catch (err) {
-      console.error("Rapor verileri alınamadı:", err);
-    }
-  };
+  try {
+    const [stockResponse, usageResponse] = await Promise.all([
+      axios.get("/api/fabric-entry/remaining-stock/by-fabric-type", { params: requestParams }),
+      axios.get("/api/fabric-entry/usage/by-table", { params: requestParams })
+    ]);
+    
+    const stockData = stockResponse.data.data;
+    const usageData = usageResponse.data.data;
+    
+    // stockData ve usageData verilerini kullanarak state değişkenlerini güncelleyin
+    setTotals(stockData);
+    setConsumptionByTable(usageData);
+    
+  } catch (error) {
+    console.error("Error fetching data:", error);
+  }
+};
 /*******  ff0c96ec-5abf-4ac1-915e-8f9188d111fe  *******/
 
   useEffect(() => { fetchData(); }, []);

@@ -83,19 +83,23 @@ model FabricEntry {
 
 // Kumaş çıkış tablosu
 model FabricExit {
-  id              Int           @id @default(autoincrement())
-  modelNo         String
-  orderNo         String
-  customerId      String
-  layerCount      Int
-  productWeightKg Float
-  exitDate        DateTime      @default(now())
-  weightKg        Float?
-  lengthMeter     Float?
-  cuttingTableId  Int
-  cuttingTable    CuttingTable  @relation(fields: [cuttingTableId], references: [id])
-  fabricEntryId   Int
-  fabricEntry     FabricEntry   @relation("FabricEntryToFabricExit", fields: [fabricEntryId], references: [id])
+  id                Int           @id @default(autoincrement())
+  modelNo           String
+  orderNo           String
+  customerId        String
+  layerCount        Int           @default(1)
+  productWeightKg   Float         @default(0)
+  productLengthMeter Float        @default(0)
+  grammage          Float         @default(0)
+  externalProductId String?
+  unitType          String
+  fabricType        String?
+  color             String?
+  cuttingTable      CuttingTable  @relation(fields: [cuttingTableId], references: [id])
+  cuttingTableId    Int
+  createdAt         DateTime      @default(now())
+  fabricEntry       FabricEntry?  @relation(fields: [fabricEntryId], references: [id])
+  fabricEntryId     Int?
 }
 
 // Kullanıcı tablosu (JWT için)
