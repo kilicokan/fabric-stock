@@ -1,4 +1,4 @@
-import { getUserById, updateUser, deleteUser } from '../../../lib/users';
+import { getUserById, getUsers, updateUser, deleteUser } from '../../../lib/users';
 
 export default function handler(req, res) {
   const { method } = req;
@@ -6,55 +6,69 @@ export default function handler(req, res) {
 
   switch (method) {
     case 'GET':
-      const user = getUserById(id);
-      if (!user) {
-        return res.status(404).json({ message: 'Kullanıcı bulunamadı.' });
+      {
+        const user = getUserById(id);
+        if (!user) {
+          return res.status(404).json({ message: 'Kullanıcı bulunamadı.' });
+        }
+        // Şifreyi gizle
+        const { password: userPassword, ...userWithoutPassword } = user;
+        return res.status(200).json(userWithoutPassword);
       }
-      // Şifreyi gizle
-      const { password, ...userWithoutPassword } = user;
-      res.status(200).json(userWithoutPassword);
-      break;
 
     case 'PUT':
-      // Kullanıcı güncelle
-      const { username, email, password, role } = req.body;
+      {
+        const { username, email, password: newPassword, role } = req.body;
 
-      // Kullanıcı var mı?
-      const existingUser = getUserById(id);
-      if (!existingUser) {
-        return res.status(404).json({ message: 'Kullanıcı bulunamadı.' });
+        // Kullanıcı var mı?
+        const existingUser = getUserById(id);
+        if (!existingUser) {
+          return res.status(404).json({ message: 'Kullanıcı bulunamadı.' });
+        }
+
+        // Kullanıcı adı ve email benzersiz olmalı (mevcut kullanıcı hariç)
+        const users = getUsers();
+        const usernameTaken = users.some(
+          (u) => u.username === username && u.id !== id
+        );
+        const emailTaken = users.some(
+          (u) => u.email === email && u.id !== id
+        );
+
+        if (usernameTaken) {
+          return res.status(400).json({ message: 'Bu kullanıcı adı zaten kullanılıyor.' });
+        }
+        if (emailTaken) {
+          return res.status(400).json({ message: 'Bu email zaten kullanılıyor.' });
+        }
+
+        // Güncellenecek veriler
+        const updatedData = { username, email, role };
+        if (newPassword) {
+          updatedData.password = newPassword; // sadece girilmişse
+        }
+
+        // Kullanıcıyı güncelle
+        const updatedUser = updateUser(id, updatedData);
+
+        // Şifreyi gizle
+        const { password: pwd, ...userWithoutPassword } = updatedUser;
+
+        return res.status(200).json({ message: 'Kullanıcı güncellendi.', user: userWithoutPassword });
       }
-
-      // Kullanıcı adı ve email benzersiz olmalı (mevcut kullanıcı hariç)
-      const users = getUsers();
-      const duplicateUser = users.find(user => 
-        user.id !== parseInt(id) && (user.username === username || user.email === email)
-      );
-      if (duplicateUser) {
-        return res.status(400).json({ message: 'Bu kullanıcı adı veya e-posta zaten kullanımda.' });
-      }
-
-      const updatedUser = updateUser(id, { username, email, password, role });
-      if (!updatedUser) {
-        return res.status(400).json({ message: 'Kullanıcı güncellenirken hata oluştu.' });
-      }
-
-      // Şifreyi gizle
-      const { password: _, ...userWithoutPassword } = updatedUser;
-      res.status(200).json(userWithoutPassword);
-      break;
 
     case 'DELETE':
-      // Kullanıcı sil
-      const deleted = deleteUser(id);
-      if (!deleted) {
-        return res.status(404).json({ message: 'Kullanıcı bulunamadı.' });
+      {
+        const existingUser = getUserById(id);
+        if (!existingUser) {
+          return res.status(404).json({ message: 'Kullanıcı bulunamadı.' });
+        }
+
+        deleteUser(id);
+        return res.status(200).json({ message: 'Kullanıcı silindi.' });
       }
-      res.status(200).json({ message: 'Kullanıcı silindi.' });
-      break;
 
     default:
-      res.setHeader('Allow', ['GET', 'PUT', 'DELETE']);
-      res.status(405).end(`Method ${method} Not Allowed`);
+      return res.status(405).json({ message: 'Method not allowed' });
   }
 }

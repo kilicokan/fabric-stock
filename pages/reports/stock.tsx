@@ -1,152 +1,474 @@
-"use client";
-
-import React, { useEffect, useState } from "react";
-import axios from "axios";
-// import ExportButtons from '../../components/ui/ExportButtons'; // Ensure this path is correct, or update to the correct path if needed
-import ExportButtons from '../../components/ExportButtons'; // Update this path to the correct location of ExportButtons
-import {
-  BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Legend
-} from "recharts";
-import { saveAs } from "file-saver";
-import * as XLSX from "xlsx";
+import React, { useState, useEffect } from "react";
+import { Card, CardContent } from "../../components/ui/card";
 import jsPDF from "jspdf";
 import "jspdf-autotable";
-import { Card, CardContent } from '../../components/ui/card'; // Ensure this path is correct, or update to the correct path if needed
+import ExportButtons from "../../components/ExportButtons";
+import Link from "next/link";
 
-type StockTotal = {
-  fabricTypeId: string | number;
-  fabricType: string;
-  totalEntry: number;
-  totalUsed: number;
-  totalRemaining: number;
+type StockItem = {
+  id: number;
+  fabricName: string;
+  color: string;
+  totalIn: number;
+  totalOut: number;
+  currentStock: number;
+  unit: string;
+  category: string;
+  minStockLevel: number;
+  lastUpdated: string;
 };
 
-type ConsumptionTable = {
-  cuttingTable: string;
-  totalUsed: number;
-};
+function StockReportsPage() {
+  const [stockData, setStockData] = useState<StockItem[]>([]);
+  const [loading, setLoading] = useState<boolean>(true);
+  const [filter, setFilter] = useState<string>("all");
+  const [sortConfig, setSortConfig] = useState<{ key: string; direction: 'asc' | 'desc' }>({
+    key: 'currentStock',
+    direction: 'desc'
+  });
 
-export default function StockReport() {
-  const [totals, setTotals] = useState<StockTotal[]>([]);
-  const [consumptionByTable, setConsumptionByTable] = useState<ConsumptionTable[]>([]);
-  const [startDate, setStartDate] = useState("");
-  const [endDate, setEndDate] = useState("");
+  // Örnek veri - Gerçek uygulamada API'den çekilecek
+  useEffect(() => {
+    const sampleData: StockItem[] = [
+      { 
+        id: 1, 
+        fabricName: "Pamuk Kumaş", 
+        color: "Beyaz",
+        totalIn: 1000, 
+        totalOut: 300, 
+        currentStock: 700, 
+        unit: "metre", 
+        category: "Pamuk", 
+        minStockLevel: 100,
+        lastUpdated: "2024-01-16" 
+      },
+      { 
+        id: 2, 
+        fabricName: "Polyester Kumaş", 
+        color: "Siyah",
+        totalIn: 800, 
+        totalOut: 450, 
+        currentStock: 350, 
+        unit: "metre", 
+        category: "Polyester", 
+        minStockLevel: 80,
+        lastUpdated: "2024-01-16" 
+      },
+      { 
+        id: 3, 
+        fabricName: "Yün Kumaş", 
+        color: "Krem",
+        totalIn: 500, 
+        totalOut: 200, 
+        currentStock: 300, 
+        unit: "metre", 
+        category: "Yün", 
+        minStockLevel: 50,
+        lastUpdated: "2024-01-15" 
+      },
+      { 
+        id: 4, 
+        fabricName: "İpek Kumaş", 
+        color: "Altın",
+        totalIn: 300, 
+        totalOut: 150, 
+        currentStock: 150, 
+        unit: "metre", 
+        category: "İpek", 
+        minStockLevel: 30,
+        lastUpdated: "2024-01-14" 
+      },
+      { 
+        id: 5, 
+        fabricName: "Keten Kumaş", 
+        color: "Bej",
+        totalIn: 400, 
+        totalOut: 380, 
+        currentStock: 20, 
+        unit: "metre", 
+        category: "Keten", 
+        minStockLevel: 40,
+        lastUpdated: "2024-01-16" 
+      },
+      { 
+        id: 6, 
+        fabricName: "Pamuk Kumaş", 
+        color: "Mavi",
+        totalIn: 600, 
+        totalOut: 590, 
+        currentStock: 10, 
+        unit: "metre", 
+        category: "Pamuk", 
+        minStockLevel: 50,
+        lastUpdated: "2024-01-16" 
+      }
+    ];
 
-/*************
- *   ✨ Windsurf Command 🌟  *************/
-  const fetchReports = async () => {
-    const requestParams: Record<string, string> = {};
+    setTimeout(() => {
+      setStockData(sampleData);
+      setLoading(false);
+    }, 1000);
+  }, []);
 
-    if (startDate) requestParams.startDate = startDate;
-    if (endDate) requestParams.endDate = endDate;
+  // Sıralama işlemi
+  const sortedData = [...stockData].sort((a, b) => {
+    const key = sortConfig.key as keyof StockItem;
+    const aValue = a[key];
+    const bValue = b[key];
 
-  const fetchData = async () => {
-  try {
-    const [stockResponse, usageResponse] = await Promise.all([
-      axios.get("/api/fabric-entry/remaining-stock/by-fabric-type", { params: requestParams }),
-      axios.get("/api/fabric-entry/usage/by-table", { params: requestParams })
-    ]);
-    
-    const stockData = stockResponse.data.data;
-    const usageData = usageResponse.data.data;
-    
-    // stockData ve usageData verilerini kullanarak state değişkenlerini güncelleyin
-    setTotals(stockData);
-    setConsumptionByTable(usageData);
-    
-  } catch (error) {
-    console.error("Error fetching data:", error);
-  }
-};
-/*******  ff0c96ec-5abf-4ac1-915e-8f9188d111fe  *******/
+    // Handle undefined/null values
+    if (aValue == null && bValue == null) return 0;
+    if (aValue == null) return 1;
+    if (bValue == null) return -1;
 
-  useEffect(() => { fetchData(); }, []);
+    // Numeric sort if both are numbers
+    if (typeof aValue === "number" && typeof bValue === "number") {
+      return sortConfig.direction === "asc"
+        ? aValue - bValue
+        : bValue - aValue;
+    }
 
-  // ✅ Excel Çıkışı
-  const exportToExcel = () => {
-    const ws = XLSX.utils.json_to_sheet(totals);
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, "Stok Raporu");
-    const excelBuffer = XLSX.write(wb, { bookType: "xlsx", type: "array" });
-    const blob = new Blob([excelBuffer], { type: "application/octet-stream" });
-    saveAs(blob, `stok-raporu-${new Date().toISOString().slice(0, 10)}.xlsx`);
+    // Date sort if both are dates (ISO string)
+    if (
+      typeof aValue === "string" &&
+      typeof bValue === "string" &&
+      /^\d{4}-\d{2}-\d{2}/.test(aValue) &&
+      /^\d{4}-\d{2}-\d{2}/.test(bValue)
+    ) {
+      const aDate = new Date(aValue).getTime();
+      const bDate = new Date(bValue).getTime();
+      return sortConfig.direction === "asc"
+        ? aDate - bDate
+        : bDate - aDate;
+    }
+
+    // String sort (default)
+    if (typeof aValue === "string" && typeof bValue === "string") {
+      return sortConfig.direction === "asc"
+        ? aValue.localeCompare(bValue)
+        : bValue.localeCompare(aValue);
+    }
+
+    return 0;
+  });
+  // Filtreleme
+  const filteredData = sortedData.filter(
+    (item: StockItem) => filter === "all" || item.category === filter
+  );
+
+  // Düşük stok uyarısı (stok minimum seviyenin altındaysa)
+  const lowStockItems = filteredData.filter(item => item.currentStock <= item.minStockLevel);
+  const criticalStockItems = filteredData.filter(item => item.currentStock <= item.minStockLevel * 0.5);
+
+  // Sütun sıralama
+  const handleSort = (key: string) => {
+    setSortConfig({
+      key,
+      direction: sortConfig.key === key && sortConfig.direction === 'asc' ? 'desc' : 'asc'
+    });
   };
 
-  // ✅ PDF Çıkışı
-  const exportToPDF = () => {
+  // PDF export işlemi
+  const handleExportPDF = () => {
     const doc = new jsPDF();
-    doc.text("Kumaş Stok Raporu", 14, 10);
-
-    const tableData = totals.map((item) => [
-      item.fabricType,
-      item.totalEntry,
-      item.totalUsed,
-      item.totalRemaining
+    
+    doc.setFontSize(20);
+    doc.text("Mevcut Stok Raporu", 14, 15);
+    doc.setFontSize(10);
+    doc.text(`Tarih: ${new Date().toLocaleDateString('tr-TR')}`, 14, 22);
+    doc.text(`Toplam Ürün: ${filteredData.length}`, 14, 28);
+    
+    // Tablo verileri
+    const tableData = filteredData.map((item) => [
+      item.id.toString(),
+      item.fabricName,
+      item.color,
+      item.totalIn.toString(),
+      item.totalOut.toString(),
+      item.currentStock.toString(),
+      item.unit,
+      item.category,
+      item.minStockLevel.toString(),
+      new Date(item.lastUpdated).toLocaleDateString('tr-TR')
     ]);
 
+    // @ts-ignore: autoTable is provided by the jsPDF autotable plugin
     (doc as any).autoTable({
-      head: [["Kumaş Türü", "Toplam Giriş", "Toplam Kullanım", "Kalan Stok"]],
+      startY: 35,
+      head: [["ID", "Kumaş Adı", "Renk", "Toplam Giriş", "Toplam Çıkış", "Mevcut Stok", "Birim", "Kategori", "Min. Stok", "Son Günc."]],
       body: tableData,
+      styles: { fontSize: 8 },
+      headStyles: { fillColor: [66, 135, 245] },
+      didDrawCell: (data: { column: { index: number; }; cell: { raw: string | number | string[]; x: number; y: number; }; row: { raw: number[]; }; }) => {
+        // Düşük stokları kırmızı yap
+        if (
+          data.column.index === 5 &&
+          typeof data.cell.raw === "string" &&
+          typeof data.row.raw[8] === "number" &&
+          Number(data.cell.raw) <= data.row.raw[8]
+        ) {
+          doc.setTextColor(255, 0, 0);
+          doc.text(String(data.cell.raw), data.cell.x + 2, data.cell.y + 4);
+        }
+      }
     });
 
-    doc.save(`stok-raporu-${new Date().toISOString().slice(0, 10)}.pdf`);
+    // Uyarılar
+    // @ts-ignore: autoTable plugin attaches lastAutoTable to doc
+    const finalY = (doc as any).lastAutoTable && (doc as any).lastAutoTable.finalY
+      ? (doc as any).lastAutoTable.finalY + 10
+      : 45;
+    if (criticalStockItems.length > 0) {
+      doc.setFontSize(12);
+      doc.setTextColor(255, 0, 0);
+      doc.text(`KRİTİK STOK: ${criticalStockItems.length} ürün stokları çok az!`, 14, finalY);
+      doc.text(`KRİTİK STOK: ${criticalStockItems.length} ürün stokları çok az!`, 14, finalY);
+    }
+    
+    if (lowStockItems.length > 0) {
+      doc.setFontSize(10);
+      doc.setTextColor(255, 165, 0);
+      doc.text(`Düşük Stok: ${lowStockItems.length} ürün`, 14, finalY + (criticalStockItems.length > 0 ? 6 : 0));
+    }
+    
+    doc.save(`mevcut-stok-raporu-${new Date().toISOString().split('T')[0]}.pdf`);
   };
 
+  // Excel export işlemi
+  const handleExportExcel = () => {
+    const headers = ["ID", "Kumaş Adı", "Renk", "Toplam Giriş", "Toplam Çıkış", "Mevcut Stok", "Birim", "Kategori", "Min. Stok", "Son Güncelleme"];
+    const csvData = filteredData.map((item) =>
+      [item.id, item.fabricName, item.color, item.totalIn, item.totalOut, item.currentStock, item.unit, item.category, item.minStockLevel, item.lastUpdated].join(",")
+    );
+    
+    const csvContent = [headers.join(","), ...csvData].join("\n");
+    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.setAttribute("download", `mevcut-stok-raporu-${new Date().toISOString().split('T')[0]}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  // CSV export işlemi
+  const handleExportCSV = () => {
+    const headers = ["ID", "Kumaş Adı", "Renk", "Toplam Giriş", "Toplam Çıkış", "Mevcut Stok", "Birim", "Kategori", "Min. Stok", "Son Güncelleme"];
+    const csvData = filteredData.map((item) =>
+      [item.id, item.fabricName, item.color, item.totalIn, item.totalOut, item.currentStock, item.unit, item.category, item.minStockLevel, item.lastUpdated].join(";")
+    );
+    
+    const csvContent = [headers.join(";"), ...csvData].join("\n");
+    const blob = new Blob(["\uFEFF" + csvContent], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.setAttribute("download", `mevcut-stok-raporu-${new Date().toISOString().split('T')[0]}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  // Fix: Use filteredData for categories and add types
+  const categories: string[] = ["all", ...Array.from(new Set(filteredData.map((item: any) => item.category)))];
+
+  // Fix: Ensure loading is defined (assume it's a state or prop)
+  if (typeof loading !== "undefined" && loading) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
+          <p className="mt-4 text-gray-600">Stok raporu yükleniyor...</p>
+        </div>
+      </div>
+    );
+  }
+
   return (
-    <div className="max-w-6xl mx-auto p-4 space-y-6 text-sm md:text-base">
-      <h1 className="text-xl font-bold mb-4">📊 Stok Raporu</h1>
+    <div style={{ maxWidth: '900px', margin: '2rem auto', padding: '1.5rem', backgroundColor: '#fff', borderRadius: '12px', boxShadow: '0 4px 12px rgba(0, 0, 0, 0.1)', fontFamily: "'Segoe UI', Tahoma, Geneva, Verdana, sans-serif" }}>
+      <div>
+        <div style={{ marginBottom: '1.5rem' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '1rem', flexWrap: 'wrap' }}>
+            <div>
+              <h1 style={{ textAlign: 'left', color: '#2c3e50', marginBottom: '0.25rem', fontSize: '1.8rem' }}>Mevcut Stok Raporu</h1>
+              <p style={{ color: '#6c757d' }}>Anlık stok durumu ve envanter bilgileri</p>
+            </div>
+            <Link 
+              href="/reports"
+              style={{ padding: '0.75rem 1.25rem', backgroundColor: '#0d6efd', color: '#fff', borderRadius: 8, fontWeight: 600, textDecoration: 'none' }}
+            >
+              📊 Hareket Raporları
+            </Link>
+          </div>
+        </div>
 
-    {/* Butonlar */}
-    <ExportButtons exportExcel={exportToExcel} exportPDF={exportToPDF} />
+        <Card className="mb-6">
+          <CardContent className="p-6">
+            {/* Filtre ve İstatistikler */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Kategori Filtresi
+                </label>
+                <select
+                  value={filter}
+                  onChange={(e) => setFilter(e.target.value)}
+                  className="w-full p-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                >
+                  <option value="all">Tüm Kategoriler</option>
+                  {categories.filter(cat => cat !== "all").map((category) => (
+                    <option key={category} value={category}>
+                      {category}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+                <div style={{ background: '#f8f9fa', padding: 16, borderRadius: 12, border: '1px solid #e9ecef' }}>
+                  <div style={{ fontSize: 24, fontWeight: 700, color: '#0d6efd' }}>{filteredData.length}</div>
+                  <div style={{ fontSize: 13, color: '#6c757d' }}>Toplam Ürün</div>
+                </div>
+                <div style={{ background: '#f8fff9', padding: 16, borderRadius: 12, border: '1px solid #e6f4ea' }}>
+                  <div style={{ fontSize: 24, fontWeight: 700, color: '#28a745' }}>
+                    {filteredData.reduce((sum, item) => sum + item.currentStock, 0)}
+                  </div>
+                  <div style={{ fontSize: 13, color: '#6c757d' }}>Toplam Stok</div>
+                </div>
+                <div style={{ background: '#fff8f1', padding: 16, borderRadius: 12, border: '1px solid #ffe4cc' }}>
+                  <div style={{ fontSize: 24, fontWeight: 700, color: '#fd7e14' }}>{lowStockItems.length}</div>
+                  <div style={{ fontSize: 13, color: '#6c757d' }}>Düşük Stok</div>
+                </div>
+                <div style={{ background: '#fff5f7', padding: 16, borderRadius: 12, border: '1px solid #ffd6db' }}>
+                  <div style={{ fontSize: 24, fontWeight: 700, color: '#dc3545' }}>{criticalStockItems.length}</div>
+                  <div style={{ fontSize: 13, color: '#6c757d' }}>Kritik Stok</div>
+                </div>
+              </div>
+            </div>
 
-    {/* Tarih Filtreleri */}
-    <div className="flex flex-col sm:flex-row gap-3 items-center mb-4">
-      <input type="date" value={startDate} onChange={e => setStartDate(e.target.value)} className="sm:w-auto border rounded px-2 py-1" />
-      <input type="date" value={endDate} onChange={e => setEndDate(e.target.value)} className="sm:w-auto border rounded px-2 py-1" />
-      <button onClick={fetchData} className="px-4 py-2 bg-blue-500 text-white rounded">Filtrele</button>
-    </div>
+            {/* Uyarılar */}
+            {criticalStockItems.length > 0 && (
+              <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg">
+                <div className="flex items-center">
+                  <span className="text-red-600 font-semibold">🚨 KRİTİK STOK UYARISI!</span>
+                  <span className="ml-2 text-red-600">
+                    {criticalStockItems.length} ürünün stok miktarı minimum seviyenin altında!
+                  </span>
+                </div>
+                <div className="mt-2 text-sm text-red-600">
+                  {criticalStockItems.map(item => `${item.fabricName} (${item.color})`).join(", ")}
+                </div>
+              </div>
+            )}
 
-    {/* Grafik: Stok Durumu */}
-    <div className="h-[250px] md:h-[350px] bg-white border rounded shadow">
-      <ResponsiveContainer width="100%" height="100%">
-        <BarChart data={totals} margin={{ top: 20, right: 10, left: -10, bottom: 40 }}>
-          <XAxis dataKey="fabricType" angle={-20} textAnchor="end" interval={0} tick={{ fontSize: 12 }} height={70} />
-          <YAxis tick={{ fontSize: 12 }} />
-          <Tooltip />
-          <Legend />
-          <Bar dataKey="totalEntry" fill="#60a5fa" name="Toplam Giriş" />
-          <Bar dataKey="totalUsed" fill="#f87171" name="Toplam Kullanım" />
-          <Bar dataKey="totalRemaining" fill="#34d399" name="Kalan Stok" />
-        </BarChart>
-      </ResponsiveContainer>
-    </div>
+            {lowStockItems.length > 0 && (
+              <div className="mb-6 p-4 bg-orange-50 border border-orange-200 rounded-lg">
+                <div className="flex items-center">
+                  <span className="text-orange-600 font-semibold">⚠ Düşük Stok Uyarısı</span>
+                  <span className="ml-2 text-orange-600">
+                    {lowStockItems.length} ürünün stok miktarı minimum seviyeye yaklaşmış.
+                  </span>
+                </div>
+              </div>
+            )}
 
-    {/* Detay Kartları */}
-    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
-      {totals.map((item: any) => (
-        <Card key={item.fabricTypeId} className="shadow">
-          <CardContent>
-            <p><strong>Tür:</strong> {item.fabricType}</p>
-            <p>Giriş: {item.totalEntry} kg</p>
-            <p>Kullanım: {item.totalUsed} kg</p>
-            <p>Kalan: {item.totalRemaining} kg</p>
+            <ExportButtons
+              onExportPDF={handleExportPDF}
+              onExportExcel={handleExportExcel}
+              onExportCSV={handleExportCSV}
+              disabled={filteredData.length === 0}
+            />
+
+            {/* Stok Tablosu */}
+            <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
+              <div className="px-6 py-4 bg-gray-50 border-b border-gray-200">
+                <h2 className="text-lg font-semibold text-gray-800">
+                  Stok Durumu ({filteredData.length} ürün)
+                </h2>
+              </div>
+
+              <div className="overflow-x-auto">
+                <table className="min-w-full divide-y divide-gray-200">
+                  <thead className="bg-gray-50">
+                    <tr>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer" onClick={() => handleSort('id')}>
+                        ID {sortConfig.key === 'id' && (sortConfig.direction === 'asc' ? '↑' : '↓')}
+                      </th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer" onClick={() => handleSort('fabricName')}>
+                        Kumaş Adı {sortConfig.key === 'fabricName' && (sortConfig.direction === 'asc' ? '↑' : '↓')}
+                      </th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Renk</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer" onClick={() => handleSort('totalIn')}>
+                        Toplam Giriş {sortConfig.key === 'totalIn' && (sortConfig.direction === 'asc' ? '↑' : '↓')}
+                      </th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer" onClick={() => handleSort('totalOut')}>
+                        Toplam Çıkış {sortConfig.key === 'totalOut' && (sortConfig.direction === 'asc' ? '↑' : '↓')}
+                      </th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer" onClick={() => handleSort('currentStock')}>
+                        Mevcut Stok {sortConfig.key === 'currentStock' && (sortConfig.direction === 'asc' ? '↑' : '↓')}
+                      </th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Min. Stok</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Kategori</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer" onClick={() => handleSort('lastUpdated')}>
+                        Son Günc. {sortConfig.key === 'lastUpdated' && (sortConfig.direction === 'asc' ? '↑' : '↓')}
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody className="bg-white divide-y divide-gray-200">
+                    {filteredData.map((item) => {
+                      const isCritical = item.currentStock <= item.minStockLevel * 0.5;
+                      const isLow = item.currentStock <= item.minStockLevel && !isCritical;
+                      
+                      return (
+                        <tr key={item.id} className={`hover:bg-gray-50 transition-colors ${
+                          isCritical ? 'bg-red-50' : isLow ? 'bg-orange-50' : ''
+                        }`}>
+                          <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">#{item.id}</td>
+                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{item.fabricName}</td>
+                          <td className="px-6 py-4 whitespace-nowrap">
+                            <span className="px-2 py-1 text-xs font-medium bg-gray-100 text-gray-800 rounded-full">
+                              {item.color}
+                            </span>
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{item.totalIn}</td>
+                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{item.totalOut}</td>
+                          <td className="px-6 py-4 whitespace-nowrap">
+                            <span className={`text-sm font-semibold ${
+                              isCritical ? 'text-red-600' : isLow ? 'text-orange-600' : 'text-gray-900'
+                            }`}>
+                              {item.currentStock}
+                            </span>
+                            {isCritical && <span className="ml-1 text-xs text-red-500">🚨</span>}
+                            {isLow && !isCritical && <span className="ml-1 text-xs text-orange-500">⚠</span>}
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{item.minStockLevel}</td>
+                          <td className="px-6 py-4 whitespace-nowrap">
+                            <span className="px-2 py-1 text-xs font-medium bg-blue-100 text-blue-800 rounded-full">
+                              {item.category}
+                            </span>
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                            {new Date(item.lastUpdated).toLocaleDateString('tr-TR')}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+                
+                {filteredData.length === 0 && (
+                  <div className="text-center py-8">
+                    <p className="text-gray-500">Filtre kriterlerine uygun veri bulunamadı.</p>
+                  </div>
+                )}
+              </div>
+            </div>
           </CardContent>
         </Card>
-      ))}
+      </div>
     </div>
+  );
+}
 
-    {/* Kesim Masası Grafiği */}
-    <h2 className="text-2xl font-bold mt-8">🧵 Kesim Masası Bazlı Tüketim</h2>
-    <div className="h-[250px] md:h-[350px] bg-white border rounded shadow">
-      <ResponsiveContainer width="100%" height="100%">
-        <BarChart data={consumptionByTable} margin={{ top: 20, right: 10, left: -10, bottom: 40 }}>
-          <XAxis dataKey="cuttingTable" angle={-20} textAnchor="end" interval={0} tick={{ fontSize: 12 }} height={70} />
-          <YAxis tick={{ fontSize: 12 }} />
-          <Tooltip />
-          <Legend />
-          <Bar dataKey="totalUsed" fill="#facc15" name="Kullanım (kg)" />
-        </BarChart>
-      </ResponsiveContainer>
-    </div>
-  </div>
-);
+export default StockReportsPage;

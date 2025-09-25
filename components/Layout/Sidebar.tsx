@@ -7,7 +7,15 @@ import { useState, useEffect } from "react";
 const menuItems = [
   { name: "Kumaş Girişi", path: "/fabric-entry", icon: "📥" },
   { name: "Kumaş Çıkışı", path: "/fabric-exit", icon: "📤" },
-  { name: "Raporlar", path: "/reports", icon: "📊" },
+  {
+    name: "Raporlar",
+    icon: "📊",
+    path: "/reports",
+    children: [
+      { name: "Hareket Raporları", path: "/reports" },
+      { name: "Mevcut Stok", path: "/reports/stock" },
+    ],
+  },
   {
     name: "Kullanıcı Yönetimi",
     icon: "👤",
@@ -48,6 +56,7 @@ export default function Sidebar() {
       customers: pathname.startsWith("/customers"),
       fabrics: pathname.startsWith("/fabrics"),
       users: pathname.startsWith("/user-management"),
+      raporlar: pathname.startsWith("/reports"),
     });
   }, [pathname]);
 
@@ -76,7 +85,8 @@ export default function Sidebar() {
     return pathname === pathWithoutQuery ||
       (pathWithoutQuery.includes('customers') && pathname === '/customers') ||
       (pathWithoutQuery.includes('fabrics/invoices-slips') && pathname === '/fabrics/invoices-slips') ||
-      (pathWithoutQuery.includes('user-management') && pathname.startsWith('/user-management'));
+      (pathWithoutQuery.includes('user-management') && pathname.startsWith('/user-management')) ||
+      (pathWithoutQuery.includes('reports') && pathname.startsWith('/reports'));
   };
 
   return (
