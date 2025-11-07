@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import type { CSSProperties } from "react";
 import axios from "axios";
 
 // Form veri tipi
@@ -31,11 +32,27 @@ export default function FabricEntry() {
   const [loadingScale, setLoadingScale] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string>("");
 
-  // Load types/colors/suppliers on mount (simulate API)
+  // Load types/colors/suppliers on mount
   useEffect(() => {
-    setFabricTypes(["Pamuk", "Polyester"]);
-    setColors(["Beyaz", "Mavi"]);
-    setSuppliers(["Tedarikçi A", "Tedarikçi B"]);
+    const fetchData = async () => {
+      try {
+        const [fabricsRes, colorsRes, suppliersRes] = await Promise.all([
+          axios.get('/api/fabrics'),
+          axios.get('/api/colors'),
+          axios.get('/api/suppliers')
+        ]);
+        setFabricTypes(fabricsRes.data.map((f: any) => f.name));
+        setColors(colorsRes.data.map((c: any) => c.name));
+        setSuppliers(suppliersRes.data.map((s: any) => s.name));
+      } catch (error) {
+        console.error('Error fetching data:', error);
+        // Fallback to empty or default
+        setFabricTypes([]);
+        setColors([]);
+        setSuppliers([]);
+      }
+    };
+    fetchData();
   }, []);
 
   // Form input değişiklikleri
@@ -50,7 +67,7 @@ export default function FabricEntry() {
     e.preventDefault();
     setErrorMessage("");
 
-    // Validate form data
+    // Validate form data - lengthMeter artık zorunlu değil
     if (!formData.fabricType || !formData.color || !formData.weightKg || !formData.supplier) {
       setErrorMessage("Lütfen tüm zorunlu alanları doldurun!");
       return;
@@ -60,15 +77,16 @@ export default function FabricEntry() {
     const payload = {
       ...formData,
       weightKg: parseFloat(formData.weightKg) || 0,
-      lengthMeter: formData.lengthMeter ? parseFloat(formData.lengthMeter) : 0,
+      // lengthMeter boşsa null olarak gönder
+      lengthMeter: formData.lengthMeter ? parseFloat(formData.lengthMeter) : null,
     };
 
     try {
-      console.log("Sending payload:", payload); // Log payload for debugging
+      console.log("Sending payload:", payload);
       const response = await axios.post("/api/fabric-entry", payload, {
         headers: { "Content-Type": "application/json" },
       });
-      console.log("API response:", response.data); // Log response for debugging
+      console.log("API response:", response.data);
       alert("Kumaş girişi başarıyla kaydedildi!");
       setFormData({ fabricType: "", color: "", weightKg: "", lengthMeter: "", supplier: "" });
     } catch (err: any) {
@@ -94,42 +112,60 @@ export default function FabricEntry() {
   };
 
   // Yeni kumaş türü ekleme
-  const handleAddType = (e: React.FormEvent<HTMLFormElement>) => {
+  const handleAddType = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     if (!newType.trim()) {
       setErrorMessage("Yeni kumaş türü boş olamaz!");
       return;
     }
-    setFabricTypes((prev) => [...prev, newType]);
-    setFormData((prev) => ({ ...prev, fabricType: newType }));
-    setNewType("");
-    setShowAddType(false);
+    try {
+      await axios.post('/api/fabric-types', { name: newType });
+      setFabricTypes((prev) => [...prev, newType]);
+      setFormData((prev) => ({ ...prev, fabricType: newType }));
+      setNewType("");
+      setShowAddType(false);
+    } catch (error) {
+      console.error('Error adding fabric type:', error);
+      setErrorMessage('Kumaş türü eklenemedi');
+    }
   };
 
   // Yeni renk ekleme
-  const handleAddColor = (e: React.FormEvent<HTMLFormElement>) => {
+  const handleAddColor = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     if (!newColor.trim()) {
       setErrorMessage("Yeni renk boş olamaz!");
       return;
     }
-    setColors((prev) => [...prev, newColor]);
-    setFormData((prev) => ({ ...prev, color: newColor }));
-    setNewColor("");
-    setShowAddColor(false);
+    try {
+      await axios.post('/api/colors', { name: newColor });
+      setColors((prev) => [...prev, newColor]);
+      setFormData((prev) => ({ ...prev, color: newColor }));
+      setNewColor("");
+      setShowAddColor(false);
+    } catch (error) {
+      console.error('Error adding color:', error);
+      setErrorMessage('Renk eklenemedi');
+    }
   };
 
   // Yeni tedarikçi ekleme
-  const handleAddSupplier = (e: React.FormEvent<HTMLFormElement>) => {
+  const handleAddSupplier = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     if (!newSupplier.trim()) {
       setErrorMessage("Yeni tedarikçi boş olamaz!");
       return;
     }
-    setSuppliers((prev) => [...prev, newSupplier]);
-    setFormData((prev) => ({ ...prev, supplier: newSupplier }));
-    setNewSupplier("");
-    setShowAddSupplier(false);
+    try {
+      await axios.post('/api/suppliers', { name: newSupplier });
+      setSuppliers((prev) => [...prev, newSupplier]);
+      setFormData((prev) => ({ ...prev, supplier: newSupplier }));
+      setNewSupplier("");
+      setShowAddSupplier(false);
+    } catch (error) {
+      console.error('Error adding supplier:', error);
+      setErrorMessage('Tedarikçi eklenemedi');
+    }
   };
 
   return (
@@ -144,7 +180,7 @@ export default function FabricEntry() {
       <form onSubmit={handleSubmit} style={styles.form}>
         {/* Supplier Dropdown + Add */}
         <div style={styles.inputGroup}>
-          <label style={styles.label}>Tedarikçi</label>
+          <label style={styles.label}>Tedarikçi *</label>
           <div style={styles.selectWithButton}>
             <select 
               name="supplier" 
@@ -185,7 +221,7 @@ export default function FabricEntry() {
 
         {/* Fabric Type Dropdown + Add */}
         <div style={styles.inputGroup}>
-          <label style={styles.label}>Kumaş Türü</label>
+          <label style={styles.label}>Kumaş Türü *</label>
           <div style={styles.selectWithButton}>
             <select 
               name="fabricType" 
@@ -226,7 +262,7 @@ export default function FabricEntry() {
 
         {/* Color Dropdown + Add */}
         <div style={styles.inputGroup}>
-          <label style={styles.label}>Renk</label>
+          <label style={styles.label}>Renk *</label>
           <div style={styles.selectWithButton}>
             <select 
               name="color" 
@@ -267,7 +303,7 @@ export default function FabricEntry() {
 
         {/* Weight with scale button */}
         <div style={styles.inputGroup}>
-          <label style={styles.label}>Ağırlık (Kg)</label>
+          <label style={styles.label}>Ağırlık (Kg) *</label>
           <div style={styles.inputWithButton}>
             <input 
               type="number" 
@@ -311,7 +347,7 @@ export default function FabricEntry() {
   );
 }
 
-// Modern tasarım için stiller (değişmedi, kısaltmak için burada tekrar verilmedi)
+// Stiller aynı kalıyor
 const styles = {
   container: {
     maxWidth: "500px",
@@ -432,4 +468,4 @@ const styles = {
     padding: "0.8rem",
     borderRadius: "6px"
   }
-};
+} as const;

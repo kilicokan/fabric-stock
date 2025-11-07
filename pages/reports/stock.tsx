@@ -27,87 +27,40 @@ function StockReportsPage() {
     direction: 'desc'
   });
 
-  // Örnek veri - Gerçek uygulamada API'den çekilecek
+  // Fetch real stock data
   useEffect(() => {
-    const sampleData: StockItem[] = [
-      { 
-        id: 1, 
-        fabricName: "Pamuk Kumaş", 
-        color: "Beyaz",
-        totalIn: 1000, 
-        totalOut: 300, 
-        currentStock: 700, 
-        unit: "metre", 
-        category: "Pamuk", 
-        minStockLevel: 100,
-        lastUpdated: "2024-01-16" 
-      },
-      { 
-        id: 2, 
-        fabricName: "Polyester Kumaş", 
-        color: "Siyah",
-        totalIn: 800, 
-        totalOut: 450, 
-        currentStock: 350, 
-        unit: "metre", 
-        category: "Polyester", 
-        minStockLevel: 80,
-        lastUpdated: "2024-01-16" 
-      },
-      { 
-        id: 3, 
-        fabricName: "Yün Kumaş", 
-        color: "Krem",
-        totalIn: 500, 
-        totalOut: 200, 
-        currentStock: 300, 
-        unit: "metre", 
-        category: "Yün", 
-        minStockLevel: 50,
-        lastUpdated: "2024-01-15" 
-      },
-      { 
-        id: 4, 
-        fabricName: "İpek Kumaş", 
-        color: "Altın",
-        totalIn: 300, 
-        totalOut: 150, 
-        currentStock: 150, 
-        unit: "metre", 
-        category: "İpek", 
-        minStockLevel: 30,
-        lastUpdated: "2024-01-14" 
-      },
-      { 
-        id: 5, 
-        fabricName: "Keten Kumaş", 
-        color: "Bej",
-        totalIn: 400, 
-        totalOut: 380, 
-        currentStock: 20, 
-        unit: "metre", 
-        category: "Keten", 
-        minStockLevel: 40,
-        lastUpdated: "2024-01-16" 
-      },
-      { 
-        id: 6, 
-        fabricName: "Pamuk Kumaş", 
-        color: "Mavi",
-        totalIn: 600, 
-        totalOut: 590, 
-        currentStock: 10, 
-        unit: "metre", 
-        category: "Pamuk", 
-        minStockLevel: 50,
-        lastUpdated: "2024-01-16" 
+    const fetchStockData = async () => {
+      try {
+        const response = await fetch('/api/fabrics');
+        if (response.ok) {
+          const data = await response.json();
+          // Map fabrics data to StockItem format
+          const mappedData: StockItem[] = data.map((fabric: any, index: number) => ({
+            id: fabric.id,
+            fabricName: fabric.name,
+            color: fabric.property || 'N/A', // Use property as color if available
+            totalIn: fabric.totalIn || 0,
+            totalOut: fabric.totalOut || 0,
+            currentStock: fabric.stockQuantity || 0,
+            unit: fabric.unit || 'kg',
+            category: fabric.property || 'Genel', // Use property as category
+            minStockLevel: 10, // Default minimum stock level
+            lastUpdated: fabric.updatedAt || new Date().toISOString().split('T')[0],
+          }));
+          setStockData(mappedData);
+        } else {
+          console.error('Failed to fetch stock data');
+          setStockData([]);
+        }
+      } catch (error) {
+        console.error('Error fetching stock data:', error);
+        setStockData([]);
+      } finally {
+        setLoading(false);
       }
-    ];
+    };
 
-    setTimeout(() => {
-      setStockData(sampleData);
-      setLoading(false);
-    }, 1000);
+    fetchStockData();
   }, []);
 
   // Sıralama işlemi

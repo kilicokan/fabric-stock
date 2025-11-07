@@ -8,6 +8,8 @@ type User = {
   email: string;
   role: "admin" | "user";
   createdAt: string;
+  stockAccess: boolean;
+  fasonAccess: boolean;
 };
 
 export default function UserManagement() {
@@ -17,7 +19,9 @@ export default function UserManagement() {
     username: "",
     password: "",
     email: "",
-    role: "user",
+    role: "user" as "user" | "admin",
+    stockAccess: false,
+    fasonAccess: false,
   });
   const [message, setMessage] = useState("");
   const [loading, setLoading] = useState(false);
@@ -39,22 +43,39 @@ export default function UserManagement() {
   };
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
-    const { name, value } = e.target;
-    setFormData((prev) => ({ ...prev, [name]: value }));
+    const { name, value, type } = e.target;
+    const checked = (e.target as HTMLInputElement).checked;
+    setFormData((prev) => ({
+      ...prev,
+      [name]: type === "checkbox" ? checked : value,
+    }));
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setMessage("");
     try {
+      const payload = {
+        ...formData,
+        // Düzenleme modunda ve şifre boşsa şifreyi gönderme
+        ...(editingUser && !formData.password && { password: undefined })
+      };
+
       if (editingUser) {
-        await axios.put(`/api/users/${editingUser.id}`, formData);
+        await axios.put(`/api/users/${editingUser.id}`, payload);
         setMessage("Kullanıcı başarıyla güncellendi.");
       } else {
-        await axios.post("/api/users", formData);
+        await axios.post("/api/users", payload);
         setMessage("Kullanıcı başarıyla eklendi.");
       }
-      setFormData({ username: "", password: "", email: "", role: "user" });
+      setFormData({ 
+        username: "", 
+        password: "", 
+        email: "", 
+        role: "user",
+        stockAccess: false,
+        fasonAccess: false
+      });
       setEditingUser(null);
       fetchUsers();
     } catch (err: any) {
@@ -69,6 +90,8 @@ export default function UserManagement() {
       password: "",
       email: user.email,
       role: user.role,
+      stockAccess: user.stockAccess,
+      fasonAccess: user.fasonAccess,
     });
   };
 
@@ -85,7 +108,14 @@ export default function UserManagement() {
 
   const cancelEdit = () => {
     setEditingUser(null);
-    setFormData({ username: "", password: "", email: "", role: "user" });
+    setFormData({ 
+      username: "", 
+      password: "", 
+      email: "", 
+      role: "user",
+      stockAccess: false,
+      fasonAccess: false
+    });
   };
 
   return (
@@ -147,6 +177,30 @@ export default function UserManagement() {
               <option value="admin">Yönetici</option>
             </select>
 
+            {/* Yeni Checkbox Alanları */}
+            <div className="flex gap-4 md:col-span-2">
+              <label className="flex items-center space-x-2">
+                <input
+                  type="checkbox"
+                  name="stockAccess"
+                  checked={formData.stockAccess}
+                  onChange={handleInputChange}
+                  className="w-4 h-4 text-blue-600 rounded"
+                />
+                <span>Stok Erişimi</span>
+              </label>
+              <label className="flex items-center space-x-2">
+                <input
+                  type="checkbox"
+                  name="fasonAccess"
+                  checked={formData.fasonAccess}
+                  onChange={handleInputChange}
+                  className="w-4 h-4 text-blue-600 rounded"
+                />
+                <span>Fason Erişimi</span>
+              </label>
+            </div>
+
             <div className="flex gap-3 md:col-span-2 mt-2">
               <button
                 type="submit"
@@ -176,6 +230,8 @@ export default function UserManagement() {
                 <th className="px-4 py-2 text-left text-sm font-medium text-gray-700">Kullanıcı Adı</th>
                 <th className="px-4 py-2 text-left text-sm font-medium text-gray-700">E-posta</th>
                 <th className="px-4 py-2 text-left text-sm font-medium text-gray-700">Rol</th>
+                <th className="px-4 py-2 text-left text-sm font-medium text-gray-700">Stok Erişimi</th>
+                <th className="px-4 py-2 text-left text-sm font-medium text-gray-700">Fason Erişimi</th>
                 <th className="px-4 py-2 text-left text-sm font-medium text-gray-700">Oluşturulma</th>
                 <th className="px-4 py-2 text-left text-sm font-medium text-gray-700">İşlemler</th>
               </tr>
@@ -183,7 +239,7 @@ export default function UserManagement() {
             <tbody className="divide-y divide-gray-200">
               {loading ? (
                 <tr>
-                  <td colSpan={5} className="text-center py-6 text-gray-500">
+                  <td colSpan={7} className="text-center py-6 text-gray-500">
                     Yükleniyor...
                   </td>
                 </tr>
@@ -200,6 +256,12 @@ export default function UserManagement() {
                       >
                         {user.role === "admin" ? "Yönetici" : "Kullanıcı"}
                       </span>
+                    </td>
+                    <td className="px-4 py-2">
+                      {user.stockAccess ? "✅" : "❌"}
+                    </td>
+                    <td className="px-4 py-2">
+                      {user.fasonAccess ? "✅" : "❌"}
                     </td>
                     <td className="px-4 py-2">{new Date(user.createdAt).toLocaleDateString("tr-TR")}</td>
                     <td className="px-4 py-2 flex gap-2">
@@ -221,7 +283,7 @@ export default function UserManagement() {
                 ))
               ) : (
                 <tr>
-                  <td colSpan={5} className="text-center py-6 text-gray-400 italic">
+                  <td colSpan={7} className="text-center py-6 text-gray-400 italic">
                     Henüz kullanıcı bulunmamaktadır.
                   </td>
                 </tr>

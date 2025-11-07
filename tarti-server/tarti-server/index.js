@@ -9,21 +9,31 @@ app.use(cors());
 let lastWeight = "0.00";
 
 // Seri portu başlat (COM3 portunu tartına göre değiştir!)
-const port = new SerialPort({
-  path: "COM3",
-  baudRate: 9600,
-});
+try {
+  const port = new SerialPort({
+    path: "COM3",
+    baudRate: 9600,
+  });
 
-const parser = port.pipe(new Readline({ delimiter: "\r\n" }));
+  const parser = port.pipe(new Readline({ delimiter: "\r\n" }));
 
-parser.on("data", (data) => {
-  // Tartının gönderdiği veri örneği: "W: 0123.45 kg"
-  const match = data.match(/(\d+[\.,]?\d*)/);
-  if (match) {
-    lastWeight = parseFloat(match[1].replace(",", ".")).toFixed(2);
-    console.log("Tartım:", lastWeight);
-  }
-});
+  parser.on("data", (data) => {
+    // Tartının gönderdiği veri örneği: "W: 0123.45 kg"
+    const match = data.match(/(\d+[\.,]?\d*)/);
+    if (match) {
+      lastWeight = parseFloat(match[1].replace(",", ".")).toFixed(2);
+      console.log("Tartım:", lastWeight);
+    }
+  });
+
+  port.on('error', (err) => {
+    console.error('Tartı bağlantı hatası:', err.message);
+    lastWeight = "Tartı bağlı değil";
+  });
+} catch (error) {
+  console.error('Tartı bağlantısı kurulamadı:', error.message);
+  lastWeight = "Tartı bağlı değil";
+}
 
 // API endpoint
 app.get("/weight", (req, res) => {

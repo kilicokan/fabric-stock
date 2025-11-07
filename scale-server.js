@@ -9,7 +9,7 @@ app.use(cors());
 let lastWeight = "0.00";
 
 // ✅ Tartı cihazınızın bağlı olduğu COM portu buradan değiştir
-const port = new SerialPort({ path: "COM3", baudRate: 9600 });
+const port = new SerialPort({ path: "COM3", baudRate: 19200 });
 const parser = port.pipe(new ReadlineParser({ delimiter: "\r\n" }));
 
 parser.on("data", (data) => {

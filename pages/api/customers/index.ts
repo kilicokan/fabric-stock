@@ -1,6 +1,6 @@
 // pages/api/customers/index.ts
 import type { NextApiRequest, NextApiResponse } from "next";
-import pool from "../../../utils/db";
+import pool from "@/utils/db";
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method === "GET") {
@@ -10,7 +10,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           id: true,
           name: true,
           phone: true,
-          address: true,
+          email: true,
         },
         orderBy: {
           id: "desc",
@@ -34,15 +34,14 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       const customer = await pool.customer.create({
         data: {
           name,
-          // Replace 'contact' with the correct field name as defined in your Prisma schema, e.g. 'phone'
           phone: contact || null,
-          address: address || null,
+          email: address || null,
         },
         select: {
           id: true,
           name: true,
-          contact: true,
-          address: true,
+          phone: true,
+          email: true,
         },
       });
 
@@ -53,8 +52,57 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     }
   }
 
+  else if (req.method === "PUT") {
+    const { id, name, contact, address } = req.body;
+
+    if (!id || !name) {
+      return res.status(400).json({ message: "ID ve müşteri adı zorunludur" });
+    }
+
+    try {
+      const customer = await pool.customer.update({
+        where: { id: parseInt(id) },
+        data: {
+          name,
+          phone: contact || null,
+          email: address || null,
+        },
+        select: {
+          id: true,
+          name: true,
+          phone: true,
+          email: true,
+        },
+      });
+
+      res.status(200).json(customer);
+    } catch (error: any) {
+      console.error("PostgreSQL PUT error:", error);
+      res.status(500).json({ message: "Müşteri güncellenemedi", error: error.message });
+    }
+  }
+
+  else if (req.method === "DELETE") {
+    const { id } = req.body;
+
+    if (!id) {
+      return res.status(400).json({ message: "ID zorunludur" });
+    }
+
+    try {
+      await pool.customer.delete({
+        where: { id: parseInt(id) },
+      });
+
+      res.status(200).json({ message: "Müşteri başarıyla silindi" });
+    } catch (error: any) {
+      console.error("PostgreSQL DELETE error:", error);
+      res.status(500).json({ message: "Müşteri silinemedi", error: error.message });
+    }
+  }
+
   else {
-    res.setHeader("Allow", ["GET", "POST"]);
+    res.setHeader("Allow", ["GET", "POST", "PUT", "DELETE"]);
     res.status(405).json({ message: "Method not allowed" });
   }
 }

@@ -1,9 +1,11 @@
 import { useState, useEffect } from 'react';
+import type { CSSProperties } from "react";
 import axios from 'axios';
 import { useRouter } from 'next/router';
 
 interface FabricExitFormData {
   modelNo: string;
+  modelName: string; // Yeni alan: model adı
   orderNo: string;
   customerId: string;
   layerCount: number;
@@ -18,9 +20,17 @@ interface FabricExitFormData {
 }
 
 interface Product {
-  id: string;
+  id: number;
   modelNo: string;
   name: string;
+  materialTypeId?: number;
+  fabricTypeId?: number;
+  fabricType?: { id: number; name: string };
+  groupId?: number;
+  taxRateId?: number;
+  description?: string;
+  image?: string;
+  createdAt: Date;
 }
 
 interface ExternalProduct {
@@ -47,6 +57,7 @@ export default function FabricExit() {
 
   const [formData, setFormData] = useState<FabricExitFormData>({
     modelNo: '',
+    modelName: '', // Yeni alan
     orderNo: '',
     customerId: '',
     layerCount: 1,
@@ -72,42 +83,72 @@ export default function FabricExit() {
   });
   const [error, setError] = useState<string>('');
   const [manualModelNo, setManualModelNo] = useState<string>('');
+  const [manualModelName, setManualModelName] = useState<string>(''); // Yeni state
   const [useManualModelNo, setUseManualModelNo] = useState<boolean>(false);
 
-  // Predefined color options
-  const colorOptions = [
-    'Beyaz', 'Siyah', 'Mavi', 'Kırmızı', 'Yeşil', 'Sarı', 'Gri', 'Mor'
-  ];
+  // Ürün seçim modalı için yeni state'ler
+  const [showProductModal, setShowProductModal] = useState<boolean>(false);
+  const [filteredProducts, setFilteredProducts] = useState<Product[]>([]);
+  const [searchQuery, setSearchQuery] = useState<string>('');
+  const [showAutocomplete, setShowAutocomplete] = useState<boolean>(false);
 
-  // Predefined fabric type options
-  const fabricTypeOptions = [
-    'Düz', 'Penye', 'Open End', 'Likra', 'Pamuk', 'Polyester', 'Keten', 'Yün'
-  ];
+  // Color and fabric type options from API
+  const [colorOptions, setColorOptions] = useState<string[]>([]);
+  const [fabricTypeOptions, setFabricTypeOptions] = useState<string[]>([]);
+
+  // Color autocomplete states
+  const [filteredColors, setFilteredColors] = useState<string[]>([]);
+  const [showColorAutocomplete, setShowColorAutocomplete] = useState<boolean>(false);
+
+  // Fabric type autocomplete states
+  const [filteredFabricTypes, setFilteredFabricTypes] = useState<string[]>([]);
+  const [showFabricTypeAutocomplete, setShowFabricTypeAutocomplete] = useState<boolean>(false);
 
   // Ürünleri yükle
   useEffect(() => {
-    const fetchProducts = async () => {
+    const fetchData = async () => {
       try {
         setLoading(prev => ({ ...prev, products: true }));
-        const response = await axios.get<Product[]>('/api/products');
-        setProducts(response.data);
+        const [productsRes, colorsRes, fabricsRes] = await Promise.all([
+          axios.get<Product[]>('/api/products'),
+          axios.get('/api/colors'),
+          axios.get('/api/fabrics')
+        ]);
+        setProducts(productsRes.data);
+        setColorOptions(colorsRes.data.map((c: any) => c.name));
+        setFabricTypeOptions(fabricsRes.data.map((f: any) => f.name));
       } catch (err) {
-        setError('Sistem ürünleri yüklenemedi');
+        setError('Veriler yüklenemedi');
         console.error(err);
       } finally {
         setLoading(prev => ({ ...prev, products: false }));
       }
     };
-    fetchProducts();
+    fetchData();
   }, []);
+
+  // Model No değiştiğinde otomatik olarak fabric type'ı set et (manuel giriş için)
+  useEffect(() => {
+    if (useManualModelNo && formData.modelNo && products.length > 0) {
+      const selectedProduct = products.find(p => p.modelNo === formData.modelNo);
+      if (selectedProduct) {
+        setFormData(prev => ({
+          ...prev,
+          fabricType: selectedProduct.fabricType?.name || '',
+          modelName: selectedProduct.name || '' // Model adını da otomatik set et
+        }));
+        setManualModelName(selectedProduct.name || ''); // Manuel model adını da güncelle
+      }
+    }
+  }, [formData.modelNo, useManualModelNo, products]);
 
   // Kesim masalarını yükle
   useEffect(() => {
     const fetchCuttingTables = async () => {
       try {
         setLoading(prev => ({ ...prev, cuttingTables: true }));
-        const response = await axios.get<CuttingTable[]>('/api/cutting-tables');
-        setCuttingTables(response.data);
+        const response = await axios.get('/api/cutting-tables');
+        setCuttingTables(response.data.data);
       } catch (err) {
         setError('Kesim masaları yüklenemedi');
         console.error(err);
@@ -156,6 +197,117 @@ export default function FabricExit() {
       ...prev,
       [name]: name === 'layerCount' || name === 'grammage' || name === 'productionKg' || name === 'productionMeters' ? Number(value) : value
     }));
+
+    // Model No değiştiğinde otomatik tamamlama
+    if (name === 'modelNo' && !useManualModelNo) {
+      handleModelNoChange(value);
+    }
+
+    // Color değiştiğinde otomatik tamamlama
+    if (name === 'color') {
+      handleColorChange(value);
+    }
+  };
+
+  // Model No değişikliği için otomatik tamamlama
+  const handleModelNoChange = (value: string) => {
+    if (value.length > 0) {
+      const filtered = products.filter(product =>
+        product.modelNo.toLowerCase().includes(value.toLowerCase()) ||
+        product.name.toLowerCase().includes(value.toLowerCase())
+      );
+      setFilteredProducts(filtered.slice(0, 5)); // İlk 5 sonuç
+      setShowAutocomplete(filtered.length > 0);
+    } else {
+      setShowAutocomplete(false);
+    }
+  };
+
+  // Color değişikliği için otomatik tamamlama
+  const handleColorChange = (value: string) => {
+    if (value.length > 0) {
+      const filtered = colorOptions.filter(color =>
+        color.toLowerCase().includes(value.toLowerCase())
+      );
+      setFilteredColors(filtered.slice(0, 5)); // İlk 5 sonuç
+      setShowColorAutocomplete(filtered.length > 0);
+    } else {
+      setShowColorAutocomplete(false);
+    }
+  };
+
+  // Fabric type değişikliği için otomatik tamamlama
+  const handleFabricTypeChange = (value: string) => {
+    if (value.length > 0) {
+      const filtered = fabricTypeOptions.filter(type =>
+        type.toLowerCase().includes(value.toLowerCase())
+      );
+      setFilteredFabricTypes(filtered.slice(0, 5)); // İlk 5 sonuç
+      setShowFabricTypeAutocomplete(filtered.length > 0);
+    } else {
+      setShowFabricTypeAutocomplete(false);
+    }
+  };
+
+  // Ürün seçimi (autocomplete'den)
+  const handleProductSelect = (product: Product) => {
+    setFormData(prev => ({
+      ...prev,
+      modelNo: product.modelNo,
+      modelName: product.name,
+      fabricType: product.fabricType?.name || ''
+    }));
+    setShowAutocomplete(false);
+  };
+
+  // Color seçimi
+  const handleColorSelect = (color: string) => {
+    setFormData(prev => ({
+      ...prev,
+      color: color
+    }));
+    setShowColorAutocomplete(false);
+  };
+
+  // Fabric type seçimi
+  const handleFabricTypeSelect = (fabricType: string) => {
+    setFormData(prev => ({
+      ...prev,
+      fabricType: fabricType
+    }));
+    setShowFabricTypeAutocomplete(false);
+  };
+
+  // Ürün modalını açma
+  const handleShowProductModal = () => {
+    setShowProductModal(true);
+    setFilteredProducts(products);
+    setSearchQuery('');
+  };
+
+  // Modal'dan ürün seçimi
+  const handleModalProductSelect = (product: Product) => {
+    setFormData(prev => ({
+      ...prev,
+      modelNo: product.modelNo,
+      modelName: product.name,
+      fabricType: product.fabricType?.name || ''
+    }));
+    setShowProductModal(false);
+  };
+
+  // Modal arama
+  const handleModalSearch = (query: string) => {
+    setSearchQuery(query);
+    if (query.length > 0) {
+      const filtered = products.filter(product => 
+        product.modelNo.toLowerCase().includes(query.toLowerCase()) ||
+        product.name.toLowerCase().includes(query.toLowerCase())
+      );
+      setFilteredProducts(filtered);
+    } else {
+      setFilteredProducts(products);
+    }
   };
 
   const handleManualModelNoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -164,19 +316,23 @@ export default function FabricExit() {
     setFormData(prev => ({ ...prev, modelNo: value }));
   };
 
-  const handleModelNoSelectChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+  const handleManualModelNameChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const value = e.target.value;
-    setFormData(prev => ({ ...prev, modelNo: value }));
-    setManualModelNo('');
-    setUseManualModelNo(false);
+    setManualModelName(value);
+    setFormData(prev => ({ ...prev, modelName: value }));
   };
 
   const toggleManualModelNo = () => {
     setUseManualModelNo(!useManualModelNo);
     if (!useManualModelNo) {
-      setFormData(prev => ({ ...prev, modelNo: '' }));
-    } else {
+      setFormData(prev => ({ 
+        ...prev, 
+        modelNo: '',
+        modelName: '',
+        fabricType: '' 
+      }));
       setManualModelNo('');
+      setManualModelName('');
     }
   };
 
@@ -196,7 +352,18 @@ export default function FabricExit() {
       setError('Model No girilmelidir.');
       return;
     }
-
+    if (!formData.modelName.trim()) {
+      setError('Model Adı girilmelidir.');
+      return;
+    }
+    if (!formData.orderNo.trim()) {
+      setError('Sipariş No girilmelidir.');
+      return;
+    }
+    if (!formData.customerId.trim()) {
+      setError('Müşteri ID girilmelidir.');
+      return;
+    }
     if ((formData.unitType === 'kg' && formData.productionKg <= 0) || (formData.unitType === 'm' && formData.productionMeters <= 0)) {
       setError('Üretim miktarı girilmelidir.');
       return;
@@ -222,7 +389,7 @@ export default function FabricExit() {
       setLoading(prev => ({ ...prev, submit: true }));
       setError('');
       console.log('Gönderilen formData:', formData);
-      const response = await axios.post('/api/fabric-exits', {
+      const response = await axios.post('/api/fabric-exit', {
         ...formData,
         createdAt: new Date().toISOString()
       });
@@ -258,51 +425,117 @@ export default function FabricExit() {
             </div>
             
             {useManualModelNo ? (
-              <input
-                type="text"
-                value={manualModelNo}
-                onChange={handleManualModelNoChange}
-                style={styles.input}
-                placeholder="Model numarasını yazın..."
-                required
-              />
+              <>
+                <input
+                  type="text"
+                  value={manualModelNo}
+                  onChange={handleManualModelNoChange}
+                  style={styles.input}
+                  placeholder="Model numarasını yazın..."
+                  required
+                />
+                <input
+                  type="text"
+                  value={manualModelName}
+                  onChange={handleManualModelNameChange}
+                  style={styles.input}
+                  placeholder="Model adını yazın..."
+                  required
+                />
+              </>
             ) : (
-              <select
-                name="modelNo"
-                value={formData.modelNo}
-                onChange={handleModelNoSelectChange}
-                style={loading.products ? {...styles.select, ...styles.disabled} : styles.select}
-                required
-                disabled={loading.products}
-              >
-                <option value="">Seçiniz</option>
-                {products.map(product => (
-                  <option key={product.id} value={product.modelNo}>
-                    {product.modelNo} - {product.name}
-                  </option>
-                ))}
-              </select>
+              <div style={styles.inputWithAutocomplete}>
+                <input
+                  type="text"
+                  name="modelNo"
+                  value={formData.modelNo}
+                  onChange={handleChange}
+                  style={styles.input}
+                  placeholder="Model numarası yazın veya listeden seçin..."
+                  required
+                />
+                <button
+                  type="button"
+                  onClick={handleShowProductModal}
+                  style={styles.listButton}
+                  title="Ürün listesinden seç"
+                >
+                  📋
+                </button>
+                
+                {/* Otomatik tamamlama dropdown */}
+                {showAutocomplete && filteredProducts.length > 0 && (
+                  <div style={styles.autocompleteDropdown}>
+                    {filteredProducts.map(product => (
+                      <div
+                        key={product.id}
+                        style={styles.autocompleteItem}
+                        onClick={() => handleProductSelect(product)}
+                      >
+                        <div style={styles.autocompleteModelNo}>{product.modelNo}</div>
+                        <div style={styles.autocompleteName}>{product.name}</div>
+                        {product.fabricType && (
+                          <div style={styles.autocompleteFabricType}>
+                            Kumaş: {product.fabricType.name}
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
             )}
           </div>
 
           <div style={styles.inputGroup}>
-            <label style={styles.label}>Kumaş Türü</label>
-            <select
-              name="fabricType"
-              value={formData.fabricType}
+            <label style={styles.label}>Model Adı</label>
+            <input
+              type="text"
+              name="modelName"
+              value={formData.modelName}
               onChange={handleChange}
-              style={styles.select}
+              style={styles.input}
+              placeholder="Model adı..."
               required
-            >
-              <option value="">Seçiniz</option>
-              {fabricTypeOptions.map(type => (
-                <option key={type} value={type}>
-                  {type}
-                </option>
-              ))}
-            </select>
+            />
           </div>
 
+          <div style={styles.inputGroup}>
+            <label style={styles.label}>Kumaş Türü</label>
+            <div style={styles.inputWithAutocomplete}>
+              <input
+                type="text"
+                name="fabricType"
+                value={formData.fabricType}
+                onChange={(e) => {
+                  handleChange(e);
+                  handleFabricTypeChange(e.target.value);
+                }}
+                style={styles.input}
+                placeholder="Kumaş türü yazın veya listeden seçin..."
+                required
+              />
+
+              {/* Fabric type otomatik tamamlama dropdown */}
+              {showFabricTypeAutocomplete && filteredFabricTypes.length > 0 && (
+                <div style={styles.fabricTypeAutocompleteDropdown}>
+                  {filteredFabricTypes.map(type => (
+                    <div
+                      key={type}
+                      style={styles.autocompleteItem}
+                      onClick={() => handleFabricTypeSelect(type)}
+                    >
+                      {type}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* 2. Satır */}
+        <div style={styles.row}>
           <div style={styles.inputGroup}>
             <label style={styles.label}>Sipariş No</label>
             <input
@@ -314,10 +547,7 @@ export default function FabricExit() {
               required
             />
           </div>
-        </div>
 
-        {/* 2. Satır */}
-        <div style={styles.row}>
           <div style={styles.inputGroup}>
             <label style={styles.label}>Müşteri ID</label>
             <input
@@ -341,7 +571,10 @@ export default function FabricExit() {
               min={1}
             />
           </div>
+        </div>
 
+        {/* 3. Satır */}
+        <div style={styles.row}>
           <div style={styles.inputGroup}>
             <label style={styles.label}>Gramaj (g/m²)</label>
             <input
@@ -353,10 +586,7 @@ export default function FabricExit() {
               step={0.01}
             />
           </div>
-        </div>
 
-        {/* 3. Satır */}
-        <div style={styles.row}>
           <div style={styles.inputGroup}>
             <label style={styles.label}>Model No (Dış Sistem)</label>
             <div style={styles.selectWithButton}>
@@ -396,34 +626,46 @@ export default function FabricExit() {
             >
               <option value="">Seçiniz</option>
               {cuttingTables.map(table => (
-                <option key={table.id} value={table.id}>
+                <option key={table.id} value={table.id.toString()}>
                   {table.name}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          <div style={styles.inputGroup}>
-            <label style={styles.label}>Renk</label>
-            <select
-              name="color"
-              value={formData.color}
-              onChange={handleChange}
-              style={styles.select}
-              required
-            >
-              <option value="">Seçiniz</option>
-              {colorOptions.map(color => (
-                <option key={color} value={color}>
-                  {color}
                 </option>
               ))}
             </select>
           </div>
         </div>
 
-        {/* 4. Satır - Üretim Miktarı */}
+        {/* 4. Satır */}
         <div style={styles.row}>
+          <div style={styles.inputGroup}>
+            <label style={styles.label}>Renk</label>
+            <div style={styles.inputWithAutocomplete}>
+              <input
+                type="text"
+                name="color"
+                value={formData.color}
+                onChange={handleChange}
+                style={styles.input}
+                placeholder="Renk yazın veya listeden seçin..."
+                required
+              />
+
+              {/* Color otomatik tamamlama dropdown */}
+              {showColorAutocomplete && filteredColors.length > 0 && (
+                <div style={styles.colorAutocompleteDropdown}>
+                  {filteredColors.map(color => (
+                    <div
+                      key={color}
+                      style={styles.autocompleteItem}
+                      onClick={() => handleColorSelect(color)}
+                    >
+                      {color}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+
           <div style={{ ...styles.inputGroup, flex: 2 }}>
             <label style={styles.label}>Üretim Miktarı</label>
             <div style={styles.unitGroup}>
@@ -499,13 +741,68 @@ export default function FabricExit() {
           </button>
         </div>
       </form>
+
+      {/* Ürün Seçim Modalı */}
+      {showProductModal && (
+        <div style={styles.modalOverlay} onClick={() => setShowProductModal(false)}>
+          <div style={styles.modalContent} onClick={(e) => e.stopPropagation()}>
+            <div style={styles.modalHeader}>
+              <h2 style={styles.modalTitle}>Ürün Seç</h2>
+              <button
+                type="button"
+                onClick={() => setShowProductModal(false)}
+                style={styles.modalCloseButton}
+              >
+                ✕
+              </button>
+            </div>
+            
+            <div style={styles.modalSearch}>
+              <input
+                type="text"
+                placeholder="Model No veya ürün adı ile ara..."
+                value={searchQuery}
+                onChange={(e) => handleModalSearch(e.target.value)}
+                style={styles.modalSearchInput}
+              />
+            </div>
+            
+            <div style={styles.modalBody}>
+              {filteredProducts.length > 0 ? (
+                <div style={styles.productList}>
+                  {filteredProducts.map(product => (
+                    <div
+                      key={product.id}
+                      style={styles.productItem}
+                      onClick={() => handleModalProductSelect(product)}
+                    >
+                      <div style={styles.productModelNo}>{product.modelNo}</div>
+                      <div style={styles.productName}>{product.name}</div>
+                      {product.fabricType && (
+                        <div style={styles.productFabricType}>
+                          Kumaş Türü: {product.fabricType.name}
+                        </div>
+                      )}
+                      {product.description && (
+                        <div style={styles.productDescription}>{product.description}</div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div style={styles.noResults}>Ürün bulunamadı</div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
 
 const styles = {
   container: {
-    maxWidth: '800px',
+    maxWidth: '900px',
     margin: '2rem auto',
     padding: '2rem',
     backgroundColor: '#f8f9fa',
@@ -663,5 +960,193 @@ const styles = {
   scaleButtonLoading: {
     backgroundColor: '#6c757d',
     cursor: 'not-allowed'
+  },
+  
+  // Yeni stiller
+  inputWithAutocomplete: {
+    position: 'relative' as const,
+    display: 'flex',
+    gap: '0.5rem'
+  },
+  listButton: {
+    padding: '0.75rem',
+    backgroundColor: '#007bff',
+    color: 'white',
+    border: 'none',
+    borderRadius: '6px',
+    cursor: 'pointer',
+    fontSize: '1rem',
+    minWidth: '50px',
+    transition: 'background-color 0.3s'
+  },
+  autocompleteDropdown: {
+    position: 'absolute' as const,
+    top: '100%',
+    left: 0,
+    right: '60px',
+    backgroundColor: 'white',
+    border: '1px solid #ddd',
+    borderRadius: '6px',
+    boxShadow: '0 4px 12px rgba(0, 0, 0, 0.1)',
+    zIndex: 1000,
+    maxHeight: '200px',
+    overflowY: 'auto' as const
+  },
+  autocompleteItem: {
+    padding: '0.75rem',
+    cursor: 'pointer',
+    borderBottom: '1px solid #f0f0f0',
+    transition: 'background-color 0.2s'
+  },
+  autocompleteModelNo: {
+    fontWeight: 'bold',
+    color: '#2c3e50',
+    fontSize: '0.9rem'
+  },
+  autocompleteName: {
+    color: '#495057',
+    fontSize: '0.9rem',
+    marginTop: '0.25rem'
+  },
+  autocompleteFabricType: {
+    color: '#28a745',
+    fontSize: '0.8rem',
+    marginTop: '0.25rem',
+    fontStyle: 'italic'
+  },
+  
+  // Modal stilleri
+  modalOverlay: {
+    position: 'fixed' as const,
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 1000,
+    padding: '2rem'
+  },
+  modalContent: {
+    backgroundColor: 'white',
+    borderRadius: '12px',
+    maxWidth: '700px',
+    width: '100%',
+    maxHeight: '80vh',
+    display: 'flex',
+    flexDirection: 'column' as const,
+    boxShadow: '0 4px 12px rgba(0, 0, 0, 0.1)'
+  },
+  modalHeader: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: '1.5rem',
+    borderBottom: '1px solid #eee'
+  },
+  modalTitle: {
+    margin: 0,
+    color: '#2c3e50',
+    fontSize: '1.5rem'
+  },
+  modalCloseButton: {
+    background: 'none',
+    border: 'none',
+    fontSize: '1.5rem',
+    cursor: 'pointer',
+    color: '#6c757d',
+    padding: '0.5rem',
+    borderRadius: '4px',
+    transition: 'background-color 0.2s'
+  },
+  modalSearch: {
+    padding: '1rem 1.5rem',
+    borderBottom: '1px solid #eee'
+  },
+  modalSearchInput: {
+    width: '100%',
+    padding: '0.75rem',
+    border: '1px solid #ddd',
+    borderRadius: '6px',
+    fontSize: '1rem',
+    outline: 'none'
+  },
+  modalBody: {
+    flex: 1,
+    overflowY: 'auto' as const,
+    padding: '1.5rem'
+  },
+  productList: {
+    display: 'flex',
+    flexDirection: 'column' as const,
+    gap: '0.5rem'
+  },
+  productItem: {
+    padding: '1rem',
+    border: '1px solid #eee',
+    borderRadius: '6px',
+    cursor: 'pointer',
+    transition: 'all 0.2s',
+    backgroundColor: '#f8f9fa'
+  },
+  productModelNo: {
+    fontWeight: 'bold',
+    color: '#2c3e50',
+    fontSize: '1rem'
+  },
+  productName: {
+    color: '#495057',
+    fontSize: '0.95rem',
+    marginTop: '0.25rem'
+  },
+  productFabricType: {
+    color: '#28a745',
+    fontSize: '0.85rem',
+    marginTop: '0.25rem',
+    fontWeight: '500'
+  },
+  productDescription: {
+    color: '#6c757d',
+    fontSize: '0.8rem',
+    marginTop: '0.25rem',
+    fontStyle: 'italic'
+  },
+  noResults: {
+    textAlign: 'center' as const,
+    color: '#6c757d',
+    padding: '2rem',
+    fontSize: '1rem'
+  },
+
+  // Color autocomplete styles
+  colorAutocompleteDropdown: {
+    position: 'absolute' as const,
+    top: '100%',
+    left: 0,
+    right: 0,
+    backgroundColor: 'white',
+    border: '1px solid #ddd',
+    borderRadius: '6px',
+    boxShadow: '0 4px 12px rgba(0, 0, 0, 0.1)',
+    zIndex: 1000,
+    maxHeight: '200px',
+    overflowY: 'auto' as const
+  },
+
+  // Fabric type autocomplete styles
+  fabricTypeAutocompleteDropdown: {
+    position: 'absolute' as const,
+    top: '100%',
+    left: 0,
+    right: 0,
+    backgroundColor: 'white',
+    border: '1px solid #ddd',
+    borderRadius: '6px',
+    boxShadow: '0 4px 12px rgba(0, 0, 0, 0.1)',
+    zIndex: 1000,
+    maxHeight: '200px',
+    overflowY: 'auto' as const
   }
 };

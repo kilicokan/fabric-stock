@@ -7,117 +7,109 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-// Ürün tablosu
 model Product {
-  id            Int      @id @default(autoincrement())
-  modelNo       String   @unique
-  name          String
+  id             Int           @id @default(autoincrement())
+  modelNo        String        @unique
+  name           String
   materialTypeId Int?
-  materialType  MaterialType? @relation(fields: [materialTypeId], references: [id])
-  groupId       Int?
-  group         Group?        @relation(fields: [groupId], references: [id])
-  taxRateId     Int?
-  taxRate       TaxRate?      @relation(fields: [taxRateId], references: [id])
-  description   String?
-  image         String?
-  createdAt     DateTime @default(now())
+  fabricId       Int?
+  groupId        Int?
+  taxRateId      Int?
+  description    String?
+  image          String?
+  createdAt      DateTime      @default(now())
+  fabric         Fabric?       @relation(fields: [fabricId], references: [id])
+  group          Group?        @relation(fields: [groupId], references: [id])
+  materialType   MaterialType? @relation(fields: [materialTypeId], references: [id])
+  taxRate        TaxRate?      @relation(fields: [taxRateId], references: [id])
 }
 
-// Malzeme türü tablosu
 model MaterialType {
-  id        Int      @id @default(autoincrement())
-  name      String   @unique
-  products  Product[] // Ters ilişki
-  createdAt DateTime @default(now())
+  id        Int       @id @default(autoincrement())
+  name      String    @unique
+  createdAt DateTime  @default(now())
+  products  Product[]
 }
 
-// Grup tablosu
 model Group {
-  id        Int      @id @default(autoincrement())
-  name      String   @unique
-  products  Product[] // Ters ilişki
-  createdAt DateTime @default(now())
+  id        Int       @id @default(autoincrement())
+  name      String    @unique
+  createdAt DateTime  @default(now())
+  products  Product[]
 }
 
-// Vergi oranı tablosu
 model TaxRate {
-  id        Int      @id @default(autoincrement())
-  name      String   @unique
-  products  Product[] // Ters ilişki
-  createdAt DateTime @default(now())
+  id        Int       @id @default(autoincrement())
+  name      String    @unique
+  createdAt DateTime  @default(now())
+  products  Product[]
 }
 
-// Kumaş tipi tablosu
 model FabricType {
-  id      Int           @id @default(autoincrement())
-  name    String
-  entries FabricEntry[] // ters ilişki
+  id   Int    @id @default(autoincrement())
+  name String
 }
 
-// Renk tablosu
 model Color {
   id      Int           @id @default(autoincrement())
   name    String
-  entries FabricEntry[] // ters ilişki
+  entries FabricEntry[]
 }
 
-// Kesim masası tablosu
 model CuttingTable {
   id    Int          @id @default(autoincrement())
   name  String
-  exits FabricExit[] // FabricExit ile ilişki
+  exits FabricExit[]
 }
 
-// Kumaş giriş tablosu
 model FabricEntry {
-  id            Int          @id @default(autoincrement())
-  fabricTypeId  Int
-  fabricType    FabricType   @relation(fields: [fabricTypeId], references: [id])
-  colorId       Int
-  color         Color        @relation(fields: [colorId], references: [id])
-  quantityKg    Float
-  lengthMeter   Float?
-  entryDate     DateTime     @default(now())
-  fabricExits   FabricExit[] @relation("FabricEntryToFabricExit") // Ters ilişki
+  id          Int          @id @default(autoincrement())
+  fabricId    Int
+  colorId     Int
+  quantityKg  Float
+  lengthMeter Float?
+  entryDate   DateTime     @default(now())
+  color       Color        @relation(fields: [colorId], references: [id])
+  fabric      Fabric       @relation(fields: [fabricId], references: [id])
+  fabricExits FabricExit[] @relation("FabricEntryToFabricExit")
 }
 
-// Kumaş çıkış tablosu
 model FabricExit {
-  id                Int           @id @default(autoincrement())
-  modelNo           String
-  orderNo           String
-  customerId        String
-  layerCount        Int           @default(1)
-  productWeightKg   Float         @default(0)
+  id                 Int          @id @default(autoincrement())
+  modelNo            String
+  modelName          String?
+  orderNo            String
+  customerId         String
+  layerCount         Int          @default(1)
+  productWeightKg    Float        @default(0)
   productLengthMeter Float        @default(0)
-  grammage          Float         @default(0)
-  externalProductId String?
-  unitType          String
-  fabricType        String?
-  color             String?
-  cuttingTable      CuttingTable  @relation(fields: [cuttingTableId], references: [id])
-  cuttingTableId    Int
-  createdAt         DateTime      @default(now())
-  fabricEntry       FabricEntry?  @relation(fields: [fabricEntryId], references: [id])
-  fabricEntryId     Int?
+  grammage           Float        @default(0)
+  externalProductId  String?
+  unitType           String
+  fabricType         String?
+  color              String?
+  cuttingTableId     Int
+  createdAt          DateTime     @default(now())
+  fabricEntryId      Int?
+  cuttingTable       CuttingTable @relation(fields: [cuttingTableId], references: [id])
+  fabricEntry        FabricEntry? @relation("FabricEntryToFabricExit", fields: [fabricEntryId], references: [id])
 }
 
-// Kullanıcı tablosu (JWT için)
 model User {
-  id        Int      @id @default(autoincrement())
-  email     String   @unique
-  password  String   // hash'li saklanacak
-  role      Role     @default(OPERATOR)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id                 Int             @id @default(autoincrement())
+  email              String          @unique
+  password           String
+  role               Role            @default(OPERATOR)
+  name               String?
+  phone              String?
+  stockAccess        Boolean         @default(false)
+  fasonAccess        Boolean         @default(false)
+  createdAt          DateTime        @default(now())
+  updatedAt          DateTime        @updatedAt
+  fasonTrackings     FasonTracking[]
+  assignedWorkOrders WorkOrder[]
 }
 
-enum Role {
-  ADMIN
-  OPERATOR
-}
-
-// Müşteri tablosu
 model Customer {
   id        Int      @id @default(autoincrement())
   name      String
@@ -126,16 +118,127 @@ model Customer {
   createdAt DateTime @default(now())
 }
 
-// Kumaş Kartı
+model Supplier {
+  id        Int      @id @default(autoincrement())
+  name      String
+  phone     String?
+  email     String?
+  createdAt DateTime @default(now())
+}
+
 model Fabric {
-  id            Int      @id @default(autoincrement())
-  code          String?  @unique
+  id            Int           @id @default(autoincrement())
+  code          String?       @unique
   name          String
   property      String?
   width         Float?
   length        Float?
   depot         String?
   unit          String?
-  stockQuantity Float    @default(0)
-  createdAt     DateTime @default(now())
+  stockQuantity Float         @default(0)
+  createdAt     DateTime      @default(now())
+  entries       FabricEntry[]
+  products      Product[]
+}
+
+model FasonWorkshop {
+  id             Int             @id @default(autoincrement())
+  name           String          @unique
+  contactPerson  String?
+  phone          String?
+  address        String?
+  specialization WorkshopType
+  isActive       Boolean         @default(true)
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+  fasonTrackings FasonTracking[]
+}
+
+model WorkOrder {
+  id               Int             @id @default(autoincrement())
+  orderNo          String          @unique
+  productCode      String
+  productName      String?
+  quantity         Int
+  customerName     String?
+  deliveryDate     DateTime?
+  notes            String?
+  status           OrderStatus     @default(BEKLIYOR)
+  priority         Priority        @default(MEDIUM)
+  assignedToMobile Boolean         @default(false)
+  mobileAssignmentDate DateTime?   @map("mobile_assignment_date")
+  assignedUserId   Int?
+  assignedUser     User?           @relation(fields: [assignedUserId], references: [id])
+  externalErpId    String?
+  createdAt        DateTime        @default(now())
+  updatedAt        DateTime        @updatedAt
+  fasonTrackings   FasonTracking[]
+}
+
+model FasonTracking {
+  id           Int            @id @default(autoincrement())
+  workOrderId  Int
+  workshopId   Int?
+  userId       Int
+  processType  ProcessType
+  status       ProcessStatus
+  startDate    DateTime?
+  endDate      DateTime?
+  pickupDate   DateTime?
+  deliveryDate DateTime?
+  notes        String?
+  problemNotes String?
+  latitude     Float?
+  longitude    Float?
+  createdAt    DateTime       @default(now())
+  updatedAt    DateTime       @updatedAt
+  user         User           @relation(fields: [userId], references: [id])
+  workOrder    WorkOrder      @relation(fields: [workOrderId], references: [id])
+  workshop     FasonWorkshop? @relation(fields: [workshopId], references: [id])
+}
+
+enum Role {
+  ADMIN
+  OPERATOR
+  STOCK_MANAGER
+  FASON_TRACKER
+}
+
+enum WorkshopType {
+  DIKIM
+  BASKI_NAKIS
+  UTU
+}
+
+enum OrderStatus {
+  BEKLIYOR
+  ALINDI
+  ATÖLYEDE
+  HAZIR
+  TESLIM_EDILDI
+  SORUN_VAR
+}
+
+enum Priority {
+  LOW
+  MEDIUM
+  HIGH
+  URGENT
+}
+
+enum ProcessType {
+  KESIM
+  DIKIM
+  BASKI_NAKIS
+  UTU
+}
+
+enum ProcessStatus {
+  BEKLIYOR
+  ALINDI
+  ATÖLYEDE
+  HAZIR
+  TESLIM_EDILDI
+  SORUN_VAR
+  IPTAL_EDILDI
 }

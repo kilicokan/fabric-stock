@@ -15,6 +15,9 @@ type PlanningRow = {
   orderNo?: string;
   customerId?: string;
   color?: string;
+  outputQuantity: number;
+  divideBy: 'kg' | 'meter';
+  unitGramaj: number;
 };
 
 export default function FabricsPlanningPage() {
@@ -42,18 +45,25 @@ export default function FabricsPlanningPage() {
       setLoading(true);
       try {
         const response = await axios.get('/api/fabric-exits');
-        const data = response.data.map((item: any, index: number) => ({
-          id: item.id || index + 1,
-          fabricType: item.fabricType || item.fabricEntry?.fabricType?.name || 'Bilinmiyor',
-          tableName: item.cuttingTable?.name || 'Bilinmiyor',
-          quantityKg: item.productWeightKg || 0,
-          quantityMeter: item.productLengthMeter || 0,
-          exitDate: item.createdAt ? new Date(item.createdAt).toISOString().split('T')[0] : new Date().toISOString().split('T')[0],
-          modelNo: item.modelNo,
-          orderNo: item.orderNo,
-          customerId: item.customerId,
-          color: item.color
-        }));
+        const data = response.data.map((item: any, index: number) => {
+          const quantityKg = item.productWeightKg || 0;
+          const quantityMeter = item.productLengthMeter || 0;
+          return {
+            id: item.id || index + 1,
+            fabricType: item.fabricType || item.fabricEntry?.fabric?.name || 'Bilinmiyor',
+            tableName: item.cuttingTable?.name || 'Bilinmiyor',
+            quantityKg,
+            quantityMeter,
+            exitDate: item.createdAt ? new Date(item.createdAt).toISOString().split('T')[0] : new Date().toISOString().split('T')[0],
+            modelNo: item.modelNo,
+            orderNo: item.orderNo,
+            customerId: item.customerId,
+            color: item.color,
+            outputQuantity: 0,
+            divideBy: 'kg' as 'kg' | 'meter',
+            unitGramaj: quantityMeter > 0 ? quantityKg / quantityMeter : 0
+          };
+        });
         setRows(data);
         setFilteredRows(data);
       } catch (err) {
@@ -83,10 +93,12 @@ export default function FabricsPlanningPage() {
 
     if (sortConfig.key) {
       result.sort((a, b) => {
-        if (a[sortConfig.key] < b[sortConfig.key]) {
+        const aVal = (a as any)[sortConfig.key];
+        const bVal = (b as any)[sortConfig.key];
+        if (aVal < bVal) {
           return sortConfig.direction === 'asc' ? -1 : 1;
         }
-        if (a[sortConfig.key] > b[sortConfig.key]) {
+        if (aVal > bVal) {
           return sortConfig.direction === 'asc' ? 1 : -1;
         }
         return 0;
@@ -99,6 +111,14 @@ export default function FabricsPlanningPage() {
   const handleFilterChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     const { name, value } = e.target;
     setFilters(prev => ({ ...prev, [name]: value }));
+  };
+
+  const handleOutputChange = (id: number, value: number) => {
+    setRows(prev => prev.map(row => row.id === id ? { ...row, outputQuantity: value, unitGramaj: value > 0 ? row.quantityKg / value : 0 } : row));
+  };
+
+  const handleDivideByChange = (id: number, value: 'kg' | 'meter') => {
+    setRows(prev => prev.map(row => row.id === id ? { ...row, divideBy: value } : row));
   };
 
   const handleSort = (key: string) => {
@@ -152,7 +172,10 @@ export default function FabricsPlanningPage() {
       'Model No',
       'Sipariş No',
       'Müşteri ID',
-      'Renk'
+      'Renk',
+      'Birim Gramaj',
+      'Çıktı Miktarı',
+      'Bölünecek Birim'
     ];
     const tableRows: any[] = filteredRows.map(row => [
       row.fabricType,
@@ -163,7 +186,10 @@ export default function FabricsPlanningPage() {
       row.modelNo || '-',
       row.orderNo || '-',
       row.customerId || '-',
-      row.color || '-'
+      row.color || '-',
+      `${row.unitGramaj.toFixed(3)} g/adet`,
+      row.outputQuantity,
+      row.divideBy === 'kg' ? 'kg' : 'metre'
     ]);
     
     (doc as any).autoTable({
@@ -403,7 +429,7 @@ export default function FabricsPlanningPage() {
                     )}
                   </div>
                 </th>
-                <th 
+                <th
                   className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100"
                   onClick={() => handleSort('color')}
                 >
@@ -414,12 +440,29 @@ export default function FabricsPlanningPage() {
                     )}
                   </div>
                 </th>
+                <th
+                  className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100"
+                  onClick={() => handleSort('unitGramaj')}
+                >
+                  <div className="flex items-center">
+                    <span>Birim Gramaj</span>
+                    {sortConfig.key === 'unitGramaj' && (
+                      <span className="ml-1">{sortConfig.direction === 'asc' ? '↑' : '↓'}</span>
+                    )}
+                  </div>
+                </th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Çıktı Miktarı
+                </th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Bölünecek Birim
+                </th>
               </tr>
             </thead>
             <tbody className="bg-white divide-y divide-gray-200">
               {loading ? (
                 <tr>
-                  <td colSpan={9} className="px-6 py-4 text-center">
+                  <td colSpan={12} className="px-6 py-4 text-center">
                     <div className="flex justify-center items-center">
                       <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-500"></div>
                       <span className="ml-2">Yükleniyor...</span>
@@ -428,7 +471,7 @@ export default function FabricsPlanningPage() {
                 </tr>
               ) : filteredRows.length === 0 ? (
                 <tr>
-                  <td colSpan={9} className="px-6 py-4 text-center text-gray-500">
+                  <td colSpan={12} className="px-6 py-4 text-center text-gray-500">
                     Filtreleme kriterlerinize uygun kayıt bulunamadı.
                   </td>
                 </tr>
@@ -458,6 +501,30 @@ export default function FabricsPlanningPage() {
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">{row.orderNo || '-'}</td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">{row.customerId || '-'}</td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">{row.color || '-'}</td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
+                      <span className="px-2 py-1 bg-yellow-100 text-yellow-800 rounded-md font-medium">
+                        {row.unitGramaj.toFixed(3)} g/adet
+                      </span>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
+                      <input
+                        type="number"
+                        value={row.outputQuantity}
+                        onChange={(e) => handleOutputChange(row.id, Number(e.target.value))}
+                        className="w-20 p-1 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500"
+                        min="0"
+                      />
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
+                      <select
+                        value={row.divideBy}
+                        onChange={(e) => handleDivideByChange(row.id, e.target.value as 'kg' | 'meter')}
+                        className="w-20 p-1 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500"
+                      >
+                        <option value="kg">kg</option>
+                        <option value="meter">metre</option>
+                      </select>
+                    </td>
                   </tr>
                 ))
               )}

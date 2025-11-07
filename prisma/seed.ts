@@ -1,67 +1,73 @@
 import { PrismaClient } from '@prisma/client';
+import bcrypt from 'bcryptjs';
 
 const prisma = new PrismaClient();
 
 async function main() {
-  await prisma.materialType.createMany({
-    data: [
-      { name: 'Kumaş' },
-      { name: 'Deri' },
-    ],
-    skipDuplicates: true,
+  console.log('🌱 Seeding database...');
+
+  // Admin user oluştur
+  const hashedPassword = await bcrypt.hash('admin123', 10);
+
+  const adminUser = await prisma.user.upsert({
+    where: { email: 'admin@mira.com' },
+    update: {},
+    create: {
+      email: 'admin@mira.com',
+      password: hashedPassword,
+      role: 'ADMIN',
+      name: 'Admin User',
+      stockAccess: true,
+      fasonAccess: true,
+    },
   });
 
-  await prisma.group.createMany({
-    data: [
-      { name: 'Dokuma Kumaş' },
-      { name: 'Örme Kumaş' },
-    ],
-    skipDuplicates: true,
+  console.log('✅ Admin user created:', adminUser.email);
+
+  // Test operator user
+  const operatorPassword = await bcrypt.hash('operator123', 10);
+
+  const operatorUser = await prisma.user.upsert({
+    where: { email: 'operator@mira.com' },
+    update: {},
+    create: {
+      email: 'operator@mira.com',
+      password: operatorPassword,
+      role: 'OPERATOR',
+      name: 'Operator User',
+      stockAccess: true,
+      fasonAccess: false,
+    },
   });
 
-  await prisma.taxRate.createMany({
-    data: [
-      { name: '%0' },
-      { name: '%1' },
-      { name: '%10' },
-      { name: '%20' },
-    ],
-    skipDuplicates: true,
+  console.log('✅ Operator user created:', operatorUser.email);
+
+  // Test fason tracker user
+  const fasonPassword = await bcrypt.hash('fason123', 10);
+
+  const fasonUser = await prisma.user.upsert({
+    where: { email: 'fason@mira.com' },
+    update: {},
+    create: {
+      email: 'fason@mira.com',
+      password: fasonPassword,
+      role: 'FASON_TRACKER',
+      name: 'Fason Tracker',
+      stockAccess: false,
+      fasonAccess: true,
+    },
   });
 
-  await prisma.cuttingTable.createMany({
-    data: [
-      { name: 'MASA1' },
-      { name: 'MASA2' },
-    ],
-    skipDuplicates: true,
-  });
+  console.log('✅ Fason tracker user created:', fasonUser.email);
 
-  await prisma.fabricType.createMany({
-    data: [
-      { name: 'Kumaş' },
-      { name: 'Deri' },
-    ],
-    skipDuplicates: true,
-  });
-
-  await prisma.color.createMany({
-    data: [
-      { name: 'Beyaz' },
-      { name: 'Siyah' },
-    ],
-    skipDuplicates: true,
-  });
-
-  await prisma.fabricEntry.createMany({
-    data: [
-      { fabricTypeId: 1, colorId: 1, quantityKg: 100, lengthMeter: 200 },
-      { fabricTypeId: 2, colorId: 2, quantityKg: 50, lengthMeter: 100 },
-    ],
-    skipDuplicates: true,
-  });
+  console.log('🎉 Database seeded successfully!');
 }
 
 main()
-  .catch((e) => console.error(e))
-  .finally(async () => await prisma.$disconnect());
+  .catch((e) => {
+    console.error('❌ Error seeding database:', e);
+    process.exit(1);
+  })
+  .finally(async () => {
+    await prisma.$disconnect();
+  });

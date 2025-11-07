@@ -1,16 +1,24 @@
 {
   "compilerOptions": {
     "module": "commonjs",
-    "lib": ["es5", "dom", "esnext"], // Next.js için önerilen lib'ler
+    "lib": [
+      "es5",
+      "dom",
+      "esnext"
+    ], // Next.js için önerilen lib'ler
     "noImplicitAny": true,
     "noImplicitThis": true,
     "strictNullChecks": false,
     "baseUrl": ".",
     "paths": {
-      "crc-32": ["."],
-      "@/*": ["./*"] // Genel eşleme, utils/db.ts ve lib/prisma.ts için çalışır
+      "crc-32": [
+        "."
+      ],
+      "@/*": [
+        "./*"
+      ] // Genel eşleme, utils/db.ts ve lib/prisma.ts için çalışır
     },
-    "types": [],
+    "types": ["node"],
     "noEmit": true,
     "forceConsistentCasingInFileNames": true,
     "target": "ES2017",
@@ -22,8 +30,20 @@
     "moduleResolution": "node",
     "resolveJsonModule": true,
     "isolatedModules": true,
-    "jsx": "preserve"
+    "jsx": "preserve",
+    "plugins": [
+      {
+        "name": "next"
+      }
+    ]
   },
-  "include": ["next-env.d.ts", "**/*.ts", "**/*.tsx"],
-  "exclude": ["node_modules"]
+  "include": [
+    "**/*.ts",
+    "**/*.tsx",
+    "next-env.d.ts",
+    ".next/types/**/*.ts"
+  ],
+  "exclude": [
+    "node_modules"
+  ]
 }

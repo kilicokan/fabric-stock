@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import axios from 'axios';
-import AuthGuard from '../../../components/AuthGuard';
+import AuthGuard from '../../components/AuthGuard';
 
 export default function AddUser() {
   const [formData, setFormData] = useState({

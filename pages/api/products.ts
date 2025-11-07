@@ -8,6 +8,7 @@ interface Product {
   modelNo: string;
   name: string;
   materialTypeId?: number;
+  fabricId?: number;
   groupId?: number;
   taxRateId?: number;
   description?: string;
@@ -18,7 +19,7 @@ interface Product {
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   try {
     if (req.method === 'POST') {
-      const { modelNo, name, materialTypeId, groupId, taxRateId, description, image } = req.body;
+      const { modelNo, name, materialTypeId, fabricId, groupId, taxRateId, description, image } = req.body;
 
       // Validasyon
       if (!modelNo || !name) {
@@ -36,6 +37,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           modelNo,
           name,
           materialTypeId: materialTypeId ? parseInt(materialTypeId) : null,
+          fabricId: fabricId ? parseInt(fabricId) : null,
           groupId: groupId ? parseInt(groupId) : null,
           taxRateId: taxRateId ? parseInt(taxRateId) : null,
           description,
@@ -58,6 +60,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         orderBy: { createdAt: 'desc' },
         include: {
           materialType: true,
+          fabric: true,
           group: true,
           taxRate: true,
         },
@@ -66,7 +69,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     }
 
     if (req.method === 'PUT') {
-      const { id, modelNo, name, materialTypeId, groupId, taxRateId, description, image } = req.body;
+      const { id, modelNo, name, materialTypeId, fabricId, groupId, taxRateId, description, image } = req.body;
       const productId = parseInt(id);
 
       if (!productId || !modelNo || !name) {
@@ -92,6 +95,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           modelNo,
           name,
           materialTypeId: materialTypeId ? parseInt(materialTypeId) : null,
+          fabricId: fabricId ? parseInt(fabricId) : null,
           groupId: groupId ? parseInt(groupId) : null,
           taxRateId: taxRateId ? parseInt(taxRateId) : null,
           description,

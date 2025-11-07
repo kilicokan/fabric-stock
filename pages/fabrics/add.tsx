@@ -28,7 +28,7 @@ export default function FabricEntry() {
     campaignGroup: "",
     priceGroup: ""
   });
-  
+
   const [fabricTypes, setFabricTypes] = useState<string[]>([]);
   const [colors, setColors] = useState<string[]>([]);
   const [warehouses, setWarehouses] = useState<string[]>([]);
@@ -39,12 +39,27 @@ export default function FabricEntry() {
   const [showAddWarehouse, setShowAddWarehouse] = useState(false);
   const [newWarehouse, setNewWarehouse] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [error, setError] = useState<string>("");
 
   // Load types/colors/warehouses on mount
   useEffect(() => {
-    setFabricTypes(["Pamuk", "Polyester", "İpek", "Keten"]);
-    setColors(["Beyaz", "Mavi", "Kırmızı", "Siyah"]);
-    setWarehouses(["İstanbul", "Ankara", "İzmir"]);
+    const fetchData = async () => {
+      try {
+        const [fabricTypesRes, colorsRes] = await Promise.all([
+          axios.get('/api/fabric-types'),
+          axios.get('/api/colors')
+        ]);
+        setFabricTypes(fabricTypesRes.data.map((t: any) => t.name));
+        setColors(colorsRes.data.map((c: any) => c.name));
+      } catch (error) {
+        console.error('Error fetching data:', error);
+        // Fallback to empty or default
+        setFabricTypes([]);
+        setColors([]);
+      }
+    };
+    fetchData();
+    setWarehouses(["İstanbul", "Ankara", "İzmir"]); // Keep hardcoded for now
   }, []);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
@@ -55,9 +70,13 @@ export default function FabricEntry() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsSubmitting(true);
-    
+
     try {
-      await axios.post("/api/fabric-entry", formData);
+      const payload = {
+        name: formData.materialName,
+        quantity: 0, // Default quantity
+      };
+      await axios.post("/api/fabrics", payload);
       alert("Kumaş başarıyla kaydedildi!");
       // Reset form except for predefined values
       setFormData({
@@ -85,23 +104,35 @@ export default function FabricEntry() {
   };
 
   // Add new fabric type
-  const handleAddType = (e: React.FormEvent) => {
+  const handleAddType = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newType.trim()) return;
-    setFabricTypes((prev) => [...prev, newType]);
-    setFormData((prev) => ({ ...prev, materialType: newType }));
-    setNewType("");
-    setShowAddType(false);
+    try {
+      await axios.post('/api/fabric-types', { name: newType });
+      setFabricTypes((prev) => [...prev, newType]);
+      setFormData((prev) => ({ ...prev, materialType: newType }));
+      setNewType("");
+      setShowAddType(false);
+    } catch (error) {
+      console.error('Error adding fabric type:', error);
+      alert('Kumaş türü eklenemedi');
+    }
   };
 
   // Add new color
-  const handleAddColor = (e: React.FormEvent) => {
+  const handleAddColor = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newColor.trim()) return;
-    setColors((prev) => [...prev, newColor]);
-    setFormData((prev) => ({ ...prev, color: newColor }));
-    setNewColor("");
-    setShowAddColor(false);
+    try {
+      await axios.post('/api/colors', { name: newColor });
+      setColors((prev) => [...prev, newColor]);
+      setFormData((prev) => ({ ...prev, color: newColor }));
+      setNewColor("");
+      setShowAddColor(false);
+    } catch (error) {
+      console.error('Error adding color:', error);
+      alert('Renk eklenemedi');
+    }
   };
 
   // Add new warehouse
@@ -115,487 +146,599 @@ export default function FabricEntry() {
   };
 
   return (
-    <div className="container my-4">
-      <div className="row justify-content-center">
-        <div className="col-12 col-lg-10">
-          <div className="card">
-            <div className="card-header d-flex justify-content-between align-items-center">
-              <h5 className="mb-0">📥 Kumaş Tanımlama Sayfası</h5>
-              <span className="badge bg-light text-dark">Kodu: {formData.materialCode}</span>
-            </div>
-            <div className="card-body">
-              <form onSubmit={handleSubmit}>
-                <div className="row">
-                  {/* Sol Sütun */}
-                  <div className="col-md-6">
-                    <div className="form-section">
-                      <h6 className="section-title">Temel Bilgiler</h6>
-                      
-                      <div className="mb-3">
-                        <label className="form-label required-field">Malzeme Kodu</label>
-                        <input 
-                          type="text" 
-                          className="form-control" 
-                          name="materialCode"
-                          value={formData.materialCode}
-                          onChange={handleChange}
-                          required 
-                        />
-                      </div>
-                      
-                      <div className="mb-3">
-                        <label className="form-label required-field">Malzeme Adı</label>
-                        <input 
-                          type="text" 
-                          className="form-control" 
-                          name="materialName"
-                          value={formData.materialName}
-                          onChange={handleChange}
-                          required 
-                        />
-                      </div>
-                      
-                      <div className="mb-3">
-                        <label className="form-label required-field">Malzeme Türü</label>
-                        <div className="d-flex gap-2">
-                          <select 
-                            className="form-select flex-grow-1" 
-                            name="materialType"
-                            value={formData.materialType}
-                            onChange={handleChange}
-                            required
-                          >
-                            <option value="">Seçiniz</option>
-                            {fabricTypes.map((type) => (
-                              <option key={type} value={type}>{type}</option>
-                            ))}
-                          </select>
-                          <button 
-                            type="button" 
-                            className="btn btn-success"
-                            onClick={() => setShowAddType((v) => !v)}
-                            style={{ minWidth: '40px' }}
-                          >
-                            +
-                          </button>
-                        </div>
-                        {showAddType && (
-                          <div className="d-flex gap-2 mt-2">
-                            <input
-                              type="text"
-                              className="form-control"
-                              value={newType}
-                              onChange={e => setNewType(e.target.value)}
-                              placeholder="Yeni tür"
-                              required
-                            />
-                            <button 
-                              type="button" 
-                              className="btn btn-primary"
-                              onClick={handleAddType}
-                              style={{ minWidth: '70px' }}
-                            >
-                              Ekle
-                            </button>
-                          </div>
-                        )}
-                      </div>
-                      
-                      <div className="mb-3">
-                        <label className="form-label required-field">Malzeme Grubu</label>
-                        <input 
-                          type="text" 
-                          className="form-control" 
-                          name="materialGroup"
-                          value={formData.materialGroup}
-                          onChange={handleChange}
-                          required 
-                        />
-                      </div>
-                      
-                      <div className="mb-3">
-                        <label className="form-label required-field">Kumaş Özelliği</label>
-                        <textarea 
-                          className="form-control" 
-                          name="fabricProperty"
-                          value={formData.fabricProperty}
-                          onChange={handleChange}
-                          rows={2} 
-                        />
-                      </div>
+    <div style={styles.container}>
+      <h1 style={styles.title}>📥 Kumaş Tanımlama Sayfası</h1>
+      <span style={styles.codeBadge}>Kodu: {formData.materialCode}</span>
 
-                      <div className="mb-3">
-                        <label className="form-label">Birim</label>
-                        <select 
-                          className="form-select" 
-                          name="unit"
-                          value={formData.unit}
-                          onChange={handleChange}
-                        >
-                          <option value="metre">Metre</option>
-                          <option value="adet">Adet</option>
-                          <option value="top">Top</option>
-                          <option value="kg">Kilogram</option>
-                        </select>
-                      </div>
-                    </div>
-                  </div>
-                  
-                  {/* Sağ Sütun */}
-                  <div className="col-md-6">
-                    <div className="form-section">
-                      <h6 className="section-title">Renk ve Desen</h6>
-                      
-                      <div className="mb-3">
-                        <label className="form-label required-field">Renk</label>
-                        <div className="d-flex gap-2">
-                          <select 
-                            className="form-select flex-grow-1" 
-                            name="color"
-                            value={formData.color}
-                            onChange={handleChange}
-                            required
-                          >
-                            <option value="">Renk seçiniz</option>
-                            {colors.map((color) => (
-                              <option key={color} value={color}>{color}</option>
-                            ))}
-                          </select>
-                          <button 
-                            type="button" 
-                            className="btn btn-success"
-                            onClick={() => setShowAddColor((v) => !v)}
-                            style={{ minWidth: '40px' }}
-                          >
-                            +
-                          </button>
-                        </div>
-                        {showAddColor && (
-                          <div className="d-flex gap-2 mt-2">
-                            <input
-                              type="text"
-                              className="form-control"
-                              value={newColor}
-                              onChange={e => setNewColor(e.target.value)}
-                              placeholder="Yeni renk"
-                              required
-                            />
-                            <button 
-                              type="button" 
-                              className="btn btn-primary"
-                              onClick={handleAddColor}
-                              style={{ minWidth: '70px' }}
-                            >
-                              Ekle
-                            </button>
-                          </div>
-                        )}
-                      </div>
-                      
-                      <div className="mb-3">
-                        <label className="form-label">Desen Kodu</label>
-                        <input 
-                          type="text" 
-                          className="form-control" 
-                          name="patternCode"
-                          value={formData.patternCode}
-                          onChange={handleChange}
-                        />
-                      </div>
-                      
-                      <div className="mb-3">
-                        <label className="form-label">Kategori</label>
-                        <input 
-                          type="text" 
-                          className="form-control" 
-                          name="category"
-                          value={formData.category}
-                          onChange={handleChange}
-                        />
-                      </div>
-                      
-                      <div className="mb-3">
-                        <label className="form-label">Model</label>
-                        <input 
-                          type="text" 
-                          className="form-control" 
-                          name="model"
-                          value={formData.model}
-                          onChange={handleChange}
-                        />
-                      </div>
-                    </div>
-                  </div>
-                </div>
+      {error && <div style={styles.error}>{error}</div>}
 
-                <div className="row mt-3">
-                  <div className="col-md-6">
-                    <div className="form-section">
-                      <h6 className="section-title">Tedarikçi Bilgileri</h6>
-                      
-                      <div className="mb-3">
-                        <label className="form-label">Tedarikçi Kodu</label>
-                        <input 
-                          type="text" 
-                          className="form-control" 
-                          name="supplierCode"
-                          value={formData.supplierCode}
-                          onChange={handleChange}
-                        />
-                      </div>
-                      
-                      <div className="mb-3">
-                        <label className="form-label">Ürün Kodu</label>
-                        <input 
-                          type="text" 
-                          className="form-control" 
-                          name="productCode"
-                          value={formData.productCode}
-                          onChange={handleChange}
-                        />
-                      </div>
-                      
-                      <div className="mb-3">
-                        <label className="form-label">ISO Doküman No</label>
-                        <input 
-                          type="text" 
-                          className="form-control" 
-                          name="isoDocumentNo"
-                          value={formData.isoDocumentNo}
-                          onChange={handleChange}
-                        />
-                      </div>
-                    </div>
-                  </div>
-                  
-                  <div className="col-md-6">
-                    <div className="form-section">
-                      <h6 className="section-title">Depo ve Diğer Bilgiler</h6>
-                      
-                      <div className="mb-3">
-                        <label className="form-label">Depo</label>
-                        <div className="d-flex gap-2">
-                          <select 
-                            className="form-select flex-grow-1" 
-                            name="warehouse"
-                            value={formData.warehouse}
-                            onChange={handleChange}
-                          >
-                            {warehouses.map((warehouse) => (
-                              <option key={warehouse} value={warehouse}>{warehouse}</option>
-                            ))}
-                          </select>
-                          <button 
-                            type="button" 
-                            className="btn btn-success"
-                            onClick={() => setShowAddWarehouse((v) => !v)}
-                            style={{ minWidth: '40px' }}
-                          >
-                            +
-                          </button>
-                        </div>
-                        {showAddWarehouse && (
-                          <div className="d-flex gap-2 mt-2">
-                            <input
-                              type="text"
-                              className="form-control"
-                              value={newWarehouse}
-                              onChange={e => setNewWarehouse(e.target.value)}
-                              placeholder="Yeni depo"
-                              required
-                            />
-                            <button 
-                              type="button" 
-                              className="btn btn-primary"
-                              onClick={handleAddWarehouse}
-                              style={{ minWidth: '70px' }}
-                            >
-                              Ekle
-                            </button>
-                          </div>
-                        )}
-                      </div>
-                      
-                      <div className="mb-3">
-                        <label className="form-label">Raf Ömrü (Gün)</label>
-                        <input 
-                          type="number" 
-                          className="form-control" 
-                          name="shelfLife"
-                          value={formData.shelfLife}
-                          onChange={handleChange}
-                        />
-                      </div>
-                      
-                      <div className="mb-3">
-                        <label className="form-label">Barkod</label>
-                        <input 
-                          type="text" 
-                          className="form-control" 
-                          name="barcode"
-                          value={formData.barcode}
-                          onChange={handleChange}
-                        />
-                      </div>
+      <div style={styles.formSection}>
+        <form onSubmit={handleSubmit} style={styles.form}>
+          <div style={styles.row}>
+            {/* Sol Sütun */}
+            <div style={styles.column}>
+              <h2 style={styles.sectionTitle}>Temel Bilgiler</h2>
 
-                      <div className="mb-3">
-                        <label className="form-label">Web Sayfası</label>
-                        <input 
-                          type="url" 
-                          className="form-control" 
-                          name="website"
-                          value={formData.website}
-                          onChange={handleChange}
-                        />
-                      </div>
-                    </div>
-                  </div>
-                </div>
-                
-                <div className="form-section mt-4">
-                  <h6 className="section-title">Ek Bilgiler</h6>
-                  <div className="row">
-                    <div className="col-md-3 mb-3">
-                      <label className="form-label">Sezon</label>
-                      <input 
-                        type="text" 
-                        className="form-control" 
-                        name="season"
-                        value={formData.season}
-                        onChange={handleChange}
-                      />
-                    </div>
-                    <div className="col-md-3 mb-3">
-                      <label className="form-label">GTIP No</label>
-                      <input 
-                        type="text" 
-                        className="form-control" 
-                        name="gtip"
-                        value={formData.gtip}
-                        onChange={handleChange}
-                      />
-                    </div>
-                    <div className="col-md-3 mb-3">
-                      <label className="form-label">KDV Oranı</label>
-                      <div className="input-group">
-                        <input 
-                          type="number" 
-                          className="form-control" 
-                          name="taxRate"
-                          value={formData.taxRate}
-                          onChange={handleChange}
-                        />
-                        <span className="input-group-text">%</span>
-                      </div>
-                    </div>
-                    <div className="col-md-3 mb-3">
-                      <label className="form-label">Kampanya Grubu</label>
-                      <input 
-                        type="text" 
-                        className="form-control" 
-                        name="campaignGroup"
-                        value={formData.campaignGroup}
-                        onChange={handleChange}
-                      />
-                    </div>
-                    <div className="col-md-3 mb-3">
-                      <label className="form-label">Fiyat Grubu</label>
-                      <input 
-                        type="text" 
-                        className="form-control" 
-                        name="priceGroup"
-                        value={formData.priceGroup}
-                        onChange={handleChange}
-                      />
-                    </div>
-                  </div>
-                </div>
-                
-                <div className="d-grid gap-2 d-md-flex justify-content-md-end mt-4">
-                  <button type="reset" className="btn btn-secondary me-md-2">Temizle</button>
-                  <button 
-                    type="submit" 
-                    className="btn btn-primary"
-                    disabled={isSubmitting}
+              <div style={styles.inputGroup}>
+                <label style={styles.label}>Malzeme Kodu *</label>
+                <input
+                  type="text"
+                  name="materialCode"
+                  value={formData.materialCode}
+                  onChange={handleChange}
+                  style={styles.input}
+                  required
+                />
+              </div>
+
+              <div style={styles.inputGroup}>
+                <label style={styles.label}>Malzeme Adı *</label>
+                <input
+                  type="text"
+                  name="materialName"
+                  value={formData.materialName}
+                  onChange={handleChange}
+                  style={styles.input}
+                  required
+                />
+              </div>
+
+              <div style={styles.inputGroup}>
+                <label style={styles.label}>Malzeme Türü *</label>
+                <div style={styles.selectWithButton}>
+                  <select
+                    name="materialType"
+                    value={formData.materialType}
+                    onChange={handleChange}
+                    style={styles.select}
+                    required
                   >
-                    {isSubmitting ? (
-                      <>
-                        <span className="spinner-border spinner-border-sm me-2"></span>
-                        Kaydediliyor...
-                      </>
-                    ) : (
-                      "Kaydet"
-                    )}
+                    <option value="">Seçiniz</option>
+                    {fabricTypes.map((type) => (
+                      <option key={type} value={type}>{type}</option>
+                    ))}
+                  </select>
+                  <button
+                    type="button"
+                    onClick={() => setShowAddType((v) => !v)}
+                    style={styles.addButton}
+                    title="Yeni tür ekle"
+                  >
+                    +
                   </button>
                 </div>
-              </form>
+                {showAddType && (
+                  <div style={styles.addForm}>
+                    <input
+                      type="text"
+                      value={newType}
+                      onChange={e => setNewType(e.target.value)}
+                      placeholder="Yeni tür"
+                      style={styles.textInput}
+                      required
+                    />
+                    <button
+                      type="button"
+                      onClick={handleAddType}
+                      style={styles.smallButton}
+                    >
+                      Ekle
+                    </button>
+                  </div>
+                )}
+              </div>
+
+              <div style={styles.inputGroup}>
+                <label style={styles.label}>Malzeme Grubu *</label>
+                <input
+                  type="text"
+                  name="materialGroup"
+                  value={formData.materialGroup}
+                  onChange={handleChange}
+                  style={styles.input}
+                  required
+                />
+              </div>
+
+              <div style={styles.inputGroup}>
+                <label style={styles.label}>Kumaş Özelliği *</label>
+                <textarea
+                  name="fabricProperty"
+                  value={formData.fabricProperty}
+                  onChange={handleChange}
+                  style={styles.textarea}
+                  rows={2}
+                />
+              </div>
+
+              <div style={styles.inputGroup}>
+                <label style={styles.label}>Birim</label>
+                <select
+                  name="unit"
+                  value={formData.unit}
+                  onChange={handleChange}
+                  style={styles.select}
+                >
+                  <option value="metre">Metre</option>
+                  <option value="adet">Adet</option>
+                  <option value="top">Top</option>
+                  <option value="kg">Kilogram</option>
+                </select>
+              </div>
+            </div>
+
+            {/* Sağ Sütun */}
+            <div style={styles.column}>
+              <h2 style={styles.sectionTitle}>Renk ve Desen</h2>
+
+              <div style={styles.inputGroup}>
+                <label style={styles.label}>Renk</label>
+                <div style={styles.selectWithButton}>
+                  <select
+                    name="color"
+                    value={formData.color}
+                    onChange={handleChange}
+                    style={styles.select}
+                  >
+                    <option value="">Renk seçiniz</option>
+                    {colors.map((color) => (
+                      <option key={color} value={color}>{color}</option>
+                    ))}
+                  </select>
+                  <button
+                    type="button"
+                    onClick={() => setShowAddColor((v) => !v)}
+                    style={styles.addButton}
+                    title="Yeni renk ekle"
+                  >
+                    +
+                  </button>
+                </div>
+                {showAddColor && (
+                  <div style={styles.addForm}>
+                    <input
+                      type="text"
+                      value={newColor}
+                      onChange={e => setNewColor(e.target.value)}
+                      placeholder="Yeni renk"
+                      style={styles.textInput}
+                      required
+                    />
+                    <button
+                      type="button"
+                      onClick={handleAddColor}
+                      style={styles.smallButton}
+                    >
+                      Ekle
+                    </button>
+                  </div>
+                )}
+              </div>
+
+              <div style={styles.inputGroup}>
+                <label style={styles.label}>Desen Kodu</label>
+                <input
+                  type="text"
+                  name="patternCode"
+                  value={formData.patternCode}
+                  onChange={handleChange}
+                  style={styles.input}
+                />
+              </div>
+
+              <div style={styles.inputGroup}>
+                <label style={styles.label}>Kategori</label>
+                <input
+                  type="text"
+                  name="category"
+                  value={formData.category}
+                  onChange={handleChange}
+                  style={styles.input}
+                />
+              </div>
+
+              <div style={styles.inputGroup}>
+                <label style={styles.label}>Model</label>
+                <input
+                  type="text"
+                  name="model"
+                  value={formData.model}
+                  onChange={handleChange}
+                  style={styles.input}
+                />
+              </div>
             </div>
           </div>
-        </div>
-      </div>
 
-      <style jsx>{`
-        .card {
-          border-radius: 10px;
-          box-shadow: 0 0 20px rgba(0, 0, 0, 0.1);
-          margin-bottom: 20px;
-        }
-        .card-header {
-          background-color: #4e73df;
-          color: white;
-          border-radius: 10px 10px 0 0 !important;
-          font-weight: bold;
-        }
-        .form-section {
-          margin-bottom: 15px;
-        }
-        .section-title {
-          border-bottom: 2px solid #4e73df;
-          padding-bottom: 5px;
-          margin-bottom: 15px;
-          color: #4e73df;
-          font-weight: bold;
-        }
-        .required-field::after {
-          content: " *";
-          color: red;
-        }
-        .form-control, .form-select {
-          border-radius: 5px;
-          border: 1px solid #ddd;
-          padding: 10px;
-        }
-        .form-label {
-          font-weight: 500;
-          margin-bottom: 5px;
-        }
-        .btn-primary {
-          background-color: #4e73df;
-          border-color: #4e73df;
-          border-radius: 5px;
-          padding: 10px 20px;
-          font-weight: 500;
-        }
-        .btn-primary:hover {
-          background-color: #2e59d9;
-          border-color: #2e59d9;
-        }
-        .btn-success {
-          background-color: #1cc88a;
-          border-color: #1cc88a;
-          border-radius: 5px;
-          font-weight: 500;
-        }
-        .btn-success:hover {
-          background-color: #17a673;
-          border-color: #17a673;
-        }
-        .btn-secondary {
-          border-radius: 5px;
-          padding: 10px 20px;
-          font-weight: 500;
-        }
-      `}</style>
+          <div style={styles.row}>
+            <div style={styles.column}>
+              <h2 style={styles.sectionTitle}>Tedarikçi Bilgileri</h2>
+
+              <div style={styles.inputGroup}>
+                <label style={styles.label}>Tedarikçi Kodu</label>
+                <input
+                  type="text"
+                  name="supplierCode"
+                  value={formData.supplierCode}
+                  onChange={handleChange}
+                  style={styles.input}
+                />
+              </div>
+
+              <div style={styles.inputGroup}>
+                <label style={styles.label}>Ürün Kodu</label>
+                <input
+                  type="text"
+                  name="productCode"
+                  value={formData.productCode}
+                  onChange={handleChange}
+                  style={styles.input}
+                />
+              </div>
+
+              <div style={styles.inputGroup}>
+                <label style={styles.label}>ISO Doküman No</label>
+                <input
+                  type="text"
+                  name="isoDocumentNo"
+                  value={formData.isoDocumentNo}
+                  onChange={handleChange}
+                  style={styles.input}
+                />
+              </div>
+            </div>
+
+            <div style={styles.column}>
+              <h2 style={styles.sectionTitle}>Depo ve Diğer Bilgiler</h2>
+
+              <div style={styles.inputGroup}>
+                <label style={styles.label}>Depo</label>
+                <div style={styles.selectWithButton}>
+                  <select
+                    name="warehouse"
+                    value={formData.warehouse}
+                    onChange={handleChange}
+                    style={styles.select}
+                  >
+                    {warehouses.map((warehouse) => (
+                      <option key={warehouse} value={warehouse}>{warehouse}</option>
+                    ))}
+                  </select>
+                  <button
+                    type="button"
+                    onClick={() => setShowAddWarehouse((v) => !v)}
+                    style={styles.addButton}
+                    title="Yeni depo ekle"
+                  >
+                    +
+                  </button>
+                </div>
+                {showAddWarehouse && (
+                  <div style={styles.addForm}>
+                    <input
+                      type="text"
+                      value={newWarehouse}
+                      onChange={e => setNewWarehouse(e.target.value)}
+                      placeholder="Yeni depo"
+                      style={styles.textInput}
+                      required
+                    />
+                    <button
+                      type="button"
+                      onClick={handleAddWarehouse}
+                      style={styles.smallButton}
+                    >
+                      Ekle
+                    </button>
+                  </div>
+                )}
+              </div>
+
+              <div style={styles.inputGroup}>
+                <label style={styles.label}>Raf Ömrü (Gün)</label>
+                <input
+                  type="number"
+                  name="shelfLife"
+                  value={formData.shelfLife}
+                  onChange={handleChange}
+                  style={styles.input}
+                />
+              </div>
+
+              <div style={styles.inputGroup}>
+                <label style={styles.label}>Barkod</label>
+                <input
+                  type="text"
+                  name="barcode"
+                  value={formData.barcode}
+                  onChange={handleChange}
+                  style={styles.input}
+                />
+              </div>
+
+              <div style={styles.inputGroup}>
+                <label style={styles.label}>Web Sayfası</label>
+                <input
+                  type="url"
+                  name="website"
+                  value={formData.website}
+                  onChange={handleChange}
+                  style={styles.input}
+                />
+              </div>
+            </div>
+          </div>
+
+          <div style={styles.section}>
+            <h2 style={styles.sectionTitle}>Ek Bilgiler</h2>
+            <div style={styles.grid}>
+              <div style={styles.inputGroup}>
+                <label style={styles.label}>Sezon</label>
+                <input
+                  type="text"
+                  name="season"
+                  value={formData.season}
+                  onChange={handleChange}
+                  style={styles.input}
+                />
+              </div>
+              <div style={styles.inputGroup}>
+                <label style={styles.label}>GTIP No</label>
+                <input
+                  type="text"
+                  name="gtip"
+                  value={formData.gtip}
+                  onChange={handleChange}
+                  style={styles.input}
+                />
+              </div>
+              <div style={styles.inputGroup}>
+                <label style={styles.label}>KDV Oranı</label>
+                <div style={styles.inputWithSuffix}>
+                  <input
+                    type="number"
+                    name="taxRate"
+                    value={formData.taxRate}
+                    onChange={handleChange}
+                    style={styles.input}
+                  />
+                  <span style={styles.suffix}>%</span>
+                </div>
+              </div>
+              <div style={styles.inputGroup}>
+                <label style={styles.label}>Kampanya Grubu</label>
+                <input
+                  type="text"
+                  name="campaignGroup"
+                  value={formData.campaignGroup}
+                  onChange={handleChange}
+                  style={styles.input}
+                />
+              </div>
+              <div style={styles.inputGroup}>
+                <label style={styles.label}>Fiyat Grubu</label>
+                <input
+                  type="text"
+                  name="priceGroup"
+                  value={formData.priceGroup}
+                  onChange={handleChange}
+                  style={styles.input}
+                />
+              </div>
+            </div>
+          </div>
+
+          <div style={styles.submitContainer}>
+            <button type="reset" style={styles.resetButton}>Temizle</button>
+            <button
+              type="submit"
+              style={isSubmitting ? {...styles.submitButton, ...styles.submitButtonLoading} : styles.submitButton}
+              disabled={isSubmitting}
+            >
+              {isSubmitting ? 'Kaydediliyor...' : 'Kaydet'}
+            </button>
+          </div>
+        </form>
+      </div>
     </div>
   );
 }
+
+const styles = {
+  container: {
+    maxWidth: '1200px',
+    margin: '2rem auto',
+    padding: '2rem',
+    backgroundColor: '#f8f9fa',
+    borderRadius: '12px',
+    boxShadow: '0 4px 12px rgba(0, 0, 0, 0.1)',
+    fontFamily: "'Segoe UI', Tahoma, Geneva, Verdana, sans-serif"
+  },
+  title: {
+    textAlign: 'center' as const,
+    color: '#2c3e50',
+    marginBottom: '1rem',
+    fontSize: '1.8rem'
+  },
+  codeBadge: {
+    display: 'block',
+    textAlign: 'center' as const,
+    backgroundColor: '#e9ecef',
+    color: '#495057',
+    padding: '0.5rem 1rem',
+    borderRadius: '6px',
+    marginBottom: '2rem',
+    fontSize: '1rem',
+    fontWeight: '600'
+  },
+  error: {
+    backgroundColor: '#f8d7da',
+    color: '#721c24',
+    padding: '0.75rem',
+    borderRadius: '6px',
+    marginBottom: '1.5rem',
+    border: '1px solid #f5c6cb'
+  },
+  formSection: {
+    backgroundColor: 'white',
+    padding: '2rem',
+    borderRadius: '8px',
+    boxShadow: '0 2px 4px rgba(0, 0, 0, 0.1)'
+  },
+  form: {
+    width: '100%'
+  },
+  row: {
+    display: 'flex',
+    gap: '2rem',
+    marginBottom: '2rem',
+    flexWrap: 'wrap' as const
+  },
+  column: {
+    flex: 1,
+    minWidth: '300px'
+  },
+  sectionTitle: {
+    color: '#2c3e50',
+    marginBottom: '1.5rem',
+    fontSize: '1.4rem',
+    borderBottom: '2px solid #3498db',
+    paddingBottom: '0.5rem'
+  },
+  inputGroup: {
+    marginBottom: '1.5rem'
+  },
+  label: {
+    display: 'block',
+    fontWeight: '600',
+    color: '#2c3e50',
+    marginBottom: '0.5rem',
+    fontSize: '0.9rem'
+  },
+  input: {
+    width: '100%',
+    padding: '0.75rem',
+    border: '1px solid #ddd',
+    borderRadius: '6px',
+    fontSize: '1rem',
+    outline: 'none',
+    transition: 'border-color 0.3s',
+    boxSizing: 'border-box' as const
+  },
+  textarea: {
+    width: '100%',
+    padding: '0.75rem',
+    border: '1px solid #ddd',
+    borderRadius: '6px',
+    fontSize: '1rem',
+    outline: 'none',
+    transition: 'border-color 0.3s',
+    boxSizing: 'border-box' as const,
+    resize: 'vertical' as const
+  },
+  select: {
+    width: '100%',
+    padding: '0.75rem',
+    border: '1px solid #ddd',
+    borderRadius: '6px',
+    fontSize: '1rem',
+    outline: 'none',
+    transition: 'border-color 0.3s',
+    boxSizing: 'border-box' as const
+  },
+  selectWithButton: {
+    display: 'flex',
+    gap: '0.5rem',
+    alignItems: 'stretch'
+  },
+  addButton: {
+    padding: '0.75rem',
+    backgroundColor: '#28a745',
+    color: 'white',
+    border: 'none',
+    borderRadius: '6px',
+    cursor: 'pointer',
+    fontSize: '1rem',
+    fontWeight: '600',
+    transition: 'background-color 0.3s',
+    minWidth: '40px'
+  },
+  addForm: {
+    display: 'flex',
+    gap: '0.5rem',
+    marginTop: '0.5rem',
+    alignItems: 'center'
+  },
+  textInput: {
+    flex: 1,
+    padding: '0.5rem',
+    border: '1px solid #ddd',
+    borderRadius: '4px',
+    fontSize: '0.9rem',
+    outline: 'none'
+  },
+  smallButton: {
+    padding: '0.5rem 1rem',
+    backgroundColor: '#007bff',
+    color: 'white',
+    border: 'none',
+    borderRadius: '4px',
+    cursor: 'pointer',
+    fontSize: '0.9rem',
+    fontWeight: '600',
+    transition: 'background-color 0.3s'
+  },
+  section: {
+    marginTop: '2rem',
+    paddingTop: '2rem',
+    borderTop: '1px solid #eee'
+  },
+  grid: {
+    display: 'grid',
+    gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))',
+    gap: '1rem'
+  },
+  inputWithSuffix: {
+    display: 'flex',
+    alignItems: 'center'
+  },
+  suffix: {
+    marginLeft: '0.5rem',
+    color: '#6c757d',
+    fontWeight: '600'
+  },
+  submitContainer: {
+    display: 'flex',
+    justifyContent: 'flex-end',
+    gap: '1rem',
+    marginTop: '2rem',
+    paddingTop: '2rem',
+    borderTop: '1px solid #eee'
+  },
+  resetButton: {
+    padding: '0.75rem 2rem',
+    backgroundColor: '#6c757d',
+    color: 'white',
+    border: 'none',
+    borderRadius: '6px',
+    cursor: 'pointer',
+    fontSize: '1rem',
+    fontWeight: '600',
+    transition: 'background-color 0.3s'
+  },
+  submitButton: {
+    padding: '0.75rem 2rem',
+    backgroundColor: '#28a745',
+    color: 'white',
+    border: 'none',
+    borderRadius: '6px',
+    cursor: 'pointer',
+    fontSize: '1rem',
+    fontWeight: '600',
+    transition: 'background-color 0.3s'
+  },
+  submitButtonLoading: {
+    backgroundColor: '#6c757d',
+    cursor: 'not-allowed'
+  }
+};

@@ -1,12 +1,15 @@
 import { useState, useEffect } from "react";
 import axios from "axios";
+import ExportButtons from '../../components/ExportButtons';
+import * as XLSX from 'xlsx';
 
-export default function CustomerAddPage() {
+export default function CustomerPage() {
   const [form, setForm] = useState({ name: "", contact: "", address: "" });
   const [list, setList] = useState<any[]>([]);
   const [loading, setLoading] = useState({ submit: false, list: false });
   const [error, setError] = useState<string>("");
   const [success, setSuccess] = useState<string>("");
+  const [importing, setImporting] = useState(false);
 
   const load = async () => {
     try {
@@ -41,6 +44,84 @@ export default function CustomerAddPage() {
     }
   };
 
+  // Import function
+  const handleImport = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    setImporting(true);
+    try {
+      const fileExtension = file.name.split('.').pop()?.toLowerCase();
+      let parsedData: any[] = [];
+
+      if (fileExtension === 'csv') {
+        const text = await file.text();
+        parsedData = parseCSV(text);
+      } else if (fileExtension === 'xlsx' || fileExtension === 'xls') {
+        const buffer = await file.arrayBuffer();
+        const workbook = XLSX.read(buffer, { type: 'array' });
+        parsedData = XLSX.utils.sheet_to_json(workbook.Sheets[workbook.SheetNames[0]]);
+      } else {
+        alert('Desteklenmeyen dosya formatı. Lütfen CSV veya Excel dosyası yükleyin.');
+        return;
+      }
+
+      const response = await axios.post('/api/customers/import', { customers: parsedData });
+      alert(response.data.message);
+      // Refresh the list
+      load();
+    } catch (error: any) {
+      console.error('Import error:', error);
+      alert('İçe aktarma sırasında hata oluştu: ' + (error.response?.data?.message || error.message));
+    } finally {
+      setImporting(false);
+      // Reset file input
+      event.target.value = '';
+    }
+  };
+
+  // Helper function to parse CSV with proper quote handling
+  const parseCSV = (csvContent: string): any[] => {
+    const lines = csvContent.split('\n').filter(line => line.trim());
+    if (lines.length < 2) return [];
+
+    const headers = parseCSVLine(lines[0]);
+    const rows = lines.slice(1);
+
+    return rows.map(row => {
+      const values = parseCSVLine(row);
+      const obj: any = {};
+      headers.forEach((header, index) => {
+        obj[header] = values[index] || '';
+      });
+      return obj;
+    });
+  };
+
+  const parseCSVLine = (line: string): string[] => {
+    const result: string[] = [];
+    let current = '';
+    let inQuotes = false;
+    for (let i = 0; i < line.length; i++) {
+      const char = line[i];
+      if (char === '"') {
+        if (inQuotes && line[i + 1] === '"') {
+          current += '"';
+          i++; // skip next quote
+        } else {
+          inQuotes = !inQuotes;
+        }
+      } else if (char === ',' && !inQuotes) {
+        result.push(current.trim());
+        current = '';
+      } else {
+        current += char;
+      }
+    }
+    result.push(current.trim());
+    return result;
+  };
+
   const onChange = (e: React.ChangeEvent<HTMLInputElement>) =>
     setForm((f) => ({ ...f, [e.target.name]: e.target.value }));
 
@@ -65,24 +146,25 @@ export default function CustomerAddPage() {
         </div>
         
         <div className="input-group">
-          <label className="label">İletişim</label>
-          <input 
-            name="contact" 
-            value={form.contact} 
-            onChange={onChange} 
-            placeholder="Telefon veya e-posta" 
-            className="input" 
+          <label className="label">Telefon</label>
+          <input
+            name="contact"
+            value={form.contact}
+            onChange={onChange}
+            placeholder="Telefon numarası"
+            className="input"
           />
         </div>
-        
+
         <div className="input-group">
-          <label className="label">Adres</label>
-          <input 
-            name="address" 
-            value={form.address} 
-            onChange={onChange} 
-            placeholder="Adres" 
-            className="input" 
+          <label className="label">E-posta</label>
+          <input
+            name="address"
+            value={form.address}
+            onChange={onChange}
+            placeholder="E-posta adresi"
+            className="input"
+            type="email"
           />
         </div>
         
@@ -96,8 +178,32 @@ export default function CustomerAddPage() {
         </div>
       </form>
 
+      {/* Import and Export buttons */}
+      <div style={{ marginBottom: "1rem", display: "flex", gap: "1rem", alignItems: "center" }}>
+        <input
+          type="file"
+          accept=".csv,.xlsx,.xls"
+          onChange={handleImport}
+          style={{ display: "none" }}
+          id="import-file"
+        />
+        <label htmlFor="import-file">
+          <button disabled={importing} style={{ padding: '0.75rem 2rem', backgroundColor: importing ? '#6c757d' : '#28a745', color: 'white', border: 'none', borderRadius: '6px', cursor: importing ? 'not-allowed' : 'pointer', fontSize: '1rem', fontWeight: '600', transition: 'background-color 0.3s' }}>
+            {importing ? 'İçe Aktarılıyor...' : 'İçe Aktar'}
+          </button>
+        </label>
+        <ExportButtons
+          data={list.map((customer) => ({
+            "Müşteri Adı": customer.name,
+            "Telefon": customer.phone || "",
+            "E-posta": customer.email || "",
+          }))}
+          filename="Musteriler_Dokumu"
+        />
+      </div>
+
       <h2 className="subtitle">Mevcut Müşteriler</h2>
-      
+
       {loading.list ? (
         <div className="loading-text">Yükleniyor...</div>
       ) : (
@@ -106,7 +212,7 @@ export default function CustomerAddPage() {
             <div key={c.id} className="list-item">
               <div className="customer-name">{c.name}</div>
               <div className="customer-details">
-                {c.contact || "-"} {c.address ? `• ${c.address}` : ""}
+                {c.phone || "-"} {c.email ? `• ${c.email}` : ""}
               </div>
             </div>
           ))}

@@ -1,7 +1,7 @@
 
 import { useState, useEffect } from "react";
 import axios from "axios";
-import Layout from "../../../components/layout/Layout";
+import Layout from "../../../components/Layout/Layout";
 
 const FabricEntryPage = () => {
   const [fabricTypes, setFabricTypes] = useState<any[]>([]);
@@ -45,8 +45,9 @@ const FabricEntryPage = () => {
     try {
       const { data } = await axios.get("/api/scale");
       setWeight(data.weight);
-    } catch {
-      console.error("Tartı okunamadı");
+    } catch (error: any) {
+      console.error("Tartı okunamadı:", error.response?.data?.error || error.message);
+      setWeight("Tartı bağlı değil");
     }
   };
 

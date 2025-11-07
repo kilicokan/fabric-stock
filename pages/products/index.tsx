@@ -1,28 +1,107 @@
-import { useState } from "react";
+import { useState, useEffect, CSSProperties } from "react";
+import axios from "axios";
+import ExportButtons from "../../components/ExportButtons";
+import * as XLSX from "xlsx";
+
+interface MaterialType {
+  id: number;
+  name: string;
+}
+
+interface Fabric {
+  id: number;
+  name: string;
+}
+
+interface Group {
+  id: number;
+  name: string;
+}
+
+interface TaxRate {
+  id: number;
+  name: string;
+}
+
+interface Product {
+  id: number;
+  modelNo: string;
+  name: string;
+  image?: string;
+  description?: string;
+  materialType?: MaterialType;
+  fabric?: Fabric;
+  group?: Group;
+  taxRate?: TaxRate;
+}
+
+interface ProductForm {
+  modelNo: string;
+  name: string;
+  image?: string;
+  materialTypeId: string;
+  fabricId: string;
+  groupId: string;
+  taxRateId: string;
+}
+
+interface ProductListProps {
+  products: Product[];
+  setProducts: React.Dispatch<React.SetStateAction<Product[]>>;
+}
+
+interface ProductAddProps {
+  products: Product[];
+  setProducts: React.Dispatch<React.SetStateAction<Product[]>>;
+  setActiveTab: React.Dispatch<React.SetStateAction<string>>;
+}
+
+interface ProductEditProps {
+  product: Product;
+  onSave: (updatedProduct: Product) => void;
+  onCancel: () => void;
+}
+
+// CSV parsing utility
+function parseCSV(csvText: string): any[] {
+  const lines = csvText.split('\n').filter(line => line.trim());
+  if (lines.length === 0) return [];
+
+  const headers = lines[0].split(',').map(h => h.trim().replace(/"/g, ''));
+  const rows = lines.slice(1).map(line => {
+    const values = line.split(',').map(v => v.trim().replace(/"/g, ''));
+    const obj: any = {};
+    headers.forEach((header, index) => {
+      obj[header] = values[index] || '';
+    });
+    return obj;
+  });
+
+  return rows;
+}
 
 // Ana Ürünler Bileşeni
 export default function ProductsPage() {
   const [activeTab, setActiveTab] = useState("list"); // "list" veya "add"
-  const [products, setProducts] = useState([
-    {
-      id: 1,
-      code: "PRD-1001",
-      name: "Pamuklu Kumaş",
-      materialType: "Dokuma Kumaş",
-      groupNo: "GRP-001",
-      taxRate: "%18",
-      image: ""
-    },
-    {
-      id: 2,
-      code: "PRD-1002",
-      name: "Polyester Kumaş",
-      materialType: "Örme Kumaş",
-      groupNo: "GRP-002",
-      taxRate: "%8",
-      image: ""
+  const [products, setProducts] = useState<Product[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    fetchProducts();
+  }, []);
+
+  const fetchProducts = async () => {
+    try {
+      setLoading(true);
+      const response = await axios.get('/api/products');
+      setProducts(response.data as Product[]);
+    } catch (error) {
+      console.error('Ürünler yüklenirken hata:', error);
+      alert('Ürünler yüklenirken hata oluştu');
+    } finally {
+      setLoading(false);
     }
-  ]);
+  };
 
   return (
     <div style={styles.container}>
@@ -56,44 +135,138 @@ export default function ProductsPage() {
 }
 
 // Ürün Listesi Bileşeni
-function ProductList({ products, setProducts }) {
-  const [editingProduct, setEditingProduct] = useState(null);
+function ProductList({ products, setProducts }: ProductListProps) {
+  const [editingProduct, setEditingProduct] = useState<Product | null>(null);
+  const [importing, setImporting] = useState(false);
 
-  const handleEdit = (product) => {
+  const handleEdit = (product: Product) => {
     setEditingProduct(product);
   };
 
-  const handleUpdate = (updatedProduct) => {
-    setProducts(products.map(p => p.id === updatedProduct.id ? updatedProduct : p));
+  const handleUpdate = (updatedProduct: Product) => {
+    setProducts(products.map((p: Product) => p.id === updatedProduct.id ? updatedProduct : p));
     setEditingProduct(null);
     alert("Ürün başarıyla güncellendi!");
   };
 
-  const handleDelete = (id) => {
+  const handleDelete = (id: number) => {
     if (window.confirm("Bu ürünü silmek istediğinize emin misiniz?")) {
-      setProducts(products.filter(p => p.id !== id));
+      setProducts(products.filter((p: Product) => p.id !== id));
       alert("Ürün başarıyla silindi!");
     }
   };
 
+  const handleFileImport = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    setImporting(true);
+    try {
+      const fileExtension = file.name.split('.').pop()?.toLowerCase();
+
+      let parsedData: any[] = [];
+
+      if (fileExtension === 'csv') {
+        const text = await file.text();
+        parsedData = parseCSV(text);
+      } else if (fileExtension === 'xlsx' || fileExtension === 'xls') {
+        const arrayBuffer = await file.arrayBuffer();
+        const workbook = XLSX.read(arrayBuffer, { type: 'array' });
+        const sheetName = workbook.SheetNames[0];
+        const worksheet = workbook.Sheets[sheetName];
+        parsedData = XLSX.utils.sheet_to_json(worksheet);
+      } else {
+        alert('Sadece CSV ve Excel dosyaları desteklenir.');
+        return;
+      }
+
+      if (parsedData.length === 0) {
+        alert('Dosya boş veya geçersiz format.');
+        return;
+      }
+
+      // Transform data to match API expectations
+      const productsToImport = parsedData.map(row => ({
+        modelNo: row['Model No'] || row['modelNo'] || row['ModelNo'],
+        name: row['Ürün Adı'] || row['name'] || row['Name'],
+        materialTypeId: row['Malzeme Türü ID'] || row['materialTypeId'] || row['MaterialTypeId'],
+        fabricId: row['Kumaş Türü ID'] || row['fabricId'] || row['FabricId'],
+        groupId: row['Grup ID'] || row['groupId'] || row['GroupId'],
+        taxRateId: row['KDV Oranı ID'] || row['taxRateId'] || row['TaxRateId'],
+        description: row['Açıklama'] || row['description'] || row['Description'],
+        image: row['Görsel'] || row['image'] || row['Image']
+      }));
+
+      const response = await axios.post('/api/products/import', { products: productsToImport });
+
+      if (response.data.success > 0) {
+        alert(response.data.message);
+        // Refresh the products list
+        window.location.reload();
+      } else {
+        alert(`İçe aktarma başarısız: ${response.data.importErrors.join(', ')}`);
+      }
+
+    } catch (error) {
+      console.error('Import error:', error);
+      alert('İçe aktarma sırasında hata oluştu.');
+    } finally {
+      setImporting(false);
+      // Reset file input
+      event.target.value = '';
+    }
+  };
+
+  const exportData = products.map(product => ({
+    'Model No': product.modelNo,
+    'Ürün Adı': product.name,
+    'Malzeme Türü': product.materialType?.name || '',
+    'Kumaş Türü': product.fabric?.name || '',
+    'Grup': product.group?.name || '',
+    'KDV Oranı': product.taxRate?.name || '',
+    'Açıklama': product.description || '',
+    'Görsel': product.image || ''
+  }));
+
   return (
     <div>
       {editingProduct ? (
-        <ProductEdit 
-          product={editingProduct} 
-          onSave={handleUpdate} 
-          onCancel={() => setEditingProduct(null)} 
+        <ProductEdit
+          product={editingProduct}
+          onSave={handleUpdate}
+          onCancel={() => setEditingProduct(null)}
         />
       ) : (
         <>
+          {/* Import/Export Buttons */}
+          <div style={{ marginBottom: '1rem', display: 'flex', gap: '1rem', alignItems: 'center' }}>
+            <label style={{...styles.scaleButton, backgroundColor: '#28a745', cursor: 'pointer'}}>
+              <input
+                type="file"
+                accept=".csv,.xlsx,.xls"
+                onChange={handleFileImport}
+                style={{ display: 'none' }}
+                disabled={importing}
+              />
+              {importing ? 'İçe Aktarılıyor...' : 'Ürün İçe Aktar'}
+            </label>
+
+            <ExportButtons
+              data={exportData}
+              filename="urunler"
+              disabled={products.length === 0}
+            />
+          </div>
+
           <div style={styles.tableContainer}>
             <table style={styles.table}>
               <thead>
                 <tr>
-                  <th style={styles.th}>Ürün Kodu</th>
+                  <th style={styles.th}>Model No</th>
                   <th style={styles.th}>Ürün Adı</th>
                   <th style={styles.th}>Malzeme Türü</th>
-                  <th style={styles.th}>Grup No</th>
+                  <th style={styles.th}>Kumaş Türü</th>
+                  <th style={styles.th}>Grup</th>
                   <th style={styles.th}>KDV Oranı</th>
                   <th style={styles.th}>İşlemler</th>
                 </tr>
@@ -102,19 +275,20 @@ function ProductList({ products, setProducts }) {
                 {products.length > 0 ? (
                   products.map(product => (
                     <tr key={product.id}>
-                      <td style={styles.td}>{product.code}</td>
+                      <td style={styles.td}>{product.modelNo}</td>
                       <td style={styles.td}>{product.name}</td>
-                      <td style={styles.td}>{product.materialType}</td>
-                      <td style={styles.td}>{product.groupNo}</td>
-                      <td style={styles.td}>{product.taxRate}</td>
+                      <td style={styles.td}>{product.materialType?.name}</td>
+                      <td style={styles.td}>{product.fabric?.name}</td>
+                      <td style={styles.td}>{product.group?.name}</td>
+                      <td style={styles.td}>{product.taxRate?.name}</td>
                       <td style={styles.td}>
-                        <button 
+                        <button
                           style={{...styles.smallButton, marginRight: '0.5rem'}}
                           onClick={() => handleEdit(product)}
                         >
                           Düzenle
                         </button>
-                        <button 
+                        <button
                           style={{...styles.smallButton, backgroundColor: '#dc3545'}}
                           onClick={() => handleDelete(product.id)}
                         >
@@ -125,7 +299,7 @@ function ProductList({ products, setProducts }) {
                   ))
                 ) : (
                   <tr>
-                    <td colSpan={6} style={{...styles.td, textAlign: 'center'}}>
+                    <td colSpan={7} style={{...styles.td, textAlign: 'center'}}>
                       Henüz hiç ürün eklenmemiş.
                     </td>
                   </tr>
@@ -133,7 +307,7 @@ function ProductList({ products, setProducts }) {
               </tbody>
             </table>
           </div>
-          
+
           <div style={{marginTop: '1rem', textAlign: 'center', color: '#6c757d'}}>
             Toplam {products.length} ürün listeleniyor.
           </div>
@@ -144,66 +318,96 @@ function ProductList({ products, setProducts }) {
 }
 
 // Ürün Ekleme Bileşeni - GÜNCELLENMİŞ
-function ProductAdd({ products, setProducts, setActiveTab }) {
-  const [form, setForm] = useState({ 
-    code: "",
+function ProductAdd({ products, setProducts, setActiveTab }: ProductAddProps) {
+  const [form, setForm] = useState<ProductForm>({
+    modelNo: "",
     image: "",
-    name: "", 
-    materialType: "", 
-    groupNo: "", 
-    taxRate: "" 
+    name: "",
+    materialTypeId: "",
+    fabricId: "",
+    groupId: "",
+    taxRateId: ""
   });
-  
+
   const [isManualCode, setIsManualCode] = useState(false);
   const [imagePreview, setImagePreview] = useState("");
+  const [materialTypes, setMaterialTypes] = useState<MaterialType[]>([]);
+  const [fabrics, setFabrics] = useState<Fabric[]>([]);
+  const [groups, setGroups] = useState<Group[]>([]);
+  const [taxRates, setTaxRates] = useState<TaxRate[]>([]);
 
-  const handleSubmit = (e) => {
-    e.preventDefault();
-    
-    // Yeni ürün oluştur
-    const newProduct = {
-      id: Math.max(...products.map(p => p.id), 0) + 1, // Yeni ID oluştur
-      code: form.code,
-      name: form.name,
-      materialType: form.materialType,
-      groupNo: form.groupNo,
-      taxRate: form.taxRate,
-      image: form.image
-    };
-    
-    // Ürünleri güncelle
-    setProducts([...products, newProduct]);
-    
-    alert("Ürün başarıyla eklendi!");
-    
-    // Formu temizle
-    setForm({ 
-      code: "",
-      image: "",
-      name: "", 
-      materialType: "", 
-      groupNo: "", 
-      taxRate: "" 
-    });
-    setImagePreview("");
-    setIsManualCode(false);
-    
-    // Listeleme sekmesine geç
-    setActiveTab("list");
+  useEffect(() => {
+    fetchOptions();
+  }, []);
+
+  const fetchOptions = async () => {
+    try {
+      const [mtRes, ftRes, gRes, trRes] = await Promise.all([
+        axios.get('/api/material-types'),
+        axios.get('/api/fabrics'),
+        axios.get('/api/groups'),
+        axios.get('/api/tax-rates')
+      ]);
+      setMaterialTypes(mtRes.data);
+      setFabrics(ftRes.data);
+      setGroups(gRes.data);
+      setTaxRates(trRes.data);
+    } catch (error) {
+      console.error('Seçenekler yüklenirken hata:', error);
+    }
   };
 
-  const handleChange = (e) => {
+  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+
+    try {
+      const response = await axios.post('/api/products', {
+        modelNo: form.modelNo,
+        name: form.name,
+        materialTypeId: form.materialTypeId,
+        fabricId: form.fabricId,
+        groupId: form.groupId,
+        taxRateId: form.taxRateId,
+        image: form.image
+      });
+
+      alert("Ürün başarıyla eklendi!");
+      setProducts([...products, response.data.product]);
+
+      // Formu temizle
+      setForm({
+        modelNo: "",
+        image: "",
+        name: "",
+        materialTypeId: "",
+        fabricId: "",
+        groupId: "",
+        taxRateId: ""
+      });
+      setImagePreview("");
+      setIsManualCode(false);
+
+      // Listeleme sekmesine geç
+      setActiveTab("list");
+    } catch (error) {
+      console.error('Ürün eklenirken hata:', error);
+      alert('Ürün eklenirken hata oluştu');
+    }
+  };
+
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     const { name, value } = e.target;
     setForm(prev => ({ ...prev, [name]: value }));
   };
 
-  const handleImageChange = (e) => {
-    const file = e.target.files[0];
+  const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
     if (file) {
       const reader = new FileReader();
       reader.onloadend = () => {
-        setImagePreview(reader.result);
-        setForm(prev => ({ ...prev, image: reader.result }));
+        const result = reader.result as string;
+        setImagePreview(result);
+        setForm(prev => ({ ...prev, image: result }));
       };
       reader.readAsDataURL(file);
     }
@@ -211,7 +415,7 @@ function ProductAdd({ products, setProducts, setActiveTab }) {
 
   const generateProductCode = () => {
     const randomCode = "PRD-" + Math.floor(1000 + Math.random() * 9000);
-    setForm(prev => ({ ...prev, code: randomCode }));
+    setForm(prev => ({ ...prev, modelNo: randomCode }));
   };
 
   return (
@@ -223,8 +427,8 @@ function ProductAdd({ products, setProducts, setActiveTab }) {
           <div style={styles.inputWithButton}>
             <input
               type="text"
-              name="code"
-              value={form.code}
+              name="modelNo"
+              value={form.modelNo}
               onChange={handleChange}
               style={styles.textInput}
               placeholder="Ürün kodunu giriniz"
@@ -300,16 +504,16 @@ function ProductAdd({ products, setProducts, setActiveTab }) {
           <label style={styles.label}>Malzeme Türü</label>
           <div style={styles.selectWithButton}>
             <select
-              name="materialType"
-              value={form.materialType}
+              name="materialTypeId"
+              value={form.materialTypeId}
               onChange={handleChange}
               style={styles.select}
               required
             >
               <option value="">Malzeme türü seçiniz</option>
-              <option value="Dokuma Kumaş">Dokuma Kumaş</option>
-              <option value="Örme Kumaş">Örme Kumaş</option>
-              <option value="Dokunmamış Kumaş">Dokunmamış Kumaş</option>
+              {materialTypes.map(mt => (
+                <option key={mt.id} value={mt.id}>{mt.name}</option>
+              ))}
             </select>
             <button
               type="button"
@@ -322,21 +526,48 @@ function ProductAdd({ products, setProducts, setActiveTab }) {
           </div>
         </div>
 
+        {/* Kumaş Türü Alanı */}
+        <div style={styles.inputGroup}>
+          <label style={styles.label}>Kumaş Türü</label>
+          <div style={styles.selectWithButton}>
+            <select
+              name="fabricId"
+              value={form.fabricId}
+              onChange={handleChange}
+              style={styles.select}
+              required
+            >
+              <option value="">Kumaş türü seçiniz</option>
+              {fabrics.map(ft => (
+                <option key={ft.id} value={ft.id}>{ft.name}</option>
+              ))}
+            </select>
+            <button
+              type="button"
+              style={styles.addButton}
+              onClick={() => alert("Kumaş türü yönetim sayfası açılacak")}
+              title="Kumaş türü yönet"
+            >
+              +
+            </button>
+          </div>
+        </div>
+
         {/* Grup No Alanı */}
         <div style={styles.inputGroup}>
           <label style={styles.label}>Grup No</label>
           <div style={styles.selectWithButton}>
             <select
-              name="groupNo"
-              value={form.groupNo}
+              name="groupId"
+              value={form.groupId}
               onChange={handleChange}
               style={styles.select}
               required
             >
               <option value="">Grup seçiniz</option>
-              <option value="GRP-001">GRP-001 (Dokuma Kumaş Grubu)</option>
-              <option value="GRP-002">GRP-002 (Örme Kumaş Grubu)</option>
-              <option value="GRP-003">GRP-003 (Aksesuar Grubu)</option>
+              {groups.map(g => (
+                <option key={g.id} value={g.id}>{g.name}</option>
+              ))}
             </select>
             <button
               type="button"
@@ -354,16 +585,16 @@ function ProductAdd({ products, setProducts, setActiveTab }) {
           <label style={styles.label}>KDV Vergi Oranı</label>
           <div style={styles.selectWithButton}>
             <select
-              name="taxRate"
-              value={form.taxRate}
+              name="taxRateId"
+              value={form.taxRateId}
               onChange={handleChange}
               style={styles.select}
               required
             >
               <option value="">KDV oranı seçiniz</option>
-              <option value="%1">%1</option>
-              <option value="%8">%8</option>
-              <option value="%18">%18</option>
+              {taxRates.map(tr => (
+                <option key={tr.id} value={tr.id}>{tr.name}</option>
+              ))}
             </select>
             <button
               type="button"
@@ -382,13 +613,14 @@ function ProductAdd({ products, setProducts, setActiveTab }) {
             type="button"
             style={{...styles.scaleButton, backgroundColor: '#6c757d'}}
             onClick={() => {
-              setForm({ 
-                code: "",
+              setForm({
+                modelNo: "",
                 image: "",
-                name: "", 
-                materialType: "", 
-                groupNo: "", 
-                taxRate: "" 
+                name: "",
+                materialTypeId: "",
+                fabricId: "",
+                groupId: "",
+                taxRateId: ""
               });
               setImagePreview("");
               setIsManualCode(false);
@@ -408,19 +640,59 @@ function ProductAdd({ products, setProducts, setActiveTab }) {
   );
 }
 
-// ProductEdit bileşeni ve stiller aynı kalacak...
-// (Değişiklik yapılmadı, bu kısmı kısaltmak için buraya eklemedim)
+// Ürün Düzenleme Bileşeni (Modal benzeri) - GÜNCELLENMİŞ
+function ProductEdit({ product, onSave, onCancel }: ProductEditProps) {
+  const [form, setForm] = useState<ProductForm>({
+    modelNo: product.modelNo,
+    name: product.name,
+    image: product.image || "",
+    materialTypeId: product.materialType?.id?.toString() || "",
+    fabricId: product.fabric?.id?.toString() || "",
+    groupId: product.group?.id?.toString() || "",
+    taxRateId: product.taxRate?.id?.toString() || ""
+  });
 
-// Ürün Düzenleme Bileşeni (Modal benzeri) - DEĞİŞMEDİ
-function ProductEdit({ product, onSave, onCancel }) {
-  const [form, setForm] = useState(product);
-  
-  const handleSubmit = (e) => {
+  const [materialTypes, setMaterialTypes] = useState<MaterialType[]>([]);
+  const [fabrics, setFabrics] = useState<Fabric[]>([]);
+  const [groups, setGroups] = useState<Group[]>([]);
+  const [taxRates, setTaxRates] = useState<TaxRate[]>([]);
+
+  useEffect(() => {
+    const fetchOptions = async () => {
+      try {
+        const [mtRes, ftRes, gRes, trRes] = await Promise.all([
+          axios.get('/api/material-types'),
+          axios.get('/api/fabrics'),
+          axios.get('/api/groups'),
+          axios.get('/api/tax-rates')
+        ]);
+        setMaterialTypes(mtRes.data);
+        setFabrics(ftRes.data);
+        setGroups(gRes.data);
+        setTaxRates(trRes.data);
+      } catch (error) {
+        console.error('Seçenekler yüklenirken hata:', error);
+      }
+    };
+    fetchOptions();
+  }, []);
+
+  const handleSubmit = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-    onSave(form);
+    const updatedProduct: Product = {
+      ...product,
+      modelNo: form.modelNo,
+      name: form.name,
+      image: form.image,
+      materialType: materialTypes.find(mt => mt.id === parseInt(form.materialTypeId)),
+      fabric: fabrics.find((ft: Fabric) => ft.id === parseInt(form.fabricId)),
+      group: groups.find(g => g.id === parseInt(form.groupId)),
+      taxRate: taxRates.find(tr => tr.id === parseInt(form.taxRateId))
+    };
+    onSave(updatedProduct);
   };
 
-  const handleChange = (e) => {
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     const { name, value } = e.target;
     setForm(prev => ({ ...prev, [name]: value }));
   };
@@ -429,14 +701,14 @@ function ProductEdit({ product, onSave, onCancel }) {
     <div style={styles.editModal}>
       <div style={styles.editContent}>
         <h3 style={{marginTop: 0}}>Ürünü Düzenle</h3>
-        
+
         <form onSubmit={handleSubmit} style={styles.form}>
           <div style={styles.inputGroup}>
             <label style={styles.label}>Ürün Kodu</label>
             <input
               type="text"
-              name="code"
-              value={form.code}
+              name="modelNo"
+              value={form.modelNo}
               onChange={handleChange}
               style={styles.input}
               required
@@ -458,45 +730,64 @@ function ProductEdit({ product, onSave, onCancel }) {
           <div style={styles.inputGroup}>
             <label style={styles.label}>Malzeme Türü</label>
             <select
-              name="materialType"
-              value={form.materialType}
+              name="materialTypeId"
+              value={form.materialTypeId}
               onChange={handleChange}
               style={styles.select}
               required
             >
-              <option value="Dokuma Kumaş">Dokuma Kumaş</option>
-              <option value="Örme Kumaş">Örme Kumaş</option>
-              <option value="Dokunmamış Kumaş">Dokunmamış Kumaş</option>
+              <option value="">Malzeme türü seçiniz</option>
+              {materialTypes.map(mt => (
+                <option key={mt.id} value={mt.id}>{mt.name}</option>
+              ))}
+            </select>
+          </div>
+
+          <div style={styles.inputGroup}>
+            <label style={styles.label}>Kumaş Türü</label>
+            <select
+              name="fabricId"
+              value={form.fabricId}
+              onChange={handleChange}
+              style={styles.select}
+              required
+            >
+              <option value="">Kumaş türü seçiniz</option>
+              {fabrics.map(ft => (
+                <option key={ft.id} value={ft.id}>{ft.name}</option>
+              ))}
             </select>
           </div>
 
           <div style={styles.inputGroup}>
             <label style={styles.label}>Grup No</label>
             <select
-              name="groupNo"
-              value={form.groupNo}
+              name="groupId"
+              value={form.groupId}
               onChange={handleChange}
               style={styles.select}
               required
             >
-              <option value="GRP-001">GRP-001 (Dokuma Kumaş Grubu)</option>
-              <option value="GRP-002">GRP-002 (Örme Kumaş Grubu)</option>
-              <option value="GRP-003">GRP-003 (Aksesuar Grubu)</option>
+              <option value="">Grup seçiniz</option>
+              {groups.map(g => (
+                <option key={g.id} value={g.id}>{g.name}</option>
+              ))}
             </select>
           </div>
 
           <div style={styles.inputGroup}>
             <label style={styles.label}>KDV Vergi Oranı</label>
             <select
-              name="taxRate"
-              value={form.taxRate}
+              name="taxRateId"
+              value={form.taxRateId}
               onChange={handleChange}
               style={styles.select}
               required
             >
-              <option value="%1">%1</option>
-              <option value="%8">%8</option>
-              <option value="%18">%18</option>
+              <option value="">KDV oranı seçiniz</option>
+              {taxRates.map(tr => (
+                <option key={tr.id} value={tr.id}>{tr.name}</option>
+              ))}
             </select>
           </div>
 
@@ -522,8 +813,7 @@ function ProductEdit({ product, onSave, onCancel }) {
 }
 
 // Stiller aynı kalacak...
-const styles = {
-  // ... önceki stillerin tamamı burada kalacak
+const styles: Record<string, CSSProperties> = {
   container: {
     maxWidth: "900px",
     margin: "2rem auto",

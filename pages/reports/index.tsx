@@ -42,83 +42,27 @@ const ReportsPage: React.FC = () => {
   });
   const [showFilters, setShowFilters] = useState(false);
 
-  // Örnek veri
+  // Fetch real transaction data
   useEffect(() => {
-    const sampleData: FabricTransaction[] = [
-      { 
-        id: 1, 
-        type: 'in', 
-        fabricName: "Pamuk Kumaş", 
-        quantity: 100, 
-        unit: "metre", 
-        color: "Beyaz",
-        supplier: "Tedarikçi A", 
-        transactionDate: "2024-01-15", 
-        category: "Pamuk",
-        notes: "1. kalite pamuk"
-      },
-      { 
-        id: 2, 
-        type: 'in', 
-        fabricName: "Polyester Kumaş", 
-        quantity: 150, 
-        unit: "metre", 
-        color: "Siyah",
-        supplier: "Tedarikçi B", 
-        transactionDate: "2024-01-14", 
-        category: "Polyester" 
-      },
-      { 
-        id: 3, 
-        type: 'out', 
-        fabricName: "Pamuk Kumaş", 
-        quantity: 30, 
-        unit: "metre", 
-        color: "Beyaz",
-        customer: "Müşteri X", 
-        transactionDate: "2024-01-16", 
-        category: "Pamuk",
-        notes: "Üretim için çıkış"
-      },
-      { 
-        id: 4, 
-        type: 'out', 
-        fabricName: "Polyester Kumaş", 
-        quantity: 50, 
-        unit: "metre", 
-        color: "Siyah",
-        customer: "Müşteri Y", 
-        transactionDate: "2024-01-13", 
-        category: "Polyester" 
-      },
-      { 
-        id: 5, 
-        type: 'in', 
-        fabricName: "Yün Kumaş", 
-        quantity: 80, 
-        unit: "metre", 
-        color: "Krem",
-        supplier: "Tedarikçi C", 
-        transactionDate: "2024-01-12", 
-        category: "Yün" 
-      },
-      { 
-        id: 6, 
-        type: 'out', 
-        fabricName: "Yün Kumaş", 
-        quantity: 20, 
-        unit: "metre", 
-        color: "Krem",
-        customer: "Müşteri Z", 
-        transactionDate: "2024-01-11", 
-        category: "Yün" 
+    const fetchTransactions = async () => {
+      try {
+        const response = await fetch('/api/reports/transactions');
+        if (response.ok) {
+          const data = await response.json();
+          setTransactions(data);
+        } else {
+          console.error('Failed to fetch transactions');
+          setTransactions([]);
+        }
+      } catch (error) {
+        console.error('Error fetching transactions:', error);
+        setTransactions([]);
+      } finally {
+        setLoading(false);
       }
-    ];
+    };
 
-    setTimeout(() => {
-      setTransactions(sampleData);
-      setLoading(false);
-    }, 1000);
+    fetchTransactions();
   }, []);
 
   // Filtreleme

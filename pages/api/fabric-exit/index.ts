@@ -21,6 +21,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       console.log('Gelen Body:', req.body);
       const {
         modelNo,
+        modelName,
         orderNo,
         customerId,
         layerCount,
@@ -72,6 +73,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       const exit = await prisma.fabricExit.create({
         data: {
           modelNo,
+          modelName: modelName || null,
           orderNo,
           customerId,
           layerCount: layerCount ? parseInt(layerCount) : 1,
