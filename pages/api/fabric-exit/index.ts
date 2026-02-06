@@ -23,7 +23,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         modelNo,
         modelName,
         orderNo,
-        customerId,
+        customerIds,
         layerCount,
         grammage,
         externalProductId,
@@ -31,8 +31,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         productionMeters,
         unitType,
         cuttingTable,
-        color,
+        colors,
         fabricType,
+        reportNumber,
         createdAt
       } = req.body;
 
@@ -46,14 +47,14 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       if (!orderNo?.trim()) {
         return res.status(400).json({ error: 'Sipariş No zorunlu' });
       }
-      if (!customerId?.trim()) {
-        return res.status(400).json({ error: 'Müşteri ID zorunlu' });
+      if (!customerIds || customerIds.length === 0) {
+        return res.status(400).json({ error: 'En az bir müşteri seçilmelidir' });
       }
       if (!fabricType?.trim()) {
         return res.status(400).json({ error: 'Kumaş türü zorunlu' });
       }
-      if (!color?.trim()) {
-        return res.status(400).json({ error: 'Renk zorunlu' });
+      if (!colors || colors.length === 0) {
+        return res.status(400).json({ error: 'En az bir renk seçilmelidir' });
       }
       if (unitType === 'kg' && (!productionKg || productionKg <= 0)) {
         return res.status(400).json({ error: 'Üretim miktarı (kg) pozitif bir sayı olmalı' });
@@ -75,7 +76,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           modelNo,
           modelName: modelName || null,
           orderNo,
-          customerId,
+          customerId: customerIds.join(', '), // Müşteri isimlerini virgülle ayırarak sakla
           layerCount: layerCount ? parseInt(layerCount) : 1,
           productWeightKg: productionKg ? parseFloat(productionKg) : 0,
           productLengthMeter: productionMeters ? parseFloat(productionMeters) : 0,
@@ -83,7 +84,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           grammage: grammage ? parseFloat(grammage) : 0,
           externalProductId: externalProductId || null,
           unitType,
-          color: color || null,
+          color: colors.join(', '), // Renkleri virgülle ayırarak sakla
           fabricType: fabricType || null,
           createdAt: createdAt ? new Date(createdAt) : new Date()
         }

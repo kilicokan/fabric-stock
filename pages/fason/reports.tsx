@@ -57,49 +57,16 @@ const FasonReports: React.FC = () => {
   const fetchReports = async () => {
     try {
       setLoading(true);
-      // Mock data
-      const mockData: WorkshopReport[] = [
-        {
-          id: 1,
-          name: 'Merkez Dikim Atölyesi',
-          specialization: 'DIKIM',
-          currentGoods: 150,
-          unitPrice: 25,
-          totalValue: 3750,
-          balance: 15000,
-          lastWorkDate: '2024-01-15',
-          totalWorks: 45,
-          completedWorks: 40
-        },
-        {
-          id: 2,
-          name: 'Nakış Atölyesi',
-          specialization: 'BASKI_NAKIS',
-          currentGoods: 80,
-          unitPrice: 15,
-          totalValue: 1200,
-          balance: 8000,
-          lastWorkDate: '2024-01-14',
-          totalWorks: 30,
-          completedWorks: 25
-        },
-        {
-          id: 3,
-          name: 'Kesim Atölyesi',
-          specialization: 'KESIM',
-          currentGoods: 200,
-          unitPrice: 8,
-          totalValue: 1600,
-          balance: -2500,
-          lastWorkDate: '2024-01-10',
-          totalWorks: 20,
-          completedWorks: 18
-        }
-      ];
-      
-      setReports(mockData);
+      const response = await fetch('/api/fason/reports');
+      if (!response.ok) {
+        throw new Error('API çağrısı başarısız');
+      }
+      const data = await response.json();
+      setReports(data);
     } catch (error) {
       console.error('Raporlar yüklenirken hata:', error);
+      // Fallback to empty array if API fails
+      setReports([]);
     } finally {
       setLoading(false);
     }

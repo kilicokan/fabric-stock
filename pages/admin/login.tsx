@@ -1,7 +1,7 @@
 import { useState } from "react";
 import axios from "axios";
 import { useRouter } from "next/router";
-import SplashScreen from "../../splash-screen";
+import SplashScreen from "../../components/splash-screen";
 
 export default function AdminLogin() {
   const [username, setUsername] = useState("");

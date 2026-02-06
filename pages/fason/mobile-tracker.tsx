@@ -56,11 +56,7 @@ const MobileTracker = () => {
   const fetchWorkOrders = async () => {
     try {
       const response = await workOrdersAPI.getAll();
-      // Sadece assignedToMobile true olan iş emirlerini al
-      const mobileAssignedOrders = (response.data.workOrders || []).filter(
-        (order: any) => order.assignedToMobile === true
-      );
-      setWorkOrders(mobileAssignedOrders);
+      setWorkOrders(response.data.workOrders || []);
     } catch (error) {
       console.error('İş emirleri yüklenirken hata:', error);
       alert('Hata: İş emirleri yüklenemedi');
@@ -69,8 +65,8 @@ const MobileTracker = () => {
 
   const fetchWorkshops = async () => {
     try {
-      const response = await workshopsAPI.getAll();
-      setWorkshops(response.data || []);
+      const response = await workshopsAPI.getMobileWorkshops();
+      setWorkshops(response.data.workshops || []);
     } catch (error) {
       console.error('Atölyeler yüklenirken hata:', error);
     }

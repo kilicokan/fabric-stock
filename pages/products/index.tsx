@@ -33,6 +33,7 @@ interface Product {
   fabric?: Fabric;
   group?: Group;
   taxRate?: TaxRate;
+  fabricType?: string; // For backward compatibility
 }
 
 interface ProductForm {
@@ -48,6 +49,7 @@ interface ProductForm {
 interface ProductListProps {
   products: Product[];
   setProducts: React.Dispatch<React.SetStateAction<Product[]>>;
+  fetchProducts: () => Promise<void>;
 }
 
 interface ProductAddProps {
@@ -125,8 +127,8 @@ export default function ProductsPage() {
       
       {/* İçerik Alanı */}
       <div style={styles.content}>
-        {activeTab === "list" ? 
-          <ProductList products={products} setProducts={setProducts} /> : 
+        {activeTab === "list" ?
+          <ProductList products={products} setProducts={setProducts} fetchProducts={fetchProducts} /> :
           <ProductAdd products={products} setProducts={setProducts} setActiveTab={setActiveTab} />
         }
       </div>
@@ -135,7 +137,7 @@ export default function ProductsPage() {
 }
 
 // Ürün Listesi Bileşeni
-function ProductList({ products, setProducts }: ProductListProps) {
+function ProductList({ products, setProducts, fetchProducts }: ProductListProps) {
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
   const [importing, setImporting] = useState(false);
 
@@ -143,10 +145,30 @@ function ProductList({ products, setProducts }: ProductListProps) {
     setEditingProduct(product);
   };
 
-  const handleUpdate = (updatedProduct: Product) => {
-    setProducts(products.map((p: Product) => p.id === updatedProduct.id ? updatedProduct : p));
-    setEditingProduct(null);
-    alert("Ürün başarıyla güncellendi!");
+  const handleUpdate = async (updatedProduct: Product) => {
+    try {
+      const response = await axios.put('/api/products', {
+        id: updatedProduct.id,
+        modelNo: updatedProduct.modelNo,
+        name: updatedProduct.name,
+        materialTypeId: updatedProduct.materialType?.id || null,
+        fabricId: updatedProduct.fabric?.id || null,
+        groupId: updatedProduct.group?.id || null,
+        taxRateId: updatedProduct.taxRate?.id || null,
+        description: updatedProduct.description,
+        image: updatedProduct.image
+      });
+
+      if (response.status === 200) {
+        // Refresh the products list
+        await fetchProducts();
+        setEditingProduct(null);
+        alert("Ürün başarıyla güncellendi!");
+      }
+    } catch (error) {
+      console.error('Ürün güncelleme hatası:', error);
+      alert('Ürün güncellenirken hata oluştu');
+    }
   };
 
   const handleDelete = (id: number) => {

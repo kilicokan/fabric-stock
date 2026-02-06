@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useEffect, useState, ReactNode } from 'react';
 import { useRouter } from 'next/router';
 import axios from 'axios';
-import SplashScreen from '../splash-screen';
+import SplashScreen from './splash-screen';
 
 interface User {
   id: number;
@@ -16,6 +16,7 @@ interface AuthContextType {
   user: User | null;
   loading: boolean;
   authenticated: boolean;
+  error: string | null;
   checkAuth: () => void;
   logout: () => void;
 }
@@ -44,17 +45,28 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
   const [authenticated, setAuthenticated] = useState(false);
-  const [showSplash, setShowSplash] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [authState, setAuthState] = useState<'checking' | 'logging-in' | 'logging-out' | 'idle'>('checking');
   const router = useRouter();
 
   useEffect(() => {
     checkAuth();
   }, []);
 
+  const isTokenExpired = (token: string): boolean => {
+    try {
+      const payload = JSON.parse(atob(token.split('.')[1]));
+      return payload.exp < Date.now() / 1000;
+    } catch (e) {
+      return true; // invalid token
+    }
+  };
+
   const checkAuth = async () => {
     if (!requireAuth) {
       setLoading(false);
       setAuthenticated(true);
+      setAuthState('idle');
       return;
     }
 
@@ -62,6 +74,13 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({
       const token = localStorage.getItem('token');
 
       if (!token) {
+        redirectToLogin();
+        return;
+      }
+
+      // Check if token is expired
+      if (isTokenExpired(token)) {
+        localStorage.removeItem('token');
         redirectToLogin();
         return;
       }
@@ -82,6 +101,13 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({
       }
 
       setAuthenticated(true);
+      setAuthState('logging-in');
+      
+      // Giriş splash'ını 3.5 saniye göster
+      setTimeout(() => {
+        setAuthState('idle');
+      }, 3500);
+      
     } catch (error) {
       console.error('Auth check failed:', error);
       localStorage.removeItem('token');
@@ -105,19 +131,33 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({
   };
 
   const redirectToLogin = () => {
-    setShowSplash(false); // Hide splash screen before redirecting
+    setAuthState('idle');
     router.push('/login');
   };
 
   const logout = () => {
+    setAuthState('logging-out');
     localStorage.removeItem('token');
     setUser(null);
     setAuthenticated(false);
-    router.push('/login');
+    
+    // Çıkış splash'ını 3.5 saniye göster, sonra login sayfasına yönlendir
+    setTimeout(() => {
+      router.push('/login');
+      // Login sayfasına yönlendikten sonra state'i sıfırla
+      setTimeout(() => setAuthState('idle'), 100);
+    }, 3500);
   };
 
-  if (showSplash) {
-    return <SplashScreen onHide={() => setShowSplash(false)} />;
+  // Splash screen gösterimi
+  if (authState === 'logging-in' || authState === 'logging-out') {
+    return (
+      <SplashScreen 
+        autoHide={false} 
+        isLogout={authState === 'logging-out'}
+        onHide={() => setAuthState('idle')}
+      />
+    );
   }
 
   if (loading) {
@@ -129,12 +169,12 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({
     );
   }
 
-  if (!authenticated) {
+  if (!authenticated && requireAuth) {
     return null;
   }
 
   return (
-    <AuthContext.Provider value={{ user, loading, authenticated, checkAuth, logout }}>
+    <AuthContext.Provider value={{ user, loading, authenticated, error, checkAuth, logout }}>
       {children}
     </AuthContext.Provider>
   );

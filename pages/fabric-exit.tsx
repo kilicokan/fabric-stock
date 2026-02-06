@@ -7,7 +7,7 @@ interface FabricExitFormData {
   modelNo: string;
   modelName: string; // Yeni alan: model adı
   orderNo: string;
-  customerId: string;
+  customerIds: string[]; // Birden fazla müşteri
   layerCount: number;
   grammage: number;
   externalProductId: string;
@@ -15,8 +15,10 @@ interface FabricExitFormData {
   productionMeters: number;
   unitType: 'kg' | 'm';
   cuttingTable: string;
-  color: string;
+  colors: string[]; // Birden fazla renk
   fabricType: string;
+  reportNumber: string; // Rapor numarası
+  isAutoReportNumber: boolean; // Otomatik rapor numarası mı?
 }
 
 interface Product {
@@ -24,8 +26,8 @@ interface Product {
   modelNo: string;
   name: string;
   materialTypeId?: number;
-  fabricTypeId?: number;
-  fabricType?: { id: number; name: string };
+  fabricId?: number;
+  fabric?: { id: number; name: string };
   groupId?: number;
   taxRateId?: number;
   description?: string;
@@ -59,7 +61,7 @@ export default function FabricExit() {
     modelNo: '',
     modelName: '', // Yeni alan
     orderNo: '',
-    customerId: '',
+    customerIds: [],
     layerCount: 1,
     grammage: 0,
     externalProductId: '',
@@ -67,8 +69,10 @@ export default function FabricExit() {
     productionMeters: 0,
     unitType: 'kg',
     cuttingTable: '',
-    color: '',
-    fabricType: ''
+    colors: [],
+    fabricType: '',
+    reportNumber: '',
+    isAutoReportNumber: true
   });
 
   const [products, setProducts] = useState<Product[]>([]);
@@ -86,11 +90,21 @@ export default function FabricExit() {
   const [manualModelName, setManualModelName] = useState<string>(''); // Yeni state
   const [useManualModelNo, setUseManualModelNo] = useState<boolean>(false);
 
+  // Kesim emri verilerini tutmak için state
+  const [cuttingOrderData, setCuttingOrderData] = useState<any>(null);
+
   // Ürün seçim modalı için yeni state'ler
   const [showProductModal, setShowProductModal] = useState<boolean>(false);
   const [filteredProducts, setFilteredProducts] = useState<Product[]>([]);
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [showAutocomplete, setShowAutocomplete] = useState<boolean>(false);
+
+  // Müşteri seçim modalı için yeni state'ler
+  const [showCustomerModal, setShowCustomerModal] = useState<boolean>(false);
+  const [customers, setCustomers] = useState<any[]>([]);
+  const [filteredCustomers, setFilteredCustomers] = useState<any[]>([]);
+  const [customerSearchQuery, setCustomerSearchQuery] = useState<string>('');
+  const [selectedCustomers, setSelectedCustomers] = useState<any[]>([]);
 
   // Color and fabric type options from API
   const [colorOptions, setColorOptions] = useState<string[]>([]);
@@ -100,23 +114,31 @@ export default function FabricExit() {
   const [filteredColors, setFilteredColors] = useState<string[]>([]);
   const [showColorAutocomplete, setShowColorAutocomplete] = useState<boolean>(false);
 
+  // Multiple color selection states
+  const [showColorModal, setShowColorModal] = useState<boolean>(false);
+  const [colorSearchQuery, setColorSearchQuery] = useState<string>('');
+  const [filteredColorOptions, setFilteredColorOptions] = useState<string[]>([]);
+
   // Fabric type autocomplete states
   const [filteredFabricTypes, setFilteredFabricTypes] = useState<string[]>([]);
   const [showFabricTypeAutocomplete, setShowFabricTypeAutocomplete] = useState<boolean>(false);
 
-  // Ürünleri yükle
+  // Ürünleri ve müşterileri yükle
   useEffect(() => {
     const fetchData = async () => {
       try {
         setLoading(prev => ({ ...prev, products: true }));
-        const [productsRes, colorsRes, fabricsRes] = await Promise.all([
+        const [productsRes, colorsRes, fabricsRes, customersRes] = await Promise.all([
           axios.get<Product[]>('/api/products'),
           axios.get('/api/colors'),
-          axios.get('/api/fabrics')
+          axios.get('/api/fabrics'),
+          axios.get('/api/customers')
         ]);
         setProducts(productsRes.data);
         setColorOptions(colorsRes.data.map((c: any) => c.name));
         setFabricTypeOptions(fabricsRes.data.map((f: any) => f.name));
+        setCustomers(customersRes.data);
+        setFilteredCustomers(customersRes.data);
       } catch (err) {
         setError('Veriler yüklenemedi');
         console.error(err);
@@ -134,7 +156,7 @@ export default function FabricExit() {
       if (selectedProduct) {
         setFormData(prev => ({
           ...prev,
-          fabricType: selectedProduct.fabricType?.name || '',
+          fabricType: selectedProduct.fabric?.name || '',
           modelName: selectedProduct.name || '' // Model adını da otomatik set et
         }));
         setManualModelName(selectedProduct.name || ''); // Manuel model adını da güncelle
@@ -191,6 +213,26 @@ export default function FabricExit() {
     }
   };
 
+  // Kesim emri verilerini çekme
+  const fetchCuttingOrderData = async (reportNumber: string) => {
+    if (!reportNumber.trim()) {
+      setCuttingOrderData(null);
+      return;
+    }
+
+    try {
+      const response = await axios.get(`/api/fabric-exits?reportNumber=${encodeURIComponent(reportNumber)}`);
+      if (response.data && response.data.length > 0) {
+        setCuttingOrderData(response.data[0]);
+      } else {
+        setCuttingOrderData(null);
+      }
+    } catch (error) {
+      console.error('Kesim emri verisi alınırken hata:', error);
+      setCuttingOrderData(null);
+    }
+  };
+
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     const { name, value } = e.target;
     setFormData(prev => ({
@@ -206,6 +248,11 @@ export default function FabricExit() {
     // Color değiştiğinde otomatik tamamlama
     if (name === 'color') {
       handleColorChange(value);
+    }
+
+    // Rapor numarası değiştiğinde kesim emri verilerini çek
+    if (name === 'reportNumber') {
+      fetchCuttingOrderData(value);
     }
   };
 
@@ -236,6 +283,18 @@ export default function FabricExit() {
     }
   };
 
+  // Otomatik rapor numarası üretme
+  const generateReportNumber = () => {
+    const now = new Date();
+    const year = now.getFullYear();
+    const month = String(now.getMonth() + 1).padStart(2, '0');
+    const day = String(now.getDate()).padStart(2, '0');
+    const hours = String(now.getHours()).padStart(2, '0');
+    const minutes = String(now.getMinutes()).padStart(2, '0');
+    const seconds = String(now.getSeconds()).padStart(2, '0');
+    return `RPT-${year}${month}${day}-${hours}${minutes}${seconds}`;
+  };
+
   // Fabric type değişikliği için otomatik tamamlama
   const handleFabricTypeChange = (value: string) => {
     if (value.length > 0) {
@@ -255,18 +314,36 @@ export default function FabricExit() {
       ...prev,
       modelNo: product.modelNo,
       modelName: product.name,
-      fabricType: product.fabricType?.name || ''
+      fabricType: product.fabric?.name || ''
     }));
     setShowAutocomplete(false);
   };
 
-  // Color seçimi
+  // Color seçimi (autocomplete için)
   const handleColorSelect = (color: string) => {
     setFormData(prev => ({
       ...prev,
-      color: color
+      colors: [...prev.colors, color]
     }));
     setShowColorAutocomplete(false);
+  };
+
+  // Renk ekleme (modal'dan)
+  const handleAddColor = (color: string) => {
+    if (!formData.colors.includes(color)) {
+      setFormData(prev => ({
+        ...prev,
+        colors: [...prev.colors, color]
+      }));
+    }
+  };
+
+  // Renk çıkarma
+  const handleRemoveColor = (colorToRemove: string) => {
+    setFormData(prev => ({
+      ...prev,
+      colors: prev.colors.filter(color => color !== colorToRemove)
+    }));
   };
 
   // Fabric type seçimi
@@ -291,7 +368,7 @@ export default function FabricExit() {
       ...prev,
       modelNo: product.modelNo,
       modelName: product.name,
-      fabricType: product.fabricType?.name || ''
+      fabricType: product.fabric?.name || ''
     }));
     setShowProductModal(false);
   };
@@ -300,7 +377,7 @@ export default function FabricExit() {
   const handleModalSearch = (query: string) => {
     setSearchQuery(query);
     if (query.length > 0) {
-      const filtered = products.filter(product => 
+      const filtered = products.filter(product =>
         product.modelNo.toLowerCase().includes(query.toLowerCase()) ||
         product.name.toLowerCase().includes(query.toLowerCase())
       );
@@ -308,6 +385,44 @@ export default function FabricExit() {
     } else {
       setFilteredProducts(products);
     }
+  };
+
+  // Müşteri modal arama
+  const handleCustomerModalSearch = (query: string) => {
+    setCustomerSearchQuery(query);
+    if (query.length > 0) {
+      const filtered = customers.filter(customer =>
+        customer.name.toLowerCase().includes(query.toLowerCase()) ||
+        (customer.phone && customer.phone.includes(query)) ||
+        (customer.email && customer.email.toLowerCase().includes(query.toLowerCase()))
+      );
+      setFilteredCustomers(filtered);
+    } else {
+      setFilteredCustomers(customers);
+    }
+  };
+
+  // Müşteri seçimi (modal'dan)
+  const handleCustomerSelect = (customer: any) => {
+    if (!selectedCustomers.some(c => c.id === customer.id)) {
+      const newSelectedCustomers = [...selectedCustomers, customer];
+      setSelectedCustomers(newSelectedCustomers);
+      setFormData(prev => ({
+        ...prev,
+        customerIds: newSelectedCustomers.map(c => c.name)
+      }));
+    }
+    setShowCustomerModal(false);
+  };
+
+  // Müşteri çıkarma
+  const handleRemoveCustomer = (customerId: number) => {
+    const newSelectedCustomers = selectedCustomers.filter(c => c.id !== customerId);
+    setSelectedCustomers(newSelectedCustomers);
+    setFormData(prev => ({
+      ...prev,
+      customerIds: newSelectedCustomers.map(c => c.name)
+    }));
   };
 
   const handleManualModelNoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -325,15 +440,27 @@ export default function FabricExit() {
   const toggleManualModelNo = () => {
     setUseManualModelNo(!useManualModelNo);
     if (!useManualModelNo) {
-      setFormData(prev => ({ 
-        ...prev, 
+      setFormData(prev => ({
+        ...prev,
         modelNo: '',
         modelName: '',
-        fabricType: '' 
+        fabricType: '',
+        reportNumber: '',
+        isAutoReportNumber: true
       }));
       setManualModelNo('');
       setManualModelName('');
     }
+  };
+
+  // Otomatik rapor numarası toggle
+  const toggleAutoReportNumber = () => {
+    const newIsAuto = !formData.isAutoReportNumber;
+    setFormData(prev => ({
+      ...prev,
+      isAutoReportNumber: newIsAuto,
+      reportNumber: newIsAuto ? generateReportNumber() : ''
+    }));
   };
 
   const handleUnitChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -348,6 +475,10 @@ export default function FabricExit() {
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
 
+    if (!formData.reportNumber.trim()) {
+      setError('Rapor Numarası girilmelidir.');
+      return;
+    }
     if (!formData.modelNo.trim()) {
       setError('Model No girilmelidir.');
       return;
@@ -360,8 +491,8 @@ export default function FabricExit() {
       setError('Sipariş No girilmelidir.');
       return;
     }
-    if (!formData.customerId.trim()) {
-      setError('Müşteri ID girilmelidir.');
+    if (formData.customerIds.length === 0) {
+      setError('En az bir müşteri seçilmelidir.');
       return;
     }
     if ((formData.unitType === 'kg' && formData.productionKg <= 0) || (formData.unitType === 'm' && formData.productionMeters <= 0)) {
@@ -372,8 +503,8 @@ export default function FabricExit() {
       setError('Kesim masası seçilmelidir.');
       return;
     }
-    if (!formData.color) {
-      setError('Renk seçilmelidir.');
+    if (formData.colors.length === 0) {
+      setError('En az bir renk seçilmelidir.');
       return;
     }
     if (!formData.fabricType) {
@@ -394,6 +525,31 @@ export default function FabricExit() {
         createdAt: new Date().toISOString()
       });
       console.log('API yanıtı:', response.data);
+
+      // Eğer kesim emri verisi varsa, değişiklikleri kesim emirlerine de kaydet
+      if (cuttingOrderData) {
+        try {
+          await axios.put(`/api/fabric-exits/${cuttingOrderData.id}`, {
+            modelNo: formData.modelNo,
+            modelName: formData.modelName,
+            orderNo: formData.orderNo,
+            customerId: formData.customerIds.join(', '),
+            color: formData.colors.join(', '),
+            fabricType: formData.fabricType,
+            cuttingTable: formData.cuttingTable,
+            layerCount: formData.layerCount,
+            grammage: formData.grammage,
+            unitType: formData.unitType,
+            productWeightKg: formData.productionKg,
+            productLengthMeter: formData.productionMeters,
+            reportNumber: formData.reportNumber
+          });
+        } catch (updateError) {
+          console.error('Kesim emri güncellenirken hata:', updateError);
+          // Ana işlem başarılı olduğu için hata mesajı göstermiyoruz
+        }
+      }
+
       router.push('/success');
     } catch (err: any) {
       console.error('Gönderme hatası:', err.response || err.message || err);
@@ -403,15 +559,163 @@ export default function FabricExit() {
     }
   };
 
+  // Export fonksiyonları
+  const exportToPDF = async () => {
+    const { jsPDF } = await import('jspdf');
+    const autoTable = (await import('jspdf-autotable')).default as (doc: any, options: any) => void;
+    const doc = new jsPDF();
+
+    doc.setFontSize(16);
+    doc.setTextColor(40, 40, 40);
+    doc.text('Kumaş Çıkış Raporu', 14, 15);
+
+    doc.setFontSize(10);
+    doc.setTextColor(100, 100, 100);
+    doc.text(`Rapor Numarası: ${formData.reportNumber || 'Belirtilmemiş'}`, 14, 22);
+    doc.text(`Oluşturulma Tarihi: ${new Date().toLocaleDateString('tr-TR')}`, 14, 28);
+
+    const tableData = [
+      ['Model No', formData.modelNo || '-'],
+      ['Model Adı', formData.modelName || '-'],
+      ['Sipariş No', formData.orderNo || '-'],
+      ['Müşteriler', formData.customerIds.join(', ') || '-'],
+      ['Kat Sayısı', formData.layerCount.toString()],
+      ['Gramaj (g/m²)', formData.grammage.toString()],
+      ['Kumaş Türü', formData.fabricType || '-'],
+      ['Renkler', formData.colors.join(', ') || '-'],
+      ['Kesim Masası', formData.cuttingTable || '-'],
+      ['Üretim Miktarı', formData.unitType === 'kg' ? `${formData.productionKg} kg` : `${formData.productionMeters} m`],
+      ['Birim Tipi', formData.unitType === 'kg' ? 'Kg' : 'Metre']
+    ];
+
+    autoTable(doc, {
+      startY: 35,
+      body: tableData,
+      theme: 'grid',
+      styles: {
+        fontSize: 9,
+        cellPadding: 3,
+      },
+      columnStyles: {
+        0: { fontStyle: 'bold', fillColor: [79, 70, 229] },
+        1: { fillColor: [240, 240, 240] }
+      }
+    });
+
+    doc.save(`kumas-cikis-raporu-${formData.reportNumber || 'yeni'}.pdf`);
+  };
+
+  const exportToExcel = async () => {
+    const XLSX = await import('xlsx');
+    const data = [{
+      'Rapor Numarası': formData.reportNumber,
+      'Model No': formData.modelNo,
+      'Model Adı': formData.modelName,
+      'Sipariş No': formData.orderNo,
+      'Müşteriler': formData.customerIds.join(', '),
+      'Kat Sayısı': formData.layerCount,
+      'Gramaj': formData.grammage,
+      'Kumaş Türü': formData.fabricType,
+      'Renkler': formData.colors.join(', '),
+      'Kesim Masası': formData.cuttingTable,
+      'Üretim Miktarı': formData.unitType === 'kg' ? formData.productionKg : formData.productionMeters,
+      'Birim': formData.unitType === 'kg' ? 'kg' : 'm',
+      'Tarih': new Date().toISOString().split('T')[0]
+    }];
+    const worksheet = XLSX.utils.json_to_sheet(data);
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, 'Kumaş Çıkış');
+    XLSX.writeFile(workbook, `kumas-cikis-raporu-${formData.reportNumber || 'yeni'}.xlsx`);
+  };
+
+  const exportToCSV = () => {
+    const headers = ['Rapor Numarası', 'Model No', 'Model Adı', 'Sipariş No', 'Müşteriler', 'Kat Sayısı', 'Gramaj', 'Kumaş Türü', 'Renkler', 'Kesim Masası', 'Üretim Miktarı', 'Birim', 'Tarih'];
+    const values = [
+      formData.reportNumber,
+      formData.modelNo,
+      formData.modelName,
+      formData.orderNo,
+      formData.customerIds.join('; '),
+      formData.layerCount.toString(),
+      formData.grammage.toString(),
+      formData.fabricType,
+      formData.colors.join('; '),
+      formData.cuttingTable,
+      (formData.unitType === 'kg' ? formData.productionKg : formData.productionMeters).toString(),
+      formData.unitType === 'kg' ? 'kg' : 'm',
+      new Date().toISOString().split('T')[0]
+    ];
+    const csvContent = [headers.join(','), values.join(',')].join('\n');
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.setAttribute('download', `kumas-cikis-raporu-${formData.reportNumber || 'yeni'}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
   return (
     <div style={styles.container}>
-      <h1 style={styles.title}>📤 Kumaş Çıkış Formu</h1>
+      <div style={styles.header}>
+        <h1 style={styles.title}>📤 Kumaş Çıkış Formu</h1>
+        <div style={styles.exportButtons}>
+          <button
+            type="button"
+            onClick={exportToPDF}
+            style={styles.exportButton}
+            title="PDF'e Aktar"
+          >
+            📄 PDF
+          </button>
+          <button
+            type="button"
+            onClick={exportToExcel}
+            style={styles.exportButton}
+            title="Excel'e Aktar"
+          >
+            📊 Excel
+          </button>
+          <button
+            type="button"
+            onClick={exportToCSV}
+            style={styles.exportButton}
+            title="CSV'ye Aktar"
+          >
+            📋 CSV
+          </button>
+        </div>
+      </div>
 
       {error && <div style={styles.error}>{error}</div>}
 
       <form onSubmit={handleSubmit} style={styles.form}>
         {/* 1. Satır */}
         <div style={styles.row}>
+          <div style={styles.inputGroup}>
+            <div style={styles.reportNumberHeader}>
+              <label style={styles.label}>Rapor Numarası</label>
+              <button
+                type="button"
+                onClick={toggleAutoReportNumber}
+                style={formData.isAutoReportNumber ? styles.autoButtonActive : styles.autoButton}
+              >
+                {formData.isAutoReportNumber ? '🔄 Otomatik' : '✏️ Manuel'}
+              </button>
+            </div>
+            <input
+              type="text"
+              name="reportNumber"
+              value={formData.reportNumber}
+              onChange={handleChange}
+              style={styles.input}
+              placeholder={formData.isAutoReportNumber ? "Otomatik oluşturulacak..." : "Rapor numarasını girin..."}
+              required
+              readOnly={formData.isAutoReportNumber}
+            />
+          </div>
+
           <div style={styles.inputGroup}>
             <div style={styles.modelNoHeader}>
               <label style={styles.label}>Model No</label>
@@ -474,9 +778,9 @@ export default function FabricExit() {
                       >
                         <div style={styles.autocompleteModelNo}>{product.modelNo}</div>
                         <div style={styles.autocompleteName}>{product.name}</div>
-                        {product.fabricType && (
+                        {product.fabric && (
                           <div style={styles.autocompleteFabricType}>
-                            Kumaş: {product.fabricType.name}
+                            Kumaş: {product.fabric.name}
                           </div>
                         )}
                       </div>
@@ -549,15 +853,32 @@ export default function FabricExit() {
           </div>
 
           <div style={styles.inputGroup}>
-            <label style={styles.label}>Müşteri ID</label>
-            <input
-              type="text"
-              name="customerId"
-              value={formData.customerId}
-              onChange={handleChange}
-              style={styles.input}
-              required
-            />
+            <label style={styles.label}>Müşteriler</label>
+            <div style={styles.customerSelection}>
+              <div style={styles.selectedCustomers}>
+                {selectedCustomers.map(customer => (
+                  <div key={customer.id} style={styles.customerTag}>
+                    <span>{customer.name}</span>
+                    <button
+                      type="button"
+                      onClick={() => handleRemoveCustomer(customer.id)}
+                      style={styles.removeButton}
+                      title="Müşteriyi kaldır"
+                    >
+                      ×
+                    </button>
+                  </div>
+                ))}
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowCustomerModal(true)}
+                style={styles.addCustomerButton}
+                title="Müşteri ekle"
+              >
+                ➕ Müşteri Ekle
+              </button>
+            </div>
           </div>
 
           <div style={styles.inputGroup}>
@@ -637,32 +958,35 @@ export default function FabricExit() {
         {/* 4. Satır */}
         <div style={styles.row}>
           <div style={styles.inputGroup}>
-            <label style={styles.label}>Renk</label>
-            <div style={styles.inputWithAutocomplete}>
-              <input
-                type="text"
-                name="color"
-                value={formData.color}
-                onChange={handleChange}
-                style={styles.input}
-                placeholder="Renk yazın veya listeden seçin..."
-                required
-              />
-
-              {/* Color otomatik tamamlama dropdown */}
-              {showColorAutocomplete && filteredColors.length > 0 && (
-                <div style={styles.colorAutocompleteDropdown}>
-                  {filteredColors.map(color => (
-                    <div
-                      key={color}
-                      style={styles.autocompleteItem}
-                      onClick={() => handleColorSelect(color)}
+            <label style={styles.label}>Renkler</label>
+            <div style={styles.colorSelection}>
+              <div style={styles.selectedColors}>
+                {formData.colors.map(color => (
+                  <div key={color} style={styles.colorTag}>
+                    <span>{color}</span>
+                    <button
+                      type="button"
+                      onClick={() => handleRemoveColor(color)}
+                      style={styles.removeButton}
+                      title="Rengi kaldır"
                     >
-                      {color}
-                    </div>
-                  ))}
-                </div>
-              )}
+                      ×
+                    </button>
+                  </div>
+                ))}
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setShowColorModal(true);
+                  setFilteredColorOptions(colorOptions);
+                  setColorSearchQuery('');
+                }}
+                style={styles.addColorButton}
+                title="Renk ekle"
+              >
+                ➕ Renk Ekle
+              </button>
             </div>
           </div>
 
@@ -756,7 +1080,7 @@ export default function FabricExit() {
                 ✕
               </button>
             </div>
-            
+
             <div style={styles.modalSearch}>
               <input
                 type="text"
@@ -766,7 +1090,7 @@ export default function FabricExit() {
                 style={styles.modalSearchInput}
               />
             </div>
-            
+
             <div style={styles.modalBody}>
               {filteredProducts.length > 0 ? (
                 <div style={styles.productList}>
@@ -778,9 +1102,9 @@ export default function FabricExit() {
                     >
                       <div style={styles.productModelNo}>{product.modelNo}</div>
                       <div style={styles.productName}>{product.name}</div>
-                      {product.fabricType && (
+                      {product.fabric && (
                         <div style={styles.productFabricType}>
-                          Kumaş Türü: {product.fabricType.name}
+                          Kumaş Türü: {product.fabric.name}
                         </div>
                       )}
                       {product.description && (
@@ -791,6 +1115,114 @@ export default function FabricExit() {
                 </div>
               ) : (
                 <div style={styles.noResults}>Ürün bulunamadı</div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Müşteri Seçim Modalı */}
+      {showCustomerModal && (
+        <div style={styles.modalOverlay} onClick={() => setShowCustomerModal(false)}>
+          <div style={styles.modalContent} onClick={(e) => e.stopPropagation()}>
+            <div style={styles.modalHeader}>
+              <h2 style={styles.modalTitle}>Müşteri Seç</h2>
+              <button
+                type="button"
+                onClick={() => setShowCustomerModal(false)}
+                style={styles.modalCloseButton}
+              >
+                ✕
+              </button>
+            </div>
+
+            <div style={styles.modalSearch}>
+              <input
+                type="text"
+                placeholder="Müşteri adı, telefon veya e-posta ile ara..."
+                value={customerSearchQuery}
+                onChange={(e) => handleCustomerModalSearch(e.target.value)}
+                style={styles.modalSearchInput}
+              />
+            </div>
+
+            <div style={styles.modalBody}>
+              {filteredCustomers.length > 0 ? (
+                <div style={styles.customerList}>
+                  {filteredCustomers.map(customer => (
+                    <div
+                      key={customer.id}
+                      style={styles.customerItem}
+                      onClick={() => handleCustomerSelect(customer)}
+                    >
+                      <div style={styles.customerName}>{customer.name}</div>
+                      <div style={styles.customerDetails}>
+                        {customer.phone || "-"} {customer.email ? `• ${customer.email}` : ""}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div style={styles.noResults}>Müşteri bulunamadı</div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Renk Seçim Modalı */}
+      {showColorModal && (
+        <div style={styles.modalOverlay} onClick={() => setShowColorModal(false)}>
+          <div style={styles.modalContent} onClick={(e) => e.stopPropagation()}>
+            <div style={styles.modalHeader}>
+              <h2 style={styles.modalTitle}>Renk Seç</h2>
+              <button
+                type="button"
+                onClick={() => setShowColorModal(false)}
+                style={styles.modalCloseButton}
+              >
+                ✕
+              </button>
+            </div>
+
+            <div style={styles.modalSearch}>
+              <input
+                type="text"
+                placeholder="Renk ara..."
+                value={colorSearchQuery}
+                onChange={(e) => {
+                  setColorSearchQuery(e.target.value);
+                  if (e.target.value.length > 0) {
+                    const filtered = colorOptions.filter(color =>
+                      color.toLowerCase().includes(e.target.value.toLowerCase())
+                    );
+                    setFilteredColorOptions(filtered);
+                  } else {
+                    setFilteredColorOptions(colorOptions);
+                  }
+                }}
+                style={styles.modalSearchInput}
+              />
+            </div>
+
+            <div style={styles.modalBody}>
+              {filteredColorOptions.length > 0 ? (
+                <div style={styles.colorList}>
+                  {filteredColorOptions.map(color => (
+                    <div
+                      key={color}
+                      style={styles.colorItem}
+                      onClick={() => {
+                        handleAddColor(color);
+                        setShowColorModal(false);
+                      }}
+                    >
+                      {color}
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div style={styles.noResults}>Renk bulunamadı</div>
               )}
             </div>
           </div>
@@ -809,6 +1241,30 @@ const styles = {
     borderRadius: '12px',
     boxShadow: '0 4px 12px rgba(0, 0, 0, 0.1)',
     fontFamily: "'Segoe UI', Tahoma, Geneva, Verdana, sans-serif"
+  },
+  header: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: '1.5rem',
+    flexWrap: 'wrap' as const,
+    gap: '1rem'
+  },
+  exportButtons: {
+    display: 'flex',
+    gap: '0.5rem',
+    flexWrap: 'wrap' as const
+  },
+  exportButton: {
+    padding: '0.5rem 1rem',
+    backgroundColor: '#28a745',
+    color: 'white',
+    border: 'none',
+    borderRadius: '6px',
+    cursor: 'pointer',
+    fontSize: '0.9rem',
+    fontWeight: '600',
+    transition: 'background-color 0.3s'
   },
   title: {
     textAlign: 'center' as const,
@@ -838,6 +1294,31 @@ const styles = {
     display: 'flex',
     justifyContent: 'space-between',
     alignItems: 'center'
+  },
+  reportNumberHeader: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'center'
+  },
+  autoButton: {
+    padding: '0.3rem 0.6rem',
+    backgroundColor: '#6c757d',
+    color: 'white',
+    border: 'none',
+    borderRadius: '4px',
+    cursor: 'pointer',
+    fontSize: '0.8rem',
+    transition: 'background-color 0.3s'
+  },
+  autoButtonActive: {
+    padding: '0.3rem 0.6rem',
+    backgroundColor: '#28a745',
+    color: 'white',
+    border: 'none',
+    borderRadius: '4px',
+    cursor: 'pointer',
+    fontSize: '0.8rem',
+    transition: 'background-color 0.3s'
   },
   label: {
     fontWeight: '600',
@@ -1148,5 +1629,128 @@ const styles = {
     zIndex: 1000,
     maxHeight: '200px',
     overflowY: 'auto' as const
+  },
+
+  // Customer modal styles
+  customerList: {
+    display: 'flex',
+    flexDirection: 'column' as const,
+    gap: '0.5rem'
+  },
+  customerItem: {
+    padding: '1rem',
+    border: '1px solid #eee',
+    borderRadius: '6px',
+    cursor: 'pointer',
+    transition: 'all 0.2s',
+    backgroundColor: '#f8f9fa'
+  },
+  customerName: {
+    fontWeight: 'bold',
+    color: '#2c3e50',
+    fontSize: '1rem'
+  },
+  customerDetails: {
+    color: '#6c757d',
+    fontSize: '0.9rem',
+    marginTop: '0.25rem'
+  },
+
+  // Customer selection styles
+  customerSelection: {
+    display: 'flex',
+    flexDirection: 'column' as const,
+    gap: '0.5rem'
+  },
+  selectedCustomers: {
+    display: 'flex',
+    flexWrap: 'wrap' as const,
+    gap: '0.5rem',
+    minHeight: '40px',
+    padding: '0.5rem',
+    border: '1px solid #ddd',
+    borderRadius: '6px',
+    backgroundColor: 'white'
+  },
+  customerTag: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '0.5rem',
+    padding: '0.25rem 0.5rem',
+    backgroundColor: '#e9ecef',
+    borderRadius: '4px',
+    fontSize: '0.9rem'
+  },
+  addCustomerButton: {
+    padding: '0.5rem 1rem',
+    backgroundColor: '#007bff',
+    color: 'white',
+    border: 'none',
+    borderRadius: '6px',
+    cursor: 'pointer',
+    fontSize: '0.9rem',
+    transition: 'background-color 0.3s'
+  },
+
+  // Color selection styles
+  colorSelection: {
+    display: 'flex',
+    flexDirection: 'column' as const,
+    gap: '0.5rem'
+  },
+  selectedColors: {
+    display: 'flex',
+    flexWrap: 'wrap' as const,
+    gap: '0.5rem',
+    minHeight: '40px',
+    padding: '0.5rem',
+    border: '1px solid #ddd',
+    borderRadius: '6px',
+    backgroundColor: 'white'
+  },
+  colorTag: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '0.5rem',
+    padding: '0.25rem 0.5rem',
+    backgroundColor: '#e9ecef',
+    borderRadius: '4px',
+    fontSize: '0.9rem'
+  },
+  addColorButton: {
+    padding: '0.5rem 1rem',
+    backgroundColor: '#007bff',
+    color: 'white',
+    border: 'none',
+    borderRadius: '6px',
+    cursor: 'pointer',
+    fontSize: '0.9rem',
+    transition: 'background-color 0.3s'
+  },
+
+  // Remove button
+  removeButton: {
+    background: 'none',
+    border: 'none',
+    color: '#dc3545',
+    cursor: 'pointer',
+    fontSize: '1.2rem',
+    padding: '0',
+    lineHeight: '1'
+  },
+
+  // Color modal styles
+  colorList: {
+    display: 'flex',
+    flexDirection: 'column' as const,
+    gap: '0.5rem'
+  },
+  colorItem: {
+    padding: '1rem',
+    border: '1px solid #eee',
+    borderRadius: '6px',
+    cursor: 'pointer',
+    transition: 'all 0.2s',
+    backgroundColor: '#f8f9fa'
   }
 };

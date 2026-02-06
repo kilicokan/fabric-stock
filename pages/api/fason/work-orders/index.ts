@@ -9,7 +9,7 @@ const verifyToken = (req: NextApiRequest) => {
   const token = req.headers.authorization?.replace('Bearer ', '');
   if (!token) throw new Error('Token bulunamadı');
 
-  return jwt.verify(token, process.env.JWT_SECRET || 'secret-key');
+  return jwt.verify(token, process.env.JWT_SECRET || 'default-secret-key');
 };
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
@@ -45,7 +45,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
 // İş emirlerini listele
 async function handleGet(req: NextApiRequest, res: NextApiResponse, user: any) {
-  const { search, status } = req.query;
+  const { search, status, mobileAssigned } = req.query;
 
   const where: any = {};
 
@@ -60,6 +60,11 @@ async function handleGet(req: NextApiRequest, res: NextApiResponse, user: any) {
 
   if (status) {
     where.status = status;
+  }
+
+  // Filter mobile-assigned work orders if requested
+  if (mobileAssigned === 'true') {
+    where.assignedToMobile = true;
   }
 
   const workOrders = await prisma.workOrder.findMany({

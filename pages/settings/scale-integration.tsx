@@ -47,7 +47,7 @@ export default function ScaleIntegrationPage() {
 
   return (
     <div style={styles.container}>
-      <h1 style={styles.title}>⚖️ Tartı Entegrasyonu</h1>
+      <h1 style={styles.title}> Tartı Entegrasyonu</h1>
 
       {error && <div style={styles.error}>{error}</div>}
       {success && <div style={styles.success}>{success}</div>}

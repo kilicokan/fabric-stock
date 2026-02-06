@@ -5,14 +5,20 @@ import * as XLSX from 'xlsx';
 
 interface Color {
   id: number;
+  code?: string;
   name: string;
+  description?: string;
 }
 
 export default function ColorCardsPage() {
   const [colors, setColors] = useState<Color[]>([]);
   const [newColorName, setNewColorName] = useState<string>('');
+  const [newColorCode, setNewColorCode] = useState<string>('');
+  const [newColorDescription, setNewColorDescription] = useState<string>('');
   const [editingColor, setEditingColor] = useState<Color | null>(null);
   const [editName, setEditName] = useState<string>('');
+  const [editCode, setEditCode] = useState<string>('');
+  const [editDescription, setEditDescription] = useState<string>('');
   const [loading, setLoading] = useState<boolean>(false);
   const [error, setError] = useState<string>('');
 
@@ -45,8 +51,14 @@ export default function ColorCardsPage() {
     try {
       setLoading(true);
       setError('');
-      await axios.post('/api/colors', { name: newColorName.trim() });
+      await axios.post('/api/colors', {
+        name: newColorName.trim(),
+        code: newColorCode.trim() || undefined,
+        description: newColorDescription.trim() || undefined
+      });
       setNewColorName('');
+      setNewColorCode('');
+      setNewColorDescription('');
       fetchColors(); // Listeyi yenile
     } catch (err: any) {
       setError(err.response?.data?.error || 'Renk eklenemedi');
@@ -59,6 +71,8 @@ export default function ColorCardsPage() {
   const handleEditColor = (color: Color) => {
     setEditingColor(color);
     setEditName(color.name);
+    setEditCode(color.code || '');
+    setEditDescription(color.description || '');
   };
 
   const handleUpdateColor = async (e: React.FormEvent<HTMLFormElement>) => {
@@ -72,9 +86,15 @@ export default function ColorCardsPage() {
     try {
       setLoading(true);
       setError('');
-      await axios.put(`/api/colors/${editingColor.id}`, { name: editName.trim() });
+      await axios.put(`/api/colors/${editingColor.id}`, {
+        name: editName.trim(),
+        code: editCode.trim() || undefined,
+        description: editDescription.trim() || undefined
+      });
       setEditingColor(null);
       setEditName('');
+      setEditCode('');
+      setEditDescription('');
       fetchColors(); // Listeyi yenile
     } catch (err: any) {
       setError(err.response?.data?.error || 'Renk güncellenemedi');
@@ -105,6 +125,8 @@ export default function ColorCardsPage() {
   const cancelEdit = () => {
     setEditingColor(null);
     setEditName('');
+    setEditCode('');
+    setEditDescription('');
   };
 
   // Import function
@@ -130,7 +152,9 @@ export default function ColorCardsPage() {
 
       // Transform data to match API expectations
       const colorsToImport = parsedData.map(row => ({
-        name: row['Renk Adı'] || row['name'] || row['Name'] || row['renk'] || row['Renk']
+        name: row['Renk Adı'] || row['name'] || row['Name'] || row['renk'] || row['Renk'],
+        code: row['Renk Kodu'] || row['code'] || row['Code'] || row['kod'] || row['Kod'] || undefined,
+        description: row['Açıklama'] || row['description'] || row['Description'] || row['aciklama'] || row['Aciklama'] || undefined
       }));
 
       const response = await axios.post('/api/colors/import', { colors: colorsToImport });
@@ -196,6 +220,16 @@ export default function ColorCardsPage() {
         <h2 style={styles.subtitle}>Yeni Renk Ekle</h2>
         <form onSubmit={handleAddColor} style={styles.form}>
           <div style={styles.inputGroup}>
+            <label style={styles.label}>Renk Kodu</label>
+            <input
+              type="text"
+              value={newColorCode}
+              onChange={(e) => setNewColorCode(e.target.value)}
+              style={styles.input}
+              placeholder="Örn: R001, M002"
+            />
+          </div>
+          <div style={styles.inputGroup}>
             <label style={styles.label}>Renk Adı</label>
             <input
               type="text"
@@ -204,6 +238,16 @@ export default function ColorCardsPage() {
               style={styles.input}
               placeholder="Örn: Kırmızı, Mavi, Yeşil"
               required
+            />
+          </div>
+          <div style={styles.inputGroup}>
+            <label style={styles.label}>Açıklama</label>
+            <input
+              type="text"
+              value={newColorDescription}
+              onChange={(e) => setNewColorDescription(e.target.value)}
+              style={styles.input}
+              placeholder="Örn: Parlak kırmızı renk"
             />
           </div>
           <button
@@ -222,6 +266,16 @@ export default function ColorCardsPage() {
           <h2 style={styles.subtitle}>Renk Düzenle</h2>
           <form onSubmit={handleUpdateColor} style={styles.form}>
             <div style={styles.inputGroup}>
+              <label style={styles.label}>Renk Kodu</label>
+              <input
+                type="text"
+                value={editCode}
+                onChange={(e) => setEditCode(e.target.value)}
+                style={styles.input}
+                placeholder="Örn: R001, M002"
+              />
+            </div>
+            <div style={styles.inputGroup}>
               <label style={styles.label}>Renk Adı</label>
               <input
                 type="text"
@@ -229,6 +283,16 @@ export default function ColorCardsPage() {
                 onChange={(e) => setEditName(e.target.value)}
                 style={styles.input}
                 required
+              />
+            </div>
+            <div style={styles.inputGroup}>
+              <label style={styles.label}>Açıklama</label>
+              <input
+                type="text"
+                value={editDescription}
+                onChange={(e) => setEditDescription(e.target.value)}
+                style={styles.input}
+                placeholder="Örn: Parlak kırmızı renk"
               />
             </div>
             <div style={styles.buttonGroup}>
@@ -267,7 +331,9 @@ export default function ColorCardsPage() {
         </label>
         <ExportButtons
           data={colors.map((color) => ({
+            "Renk Kodu": color.code || '',
             "Renk Adı": color.name,
+            "Açıklama": color.description || '',
           }))}
           filename="Renkler_Dokumu"
         />
@@ -284,7 +350,11 @@ export default function ColorCardsPage() {
           <div style={styles.colorGrid}>
             {colors.map((color) => (
               <div key={color.id} style={styles.colorCard}>
-                <div style={styles.colorName}>{color.name}</div>
+                <div style={styles.colorInfo}>
+                  <div style={styles.colorName}>{color.name}</div>
+                  {color.code && <div style={styles.colorCode}>Kod: {color.code}</div>}
+                  {color.description && <div style={styles.colorDescription}>{color.description}</div>}
+                </div>
                 <div style={styles.colorActions}>
                   <button
                     onClick={() => handleEditColor(color)}
@@ -457,10 +527,25 @@ const styles = {
     borderRadius: '6px',
     transition: 'background-color 0.2s'
   },
+  colorInfo: {
+    flex: 1,
+    display: 'flex',
+    flexDirection: 'column' as const,
+    gap: '0.25rem'
+  },
   colorName: {
     fontWeight: '600',
     color: '#2c3e50',
     fontSize: '1rem'
+  },
+  colorCode: {
+    fontSize: '0.85rem',
+    color: '#6c757d'
+  },
+  colorDescription: {
+    fontSize: '0.85rem',
+    color: '#495057',
+    fontStyle: 'italic'
   },
   colorActions: {
     display: 'flex',

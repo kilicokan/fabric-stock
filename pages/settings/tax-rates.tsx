@@ -107,7 +107,7 @@ export default function TaxRatesPage() {
 
   return (
     <div style={styles.container}>
-      <h1 style={styles.title}>💰 Vergi Oranları Yönetimi</h1>
+      <h1 style={styles.title}> Vergi Oranları Yönetimi</h1>
 
       {error && <div style={styles.error}>{error}</div>}
 

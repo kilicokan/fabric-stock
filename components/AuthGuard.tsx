@@ -31,6 +31,15 @@ const AuthGuard: React.FC<AuthGuardProps> = ({
     checkAuth();
   }, []);
 
+  const isTokenExpired = (token: string): boolean => {
+    try {
+      const payload = JSON.parse(atob(token.split('.')[1]));
+      return payload.exp < Date.now() / 1000;
+    } catch (e) {
+      return true; // invalid token
+    }
+  };
+
   const checkAuth = async () => {
     if (!requireAuth) {
       setLoading(false);
@@ -40,8 +49,15 @@ const AuthGuard: React.FC<AuthGuardProps> = ({
 
     try {
       const token = localStorage.getItem('token');
-      
+
       if (!token) {
+        redirectToLogin();
+        return;
+      }
+
+      // Check if token is expired
+      if (isTokenExpired(token)) {
+        localStorage.removeItem('token');
         redirectToLogin();
         return;
       }

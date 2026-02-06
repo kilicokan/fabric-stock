@@ -1,6 +1,7 @@
 // pages/user-management.tsx
 import { useState, useEffect } from "react";
 import axios from "axios";
+import { Send, X } from "lucide-react";
 
 type User = {
   id: number;
@@ -10,6 +11,8 @@ type User = {
   createdAt: string;
   stockAccess: boolean;
   fasonAccess: boolean;
+  mobileAccess: boolean;
+  name?: string;
 };
 
 export default function UserManagement() {
@@ -22,9 +25,17 @@ export default function UserManagement() {
     role: "user" as "user" | "admin",
     stockAccess: false,
     fasonAccess: false,
+    mobileAccess: false,
   });
   const [message, setMessage] = useState("");
   const [loading, setLoading] = useState(false);
+  const [messageModal, setMessageModal] = useState<{ isOpen: boolean; userId: number | null; userName: string }>({
+    isOpen: false,
+    userId: null,
+    userName: ""
+  });
+  const [messageContent, setMessageContent] = useState("");
+  const [sendingMessage, setSendingMessage] = useState(false);
 
   useEffect(() => {
     fetchUsers();
@@ -68,13 +79,14 @@ export default function UserManagement() {
         await axios.post("/api/users", payload);
         setMessage("Kullanıcı başarıyla eklendi.");
       }
-      setFormData({ 
-        username: "", 
-        password: "", 
-        email: "", 
+      setFormData({
+        username: "",
+        password: "",
+        email: "",
         role: "user",
         stockAccess: false,
-        fasonAccess: false
+        fasonAccess: false,
+        mobileAccess: false
       });
       setEditingUser(null);
       fetchUsers();
@@ -92,6 +104,7 @@ export default function UserManagement() {
       role: user.role,
       stockAccess: user.stockAccess,
       fasonAccess: user.fasonAccess,
+      mobileAccess: user.mobileAccess,
     });
   };
 
@@ -108,14 +121,44 @@ export default function UserManagement() {
 
   const cancelEdit = () => {
     setEditingUser(null);
-    setFormData({ 
-      username: "", 
-      password: "", 
-      email: "", 
+    setFormData({
+      username: "",
+      password: "",
+      email: "",
       role: "user",
       stockAccess: false,
-      fasonAccess: false
+      fasonAccess: false,
+      mobileAccess: false
     });
+  };
+
+  const handleOpenMessageModal = (userId: number, userName: string) => {
+    setMessageModal({ isOpen: true, userId, userName });
+    setMessageContent("");
+  };
+
+  const handleCloseMessageModal = () => {
+    setMessageModal({ isOpen: false, userId: null, userName: "" });
+    setMessageContent("");
+  };
+
+  const handleSendMessage = async () => {
+    if (!messageContent.trim() || !messageModal.userId) return;
+    setSendingMessage(true);
+    try {
+      const token = localStorage.getItem("token");
+      await axios.post(
+        "/api/messages",
+        { recipientId: messageModal.userId, content: messageContent },
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      setMessage("Mesaj başarıyla gönderildi.");
+      handleCloseMessageModal();
+    } catch (err: any) {
+      setMessage("Mesaj gönderme hatası: " + (err.response?.data?.error || err.message));
+    } finally {
+      setSendingMessage(false);
+    }
   };
 
   return (
@@ -199,6 +242,16 @@ export default function UserManagement() {
                 />
                 <span>Fason Erişimi</span>
               </label>
+              <label className="flex items-center space-x-2">
+                <input
+                  type="checkbox"
+                  name="mobileAccess"
+                  checked={formData.mobileAccess}
+                  onChange={handleInputChange}
+                  className="w-4 h-4 text-blue-600 rounded"
+                />
+                <span>Mobil Erişimi</span>
+              </label>
             </div>
 
             <div className="flex gap-3 md:col-span-2 mt-2">
@@ -232,6 +285,7 @@ export default function UserManagement() {
                 <th className="px-4 py-2 text-left text-sm font-medium text-gray-700">Rol</th>
                 <th className="px-4 py-2 text-left text-sm font-medium text-gray-700">Stok Erişimi</th>
                 <th className="px-4 py-2 text-left text-sm font-medium text-gray-700">Fason Erişimi</th>
+                <th className="px-4 py-2 text-left text-sm font-medium text-gray-700">Mobil Erişimi</th>
                 <th className="px-4 py-2 text-left text-sm font-medium text-gray-700">Oluşturulma</th>
                 <th className="px-4 py-2 text-left text-sm font-medium text-gray-700">İşlemler</th>
               </tr>
@@ -239,7 +293,7 @@ export default function UserManagement() {
             <tbody className="divide-y divide-gray-200">
               {loading ? (
                 <tr>
-                  <td colSpan={7} className="text-center py-6 text-gray-500">
+                  <td colSpan={8} className="text-center py-6 text-gray-500">
                     Yükleniyor...
                   </td>
                 </tr>
@@ -263,8 +317,19 @@ export default function UserManagement() {
                     <td className="px-4 py-2">
                       {user.fasonAccess ? "✅" : "❌"}
                     </td>
+                    <td className="px-4 py-2">
+                      {user.mobileAccess ? "✅" : "❌"}
+                    </td>
                     <td className="px-4 py-2">{new Date(user.createdAt).toLocaleDateString("tr-TR")}</td>
                     <td className="px-4 py-2 flex gap-2">
+                      <button
+                        onClick={() => handleOpenMessageModal(user.id, user.username)}
+                        className="bg-[#8B5CF6] hover:bg-[#7C3AED] text-white px-3 py-1 rounded text-sm transition flex items-center gap-1"
+                        title="Mesaj gönder"
+                      >
+                        <Send size={14} />
+                        Mesaj
+                      </button>
                       <button
                         onClick={() => handleEdit(user)}
                         className="bg-[#0f3460] hover:bg-[#16213e] text-white px-3 py-1 rounded text-sm transition"
@@ -283,7 +348,7 @@ export default function UserManagement() {
                 ))
               ) : (
                 <tr>
-                  <td colSpan={7} className="text-center py-6 text-gray-400 italic">
+                  <td colSpan={8} className="text-center py-6 text-gray-400 italic">
                     Henüz kullanıcı bulunmamaktadır.
                   </td>
                 </tr>
@@ -292,6 +357,50 @@ export default function UserManagement() {
           </table>
         </div>
       </div>
+
+      {/* Message Modal */}
+      {messageModal.isOpen && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg shadow-lg p-6 max-w-md w-full mx-4">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-semibold text-[#16213e]">
+                {messageModal.userName}'e Mesaj Gönder
+              </h3>
+              <button
+                onClick={handleCloseMessageModal}
+                className="text-gray-500 hover:text-gray-700 transition"
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            <textarea
+              value={messageContent}
+              onChange={(e) => setMessageContent(e.target.value)}
+              placeholder="Mesajınızı yazın..."
+              className="w-full p-3 border border-gray-300 rounded resize-none focus:ring-2 focus:ring-[#8B5CF6] outline-none mb-4"
+              rows={4}
+            />
+
+            <div className="flex gap-3">
+              <button
+                onClick={handleSendMessage}
+                disabled={!messageContent.trim() || sendingMessage}
+                className="flex-1 bg-[#8B5CF6] hover:bg-[#7C3AED] disabled:opacity-50 text-white py-2 px-4 rounded font-semibold transition flex items-center justify-center gap-2"
+              >
+                <Send size={16} />
+                {sendingMessage ? "Gönderiliyor..." : "Gönder"}
+              </button>
+              <button
+                onClick={handleCloseMessageModal}
+                className="flex-1 bg-gray-300 hover:bg-gray-400 text-gray-800 py-2 px-4 rounded font-semibold transition"
+              >
+                İptal
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </main>
   );
 }

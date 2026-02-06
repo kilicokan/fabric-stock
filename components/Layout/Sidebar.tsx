@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useState, useEffect } from "react";
 import { useAuth } from "../AuthContext";
+import { useTabs } from "../TabContext";
 
 const menuItems = [
   { name: "Kumaş Girişi", path: "/fabric-entry",  },
@@ -31,6 +32,13 @@ const menuItems = [
     ],
   },
   {
+    name: "Müşteri Siparişleri",
+    children: [
+      { name: "Sipariş Ekle", path: "/customer-orders/add" },
+      { name: "Sipariş Listesi", path: "/customer-orders/list" },
+    ],
+  },
+  {
     name: "Tedarikçiler",
     children: [
       { name: "Tedarikçi Ekle", path: "/suppliers" },
@@ -45,6 +53,7 @@ const menuItems = [
       { name: "Kumaş Tedarik", path: "/fabrics/supply" },
       { name: "Kumaş Planlama", path: "/fabrics/planning" },
       { name: "Kumaş Siparişleri", path: "/fabrics/orders" },
+      { name: "Kesim Emirleri", path: "/fabrics/cutting-orders" },
       { name: "Kumaş İrsaliyeleri", path: "/fabrics/invoices-slips?type=irsaliyeler" },
       { name: "Kumaş Faturaları", path: "/fabrics/invoices-slips?type=faturalar" },
     ],
@@ -61,6 +70,7 @@ const menuItems = [
       { name: "Fason Raporları", path: "/fason/reports" },
     ],
   },
+  { name: "Mesajlar", path: "/messages" },
   {
     name: "Ayarlar",
     children: [
@@ -79,6 +89,7 @@ export default function Sidebar() {
   const [openMenus, setOpenMenus] = useState<Record<string, boolean>>({});
   const [isCollapsed, setIsCollapsed] = useState(false);
   const { user } = useAuth();
+  const { addTab } = useTabs();
 
   useEffect(() => {
     setOpenMenus({
@@ -117,6 +128,83 @@ export default function Sidebar() {
       (pathWithoutQuery.includes('fabrics/invoices-slips') && pathname === '/fabrics/invoices-slips') ||
       (pathWithoutQuery.includes('user-management') && pathname.startsWith('/user-management')) ||
       (pathWithoutQuery.includes('reports') && pathname.startsWith('/reports'));
+  };
+
+  const handleMenuClick = async (path: string, title: string) => {
+    try {
+      // Import the component dynamically
+      const component = await getComponentForPath(path);
+      if (component) {
+        addTab({
+          title,
+          path,
+          component,
+          closable: true,
+        });
+      }
+    } catch (error) {
+      console.error('Error loading component for path:', path, error);
+    }
+  };
+
+  const getComponentForPath = async (path: string): Promise<React.ComponentType | null> => {
+    try {
+      // Map paths to their corresponding page components
+      const pathMap: { [key: string]: () => Promise<{ default: React.ComponentType }> } = {
+        '/': () => import('../../pages/home'),
+        '/fabric-entry': () => import('../../pages/fabric-entry'),
+        '/fabric-exit': () => import('../../pages/fabric-exit'),
+        '/reports': () => import('../../pages/reports/index'),
+        '/reports/stock': () => import('../../pages/reports/stock'),
+        '/user-management': () => import('../../pages/user-management'),
+        '/user-management?tab=add': () => import('../../pages/user-management'),
+        '/customers': () => import('../../pages/customers/index'),
+        '/customers/list': () => import('../../pages/customers/list'),
+        '/customer-orders/add': () => import('../../pages/customer-orders/add'),
+        '/customer-orders/list': () => import('../../pages/customer-orders/list'),
+        '/suppliers': () => import('../../pages/suppliers/index'),
+        '/suppliers/edit': () => import('../../pages/suppliers/edit'),
+        '/fabrics': () => import('../../pages/fabrics/index'),
+        '/fabrics/add': () => import('../../pages/fabrics/add'),
+        '/fabrics/supply': () => import('../../pages/fabrics/supply'),
+        '/fabrics/planning': () => import('../../pages/fabrics/planning'),
+        '/fabrics/orders': () => import('../../pages/fabrics/orders'),
+        '/fabrics/cutting-orders': () => import('../../pages/fabrics/cutting-orders'),
+        '/fabrics/invoices-slips': () => import('../../pages/fabrics/invoices-slips'),
+        '/products': () => import('../../pages/products/index'),
+        '/fason/dashboard': () => import('../../pages/fason/dashboard'),
+        '/fason/mobile-tracker': () => import('../../pages/fason/mobile-tracker'),
+        '/fason/workshops': () => import('../../pages/fason/workshops'),
+        '/stock': () => import('../../pages/stock'),
+        '/fason': () => import('../../pages/fason'),
+        '/fason/create-work-order': () => import('../../pages/fason/create-work-order'),
+        '/fason/trackers': () => import('../../pages/fason/trackers'),
+        '/fason/reports': () => import('../../pages/fason/reports'),
+        '/messages': () => import('../../pages/messages'),
+        '/settings/color-cards': () => import('../../pages/settings/color-cards'),
+        '/settings/cutting-tables': () => import('../../pages/settings/cutting-tables'),
+        '/settings/material-types': () => import('../../pages/settings/material-types'),
+        '/settings/group-cards': () => import('../../pages/settings/group-cards'),
+        '/settings/tax-rates': () => import('../../pages/settings/tax-rates'),
+        '/settings/scale-integration': () => import('../../pages/settings/scale-integration'),
+      };
+
+      const importFn = pathMap[path];
+      if (importFn) {
+        const module = await importFn();
+        return module.default;
+      }
+
+      // For paths that don't have components yet, return a placeholder
+      return () => <div style={{ padding: '20px', fontSize: '18px', color: '#666' }}>
+        Sayfa: {path}
+        <br />
+        <small style={{ color: '#999' }}>Bu sayfa henüz oluşturulmamış</small>
+      </div>;
+    } catch (error) {
+      console.error('Error loading component for path:', path, error);
+      return () => <div>Hata: Sayfa yüklenemedi ({path})</div>;
+    }
   };
 
   return (
@@ -188,14 +276,15 @@ export default function Sidebar() {
               {isOpen && !isCollapsed && (
                 <div style={{ marginLeft: "20px", marginTop: "5px" }}>
                   {item.children.map((child) => (
-                    <Link
+                    <button
                       key={child.path}
-                      href={child.path}
+                      onClick={() => handleMenuClick(child.path, child.name)}
                       style={linkStyle(isActive(child.path))}
+                      className="w-full text-left"
                     >
                       <span style={{ marginRight: "8px" }}>•</span>
                       {child.name}
-                    </Link>
+                    </button>
                   ))}
                 </div>
               )}
@@ -204,13 +293,14 @@ export default function Sidebar() {
         }
 
         return (
-          <Link
+          <button
             key={item.path}
-            href={item.path}
+            onClick={() => handleMenuClick(item.path, item.name)}
             style={linkStyle(isActive(item.path))}
+            className="w-full text-left"
           >
             {isCollapsed ? "" : item.name}
-          </Link>
+          </button>
         );
       })}
     </aside>

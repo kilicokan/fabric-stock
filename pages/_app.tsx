@@ -1,7 +1,11 @@
 import type { AppProps } from 'next/app';
 import '../styles/globals.css';
 import { AuthProvider, useAuth } from '../components/AuthContext';
-import Sidebar from '../components/Layout/Sidebar';
+import TabbedLayout from '../components/TabbedLayout';
+import { ThemeProvider, createTheme } from '@mui/material/styles';
+import CssBaseline from '@mui/material/CssBaseline';
+
+const theme = createTheme();
 
 function AppLayout({ Component, pageProps }: AppProps) {
   const { authenticated } = useAuth();
@@ -11,20 +15,14 @@ function AppLayout({ Component, pageProps }: AppProps) {
     return <Component {...pageProps} />;
   }
 
+  if (!authenticated) {
+    return <Component {...pageProps} />;
+  }
+
   return (
-    <div className="flex min-h-screen bg-gray-50">
-      {authenticated && <Sidebar />}
-      <main
-        style={{
-          flex: 1,
-          padding: '20px',
-          backgroundColor: 'var(--color-secondary)',
-          overflow: 'auto',
-        }}
-      >
-        <Component {...pageProps} />
-      </main>
-    </div>
+    <TabbedLayout>
+      <Component {...pageProps} />
+    </TabbedLayout>
   );
 }
 
@@ -35,8 +33,11 @@ export default function MyApp(props: AppProps) {
   const requireAuth = !publicPaths.includes(router.pathname);
 
   return (
-    <AuthProvider requireAuth={requireAuth}>
-      <AppLayout {...props} />
-    </AuthProvider>
+    <ThemeProvider theme={theme}>
+      <CssBaseline />
+      <AuthProvider requireAuth={requireAuth}>
+        <AppLayout {...props} />
+      </AuthProvider>
+    </ThemeProvider>
   );
 }

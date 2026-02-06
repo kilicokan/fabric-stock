@@ -30,7 +30,8 @@ import {
   CheckCircle,
   AlertCircle,
   Clock,
-  PlayCircle
+  PlayCircle,
+  Building
 } from 'lucide-react';
 
 interface WorkOrder {
@@ -51,6 +52,35 @@ interface WorkOrder {
     email: string;
   };
   createdAt: string;
+  fasonTrackings?: FasonTracking[];
+}
+
+interface FasonTracking {
+  id: number;
+  workOrderId: number;
+  workshopId: number;
+  workshop?: {
+    id: number;
+    name: string;
+    specialization: string;
+  };
+  assignedQuantity: number;
+  unitPrice: number;
+  totalPrice: number;
+  processType: string;
+  status: string;
+  notes?: string;
+  createdAt: string;
+}
+
+interface Workshop {
+  id: number;
+  name: string;
+  specialization: string;
+  contactPerson: string;
+  phone: string;
+  balance: number;
+  isActive: boolean;
 }
 
 interface FasonTracker {
@@ -73,6 +103,9 @@ const FasonTrackers: React.FC = () => {
   const [openDialog, setOpenDialog] = useState(false);
   const [editingOrder, setEditingOrder] = useState<WorkOrder | null>(null);
   const [showUserDropdown, setShowUserDropdown] = useState<number | null>(null);
+  const [workshops, setWorkshops] = useState<Workshop[]>([]);
+  const [openAssignmentDialog, setOpenAssignmentDialog] = useState(false);
+  const [selectedOrder, setSelectedOrder] = useState<WorkOrder | null>(null);
 
   // Form state
   const [formData, setFormData] = useState({
@@ -84,6 +117,15 @@ const FasonTrackers: React.FC = () => {
     status: 'BEKLIYOR',
     deliveryDate: '',
     priority: 'MEDIUM' as 'LOW' | 'MEDIUM' | 'HIGH' | 'URGENT'
+  });
+
+  // Assignment form state
+  const [assignmentFormData, setAssignmentFormData] = useState({
+    workshopId: '',
+    assignedQuantity: 1,
+    unitPrice: 0,
+    processType: 'DIKIM',
+    notes: ''
   });
 
   // Inline CSS styles
@@ -125,18 +167,43 @@ const FasonTrackers: React.FC = () => {
   useEffect(() => {
     fetchWorkOrders();
     fetchFasonTrackers();
+    fetchWorkshops();
   }, [searchTerm, statusFilter, priorityFilter, mobileFilter]);
 
   const fetchFasonTrackers = async () => {
     try {
       const token = localStorage.getItem('token');
-      const response = await axios.get('/api/fason/users/fason-trackers', {
+      const response = await axios.get('/api/users', {
         headers: { Authorization: `Bearer ${token}` }
       });
-      setFasonTrackers(response.data.fasonTrackers || []);
-    } catch (error) {
+      const usersWithFasonAccess = response.data.filter((user: any) => user.fasonAccess);
+      const mappedUsers = usersWithFasonAccess.map((user: any) => ({
+        id: user.id,
+        name: user.username,
+        email: user.email
+      }));
+      setFasonTrackers(mappedUsers);
+    } catch (error: any) {
       console.error('Fason takipçileri yüklenirken hata:', error);
+      if (error.response?.status === 401) {
+        localStorage.removeItem('token');
+        router.push('/login');
+        return;
+      }
       setFasonTrackers([]);
+    }
+  };
+
+  const fetchWorkshops = async () => {
+    try {
+      const token = localStorage.getItem('token');
+      const response = await axios.get('/api/fason/workshops', {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      setWorkshops(response.data.filter((w: Workshop) => w.isActive));
+    } catch (error) {
+      console.error('Atölyeler yüklenirken hata:', error);
+      setWorkshops([]);
     }
   };
 
@@ -144,6 +211,14 @@ const FasonTrackers: React.FC = () => {
     try {
       setLoading(true);
       const token = localStorage.getItem('token');
+
+      if (!token) {
+        console.error('No token found, redirecting to login');
+        router.push('/login');
+        return;
+      }
+
+      console.log('Token found:', token.substring(0, 20) + '...');
 
       const params = new URLSearchParams();
       if (searchTerm) params.append('search', searchTerm);
@@ -155,8 +230,15 @@ const FasonTrackers: React.FC = () => {
 
       const workOrdersData = response.data.workOrders || [];
       setWorkOrders(workOrdersData);
-    } catch (error) {
+    } catch (error: any) {
       console.error('İş emirleri yüklenirken hata:', error);
+      console.error('Error response:', error.response);
+      if (error.response?.status === 401) {
+        console.log('401 error - clearing token and redirecting to login');
+        localStorage.removeItem('token');
+        router.push('/login');
+        return;
+      }
       setWorkOrders([]);
     } finally {
       setLoading(false);
@@ -212,8 +294,13 @@ const FasonTrackers: React.FC = () => {
       // Refresh the list
       fetchWorkOrders();
       setOpenDialog(false);
-    } catch (error) {
+    } catch (error: any) {
       console.error('İş emri kaydedilirken hata:', error);
+      if (error.response?.status === 401) {
+        localStorage.removeItem('token');
+        router.push('/login');
+        return;
+      }
     }
   };
 
@@ -232,32 +319,67 @@ const FasonTrackers: React.FC = () => {
     }
   };
 
+  const notifyMobileTrackerServer = async (orderId: number, isAssigned: boolean) => {
+    try {
+      // Notify mobile tracker server (192.168.1.3:8081) about assignment change
+      const notificationData = {
+        orderId,
+        isAssigned,
+        timestamp: new Date().toISOString()
+      };
+
+      // Send notification to mobile tracker
+      await fetch('http://192.168.1.3:8081/api/assign', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(notificationData)
+      }).catch(err => {
+        // Log error but don't fail - mobile tracker might not be available
+        console.log('Mobile tracker notification (non-critical):', err.message);
+      });
+    } catch (error) {
+      console.log('Mobile tracker notification error (non-critical):', error);
+    }
+  };
+
   const toggleMobileAssignment = async (id: number) => {
     try {
       const token = localStorage.getItem('token');
       const order = workOrders.find(o => o.id === id);
-      
+
       if (!order) {
         throw new Error('İş emri bulunamadı');
       }
 
+      const isAssigning = !order.assignedToMobile;
+
       await axios.put(
-        `/api/fason/work-orders/${id}`, 
+        `/api/fason/work-orders/${id}`,
         {
-          assignedToMobile: !order.assignedToMobile,
+          assignedToMobile: isAssigning,
           status: order.status
         },
         {
-          headers: { 
+          headers: {
             Authorization: `Bearer ${token}`,
             'Content-Type': 'application/json'
           }
         }
       );
 
+      // Notify mobile tracker server
+      await notifyMobileTrackerServer(id, isAssigning);
+
       await fetchWorkOrders();
-    } catch (error) {
+    } catch (error: any) {
       console.error('Mobile atama güncellenirken hata:', error);
+      if (error.response?.status === 401) {
+        localStorage.removeItem('token');
+        router.push('/login');
+        return;
+      }
       alert('Mobile atama güncellenirken bir hata oluştu');
     }
   };
@@ -330,6 +452,73 @@ const FasonTrackers: React.FC = () => {
       (mobileFilter === 'assigned' && order.assignedToMobile) ||
       (mobileFilter === 'not_assigned' && !order.assignedToMobile))
   );
+
+  const handleAssignWorkshop = (order: WorkOrder) => {
+    setSelectedOrder(order);
+    setAssignmentFormData({
+      workshopId: '',
+      assignedQuantity: Math.max(1, order.quantity - (order.fasonTrackings?.reduce((sum, t) => sum + t.assignedQuantity, 0) || 0)),
+      unitPrice: 0,
+      processType: 'DIKIM',
+      notes: ''
+    });
+    setOpenAssignmentDialog(true);
+  };
+
+  const handleSaveAssignment = async () => {
+    if (!selectedOrder) return;
+
+    // Client-side validation
+    if (!assignmentFormData.workshopId) {
+      alert('Lütfen bir atölye seçiniz.');
+      return;
+    }
+
+    if (assignmentFormData.assignedQuantity <= 0) {
+      alert('Atanacak miktar pozitif bir sayı olmalıdır.');
+      return;
+    }
+
+    if (assignmentFormData.unitPrice < 0) {
+      alert('Birim fiyat 0 veya pozitif bir sayı olmalıdır.');
+      return;
+    }
+
+    const existingAssigned = selectedOrder.fasonTrackings?.reduce((sum, t) => sum + t.assignedQuantity, 0) || 0;
+    const remaining = selectedOrder.quantity - existingAssigned;
+
+    if (assignmentFormData.assignedQuantity > remaining) {
+      alert(`Atanacak miktar kalan miktarı (${remaining} adet) aşamaz.`);
+      return;
+    }
+
+    try {
+      const token = localStorage.getItem('token');
+      await axios.post('/api/fason/assignments', {
+        workOrderId: selectedOrder.id,
+        workshopId: parseInt(assignmentFormData.workshopId),
+        assignedQuantity: assignmentFormData.assignedQuantity,
+        unitPrice: assignmentFormData.unitPrice,
+        processType: assignmentFormData.processType,
+        notes: assignmentFormData.notes
+      }, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+
+      // Refresh work orders to show updated assignments
+      fetchWorkOrders();
+      fetchWorkshops(); // Refresh workshop balances
+      setOpenAssignmentDialog(false);
+    } catch (error: any) {
+      console.error('Atama kaydedilirken hata:', error);
+      if (error.response?.status === 401) {
+        localStorage.removeItem('token');
+        router.push('/login');
+        return;
+      }
+      alert(error.response?.data?.error || 'Atama kaydedilirken bir hata oluştu');
+    }
+  };
 
   const stats = {
     total: workOrders.length,
@@ -611,11 +800,11 @@ const FasonTrackers: React.FC = () => {
                         {getStatusIcon(order.status)}
                         {order.status.replace('_', ' ')}
                       </span>
-                      <span style={{ 
-                        fontSize: '14px', 
+                      <span style={{
+                        fontSize: '14px',
                         color: '#6B7280',
                         padding: '4px 12px',
-                        backgroundColor: order.priority === 'URGENT' ? '#FEE2E2' : 
+                        backgroundColor: order.priority === 'URGENT' ? '#FEE2E2' :
                                         order.priority === 'HIGH' ? '#FEF3C7' :
                                         order.priority === 'MEDIUM' ? '#DBEAFE' : '#D1FAE5',
                         borderRadius: '12px',
@@ -626,6 +815,29 @@ const FasonTrackers: React.FC = () => {
                          order.priority === 'HIGH' ? 'Yüksek' : 'Acil'}
                       </span>
                     </div>
+
+                    {/* Assignment Summary */}
+                    {order.fasonTrackings && order.fasonTrackings.length > 0 && (
+                      <div style={{ marginTop: '12px', padding: '12px', backgroundColor: '#F8FAFC', borderRadius: '8px' }}>
+                        <div style={{ fontSize: '12px', color: '#6B7280', marginBottom: '8px' }}>
+                          Atamalar ({order.fasonTrackings.reduce((sum, t) => sum + t.assignedQuantity, 0)}/{order.quantity} adet):
+                        </div>
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
+                          {order.fasonTrackings.map((tracking) => (
+                            <Chip
+                              key={tracking.id}
+                              label={`${tracking.workshop?.name}: ${tracking.assignedQuantity} adet - ${(tracking.totalPrice || 0).toLocaleString('tr-TR')} ₺`}
+                              size="small"
+                              style={{
+                                backgroundColor: '#E0E7FF',
+                                color: '#3730A3',
+                                fontSize: '11px'
+                              }}
+                            />
+                          ))}
+                        </div>
+                      </div>
+                    )}
                   </div>
 
                   <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
@@ -638,6 +850,14 @@ const FasonTrackers: React.FC = () => {
                         }}
                       >
                         <Truck size={18} />
+                      </IconButton>
+                    </Tooltip>
+                    <Tooltip title="Atölye Ata">
+                      <IconButton
+                        onClick={() => handleAssignWorkshop(order)}
+                        style={{ backgroundColor: '#8B5CF6', color: 'white' }}
+                      >
+                        <Building size={18} />
                       </IconButton>
                     </Tooltip>
                     <div className="relative">
@@ -851,6 +1071,133 @@ const FasonTrackers: React.FC = () => {
             }}
           >
             {editingOrder ? 'Güncelle' : 'Oluştur'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Workshop Assignment Dialog */}
+      <Dialog
+        open={openAssignmentDialog}
+        onClose={() => setOpenAssignmentDialog(false)}
+        maxWidth="md"
+        fullWidth
+      >
+        <DialogTitle style={{
+          background: 'linear-gradient(135deg, #8B5CF6 0%, #3B82F6 100%)',
+          color: 'white',
+          fontWeight: 'bold'
+        }}>
+          Atölye Ataması - {selectedOrder?.orderNo}
+        </DialogTitle>
+        <DialogContent style={{ padding: '24px' }}>
+          {selectedOrder && (
+            <div style={{ marginBottom: '24px', padding: '16px', backgroundColor: '#F8FAFC', borderRadius: '8px' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+                <div>
+                  <strong>Ürün:</strong> {selectedOrder.productCode} - {selectedOrder.productName}
+                </div>
+                <div>
+                  <strong>Müşteri:</strong> {selectedOrder.customerName}
+                </div>
+                <div>
+                  <strong>Toplam Miktar:</strong> {selectedOrder.quantity} adet
+                </div>
+                <div>
+                  <strong>Atanmış Miktar:</strong> {selectedOrder.fasonTrackings?.reduce((sum, t) => sum + t.assignedQuantity, 0) || 0} adet
+                </div>
+              </div>
+            </div>
+          )}
+
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+            <TextField
+              select
+              label="Atölye Seçin"
+              value={assignmentFormData.workshopId}
+              onChange={(e) => setAssignmentFormData({ ...assignmentFormData, workshopId: e.target.value })}
+              fullWidth
+              required
+            >
+              {workshops.map((workshop) => (
+                <MenuItem key={workshop.id} value={workshop.id.toString()}>
+                  {workshop.name} ({workshop.specialization})
+                </MenuItem>
+              ))}
+            </TextField>
+
+            <TextField
+              label="Atanacak Miktar"
+              type="number"
+              value={assignmentFormData.assignedQuantity}
+              onChange={(e) => setAssignmentFormData({ ...assignmentFormData, assignedQuantity: parseInt(e.target.value) })}
+              fullWidth
+              required
+              inputProps={{ min: 1 }}
+            />
+
+            <TextField
+              label="Birim Fiyat (₺)"
+              type="number"
+              value={assignmentFormData.unitPrice}
+              onChange={(e) => setAssignmentFormData({ ...assignmentFormData, unitPrice: parseFloat(e.target.value) })}
+              fullWidth
+              required
+              inputProps={{ min: 0, step: 0.01 }}
+            />
+
+            <TextField
+              select
+              label="İşlem Tipi"
+              value={assignmentFormData.processType}
+              onChange={(e) => setAssignmentFormData({ ...assignmentFormData, processType: e.target.value })}
+              fullWidth
+            >
+              <MenuItem value="DIKIM">Dikim</MenuItem>
+              <MenuItem value="BASKI_NAKIS">Baskı/Nakış</MenuItem>
+              <MenuItem value="KESIM">Kesim</MenuItem>
+              <MenuItem value="UTU">Ütü</MenuItem>
+            </TextField>
+
+            <TextField
+              label="Notlar"
+              value={assignmentFormData.notes}
+              onChange={(e) => setAssignmentFormData({ ...assignmentFormData, notes: e.target.value })}
+              fullWidth
+              multiline
+              rows={3}
+              style={{ gridColumn: '1 / -1' }}
+            />
+          </div>
+
+          {assignmentFormData.assignedQuantity > 0 && assignmentFormData.unitPrice > 0 && (
+            <div style={{ marginTop: '16px', padding: '16px', backgroundColor: '#E0F2FE', borderRadius: '8px' }}>
+              <strong>Toplam Tutar: {(assignmentFormData.assignedQuantity * assignmentFormData.unitPrice).toLocaleString('tr-TR')} ₺</strong>
+            </div>
+          )}
+        </DialogContent>
+        <DialogActions style={{ padding: '16px 24px', gap: '12px' }}>
+          <Button
+            onClick={() => setOpenAssignmentDialog(false)}
+            style={{
+              color: '#6B7280',
+              border: '1px solid #D1D5DB',
+              padding: '8px 16px',
+              borderRadius: '8px'
+            }}
+          >
+            İptal
+          </Button>
+          <Button
+            onClick={handleSaveAssignment}
+            style={{
+              background: 'linear-gradient(135deg, #10B981 0%, #059669 100%)',
+              color: 'white',
+              padding: '8px 24px',
+              borderRadius: '8px',
+              fontWeight: '500'
+            }}
+          >
+            Ata
           </Button>
         </DialogActions>
       </Dialog>

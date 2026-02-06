@@ -9,7 +9,7 @@ const verifyToken = (req: NextApiRequest) => {
   const token = req.headers.authorization?.replace('Bearer ', '');
   if (!token) throw new Error('Token bulunamadı');
 
-  return jwt.verify(token, process.env.JWT_SECRET || 'secret-key');
+  return jwt.verify(token, process.env.JWT_SECRET || 'default-secret-key');
 };
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {

@@ -107,7 +107,7 @@ export default function GroupCardsPage() {
 
   return (
     <div style={styles.container}>
-      <h1 style={styles.title}>🏷️ Grup Kartları Yönetimi</h1>
+      <h1 style={styles.title}> Grup Kartları Yönetimi</h1>
 
       {error && <div style={styles.error}>{error}</div>}
 

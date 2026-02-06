@@ -17,7 +17,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       return res.status(401).json({ error: 'Token bulunamadı' });
     }
 
-    jwt.verify(token, process.env.JWT_SECRET || 'secret-key');
+    jwt.verify(token, process.env.JWT_SECRET || 'default-secret-key');
 
     const {
       action, // 'sync_status', 'sync_completion'

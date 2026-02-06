@@ -1,0 +1,11 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Tüm kullanıcılar tasks koleksiyonunu okuyabilir
+    match /tasks/{taskId} {
+      allow read: if true;
+      allow create: if request.auth != null; // Sadece giriş yapmış kullanıcılar
+      allow update, delete: if false; // Demo için sadece oluşturma
+    }
+  }
+}

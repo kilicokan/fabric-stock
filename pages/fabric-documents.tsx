@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Dialog } from "@headlessui/react";
 
 type Document = {
@@ -21,26 +21,29 @@ type LineItem = {
 };
 
 export default function FabricDocumentsPage() {
-  const [documents, setDocuments] = useState<Document[]>([
-    {
-      id: 1,
-      type: "İrsaliye",
-      number: "IRS-001",
-      date: "2025-09-10",
-      customer: "ABC Tekstil",
-      warehouse: "Ana Depo",
-      total: 1200,
-    },
-    {
-      id: 2,
-      type: "Fatura",
-      number: "FAT-045",
-      date: "2025-09-11",
-      customer: "XYZ Tekstil",
-      warehouse: "Üretim Depo",
-      total: 3400,
-    },
-  ]);
+  const [documents, setDocuments] = useState<Document[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  // Fetch documents from API
+  useEffect(() => {
+    const fetchDocuments = async () => {
+      try {
+        const response = await fetch('/api/fabric-documents');
+        if (!response.ok) {
+          throw new Error('Dokümanlar yüklenirken hata oluştu');
+        }
+        const data = await response.json();
+        setDocuments(data);
+      } catch (err: any) {
+        setError(err.message);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchDocuments();
+  }, []);
 
   const [contextMenu, setContextMenu] = useState<{
     x: number;
@@ -80,22 +83,45 @@ export default function FabricDocumentsPage() {
     setContextMenu(null);
   };
 
-  const handleSave = () => {
-    if (currentDoc) {
-      setDocuments(docs => {
-        const exists = docs.find(d => d.id === currentDoc.id);
-        if (exists) {
-          return docs.map(d => (d.id === currentDoc.id ? currentDoc : d));
-        }
-        return [...docs, currentDoc];
+  const handleSave = async () => {
+    if (!currentDoc) return;
+
+    try {
+      const method = currentDoc.id < Date.now() - 1000 ? 'PUT' : 'POST'; // Simple check for existing vs new
+      const response = await fetch('/api/fabric-documents', {
+        method,
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(currentDoc),
       });
+
+      if (!response.ok) {
+        throw new Error('Doküman kaydedilemedi');
+      }
+
+      const savedDoc = await response.json();
+
+      // Refresh the documents list
+      const refreshResponse = await fetch('/api/fabric-documents');
+      if (refreshResponse.ok) {
+        const data = await refreshResponse.json();
+        setDocuments(data);
+      }
+
+      setShowForm(false);
+      setCurrentDoc(null);
+    } catch (err: any) {
+      alert(`Hata: ${err.message}`);
     }
-    setShowForm(false);
   };
 
   return (
     <div className="p-6">
       <h1 className="text-2xl font-bold mb-4">📑 Kumaş İrsaliye / Fatura Listesi</h1>
+
+      {loading && <p>Yükleniyor...</p>}
+      {error && <p className="text-red-500">Hata: {error}</p>}
 
       <table className="w-full border-collapse border">
         <thead>

@@ -4,6 +4,8 @@ import * as XLSX from 'xlsx';
 
 interface ImportColor {
   name: string;
+  code?: string;
+  description?: string;
 }
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
@@ -45,6 +47,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
       const importColor: ImportColor = {
         name: color.name.trim(),
+        code: color.code?.trim() || undefined,
+        description: color.description?.trim() || undefined,
       };
 
       try {

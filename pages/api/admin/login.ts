@@ -30,7 +30,7 @@ export default async function handler(
 
   const token = jwt.sign(
     { username: adminUser.username, role: 'admin' },
-    process.env.JWT_SECRET || 'your-secret-key',
+    process.env.JWT_SECRET || 'default-secret-key',
     { expiresIn: '1h' }
   );
 

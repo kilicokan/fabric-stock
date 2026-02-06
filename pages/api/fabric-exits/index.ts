@@ -83,6 +83,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           unitType,
           color: color || null,
           fabricType: fabricType || null,
+          reportNumber: reportNumber || null,
+          plannedLayers: plannedLayers || null,
+          actualLayers: actualLayers || null,
           createdAt: createdAt ? new Date(createdAt) : new Date()
         }
       });

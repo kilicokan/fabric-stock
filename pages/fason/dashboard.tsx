@@ -151,6 +151,8 @@ const FasonDashboard: React.FC = () => {
       const params = new URLSearchParams();
       if (searchTerm) params.append('search', searchTerm);
       if (statusFilter) params.append('status', statusFilter);
+      // Show only mobile-assigned work orders in dashboard
+      params.append('mobileAssigned', 'true');
 
       const response = await axios.get(`/api/fason/work-orders?${params.toString()}`, {
         headers: { Authorization: `Bearer ${token}` }

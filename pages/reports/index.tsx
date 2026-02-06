@@ -78,9 +78,12 @@ const ReportsPage: React.FC = () => {
   });
 
   // İstatistikler
-  const totalIn = filteredData.filter(t => t.type === 'in').reduce((sum, t) => sum + t.quantity, 0);
-  const totalOut = filteredData.filter(t => t.type === 'out').reduce((sum, t) => sum + t.quantity, 0);
-  const netMovement = totalIn - totalOut;
+  const totalInKg = filteredData.filter(t => t.type === 'in' && t.unit === 'kg').reduce((sum, t) => sum + t.quantity, 0);
+  const totalInM = filteredData.filter(t => t.type === 'in' && t.unit === 'metre').reduce((sum, t) => sum + t.quantity, 0);
+  const totalOutKg = filteredData.filter(t => t.type === 'out' && t.unit === 'kg').reduce((sum, t) => sum + t.quantity, 0);
+  const totalOutM = filteredData.filter(t => t.type === 'out' && t.unit === 'metre').reduce((sum, t) => sum + t.quantity, 0);
+  const netKg = totalInKg - totalOutKg;
+  const netM = totalInM - totalOutM;
 
   // Export fonksiyonları
   const handleExportPDF = () => {
@@ -115,9 +118,12 @@ const ReportsPage: React.FC = () => {
     // @ts-ignore
     const finalY = (doc as any).lastAutoTable?.finalY ? (doc as any).lastAutoTable.finalY + 10 : 45;
     doc.setFontSize(10);
-    doc.text(`Toplam Giriş: ${totalIn} metre`, 14, finalY);
-    doc.text(`Toplam Çıkış: ${totalOut} metre`, 14, finalY + 6);
-    doc.text(`Net Hareket: ${netMovement} metre`, 14, finalY + 12);
+    doc.text(`Toplam Giriş (kg): ${totalInKg}`, 14, finalY);
+    doc.text(`Toplam Giriş (m): ${totalInM}`, 14, finalY + 6);
+    doc.text(`Toplam Çıkış (kg): ${totalOutKg}`, 14, finalY + 12);
+    doc.text(`Toplam Çıkış (m): ${totalOutM}`, 14, finalY + 18);
+    doc.text(`Net Hareket (kg): ${netKg}`, 14, finalY + 24);
+    doc.text(`Net Hareket (m): ${netM}`, 14, finalY + 30);
     
     doc.save(`kumas-hareket-raporu-${new Date().toISOString().split('T')[0]}.pdf`);
   };
@@ -272,45 +278,86 @@ const ReportsPage: React.FC = () => {
               )}
 
               {/* İstatistik Kartları */}
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-6">
                 <div style={{ background: '#0d6efd', padding: 24, borderRadius: 16, color: 'white', boxShadow: '0 6px 16px rgba(13,110,253,0.25)' }}>
                   <div className="flex items-center justify-between">
                     <div>
-                      <div className="text-3xl font-bold">{totalIn}</div>
-                      <div className="text-blue-100">Toplam Giriş (metre)</div>
+                      <div className="text-3xl font-bold">{totalInKg}</div>
+                      <div className="text-blue-100">Toplam Giriş (kg)</div>
                     </div>
                     <FiTrendingUp className="text-3xl opacity-80" />
                   </div>
                   <div style={{ marginTop: 8, opacity: 0.85, fontSize: 14 }}>
                     <FiTruck className="inline mr-1" />
-                    {filteredData.filter(t => t.type === 'in').length} giriş hareketi
+                    {filteredData.filter(t => t.type === 'in' && t.unit === 'kg').length} giriş hareketi
+                  </div>
+                </div>
+
+                <div style={{ background: '#0d6efd', padding: 24, borderRadius: 16, color: 'white', boxShadow: '0 6px 16px rgba(13,110,253,0.25)' }}>
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <div className="text-3xl font-bold">{totalInM}</div>
+                      <div className="text-blue-100">Toplam Giriş (m)</div>
+                    </div>
+                    <FiTrendingUp className="text-3xl opacity-80" />
+                  </div>
+                  <div style={{ marginTop: 8, opacity: 0.85, fontSize: 14 }}>
+                    <FiTruck className="inline mr-1" />
+                    {filteredData.filter(t => t.type === 'in' && t.unit === 'metre').length} giriş hareketi
                   </div>
                 </div>
 
                 <div style={{ background: '#dc3545', padding: 24, borderRadius: 16, color: 'white', boxShadow: '0 6px 16px rgba(220,53,69,0.25)' }}>
                   <div className="flex items-center justify-between">
                     <div>
-                      <div className="text-3xl font-bold">{totalOut}</div>
-                      <div className="text-red-100">Toplam Çıkış (metre)</div>
+                      <div className="text-3xl font-bold">{totalOutKg}</div>
+                      <div className="text-red-100">Toplam Çıkış (kg)</div>
                     </div>
                     <FiTrendingDown className="text-3xl opacity-80" />
                   </div>
                   <div style={{ marginTop: 8, opacity: 0.85, fontSize: 14 }}>
                     <FiTruck className="inline mr-1" />
-                    {filteredData.filter(t => t.type === 'out').length} çıkış hareketi
+                    {filteredData.filter(t => t.type === 'out' && t.unit === 'kg').length} çıkış hareketi
                   </div>
                 </div>
 
-                <div style={{ padding: 24, borderRadius: 16, color: 'white', boxShadow: '0 6px 16px rgba(0,0,0,0.12)', background: netMovement >= 0 ? '#28a745' : '#fd7e14' }}>
+                <div style={{ background: '#dc3545', padding: 24, borderRadius: 16, color: 'white', boxShadow: '0 6px 16px rgba(220,53,69,0.25)' }}>
                   <div className="flex items-center justify-between">
                     <div>
-                      <div className="text-3xl font-bold">{netMovement}</div>
-                      <div className="opacity-90">Net Hareket (metre)</div>
+                      <div className="text-3xl font-bold">{totalOutM}</div>
+                      <div className="text-red-100">Toplam Çıkış (m)</div>
                     </div>
-                    <div style={{ fontSize: 20, opacity: 0.9 }}>{netMovement >= 0 ? '↗' : '↘'}</div>
+                    <FiTrendingDown className="text-3xl opacity-80" />
+                  </div>
+                  <div style={{ marginTop: 8, opacity: 0.85, fontSize: 14 }}>
+                    <FiTruck className="inline mr-1" />
+                    {filteredData.filter(t => t.type === 'out' && t.unit === 'metre').length} çıkış hareketi
+                  </div>
+                </div>
+
+                <div style={{ padding: 24, borderRadius: 16, color: 'white', boxShadow: '0 6px 16px rgba(0,0,0,0.12)', background: netKg >= 0 ? '#28a745' : '#fd7e14' }}>
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <div className="text-3xl font-bold">{netKg}</div>
+                      <div className="opacity-90">Net Hareket (kg)</div>
+                    </div>
+                    <div style={{ fontSize: 20, opacity: 0.9 }}>{netKg >= 0 ? '↗' : '↘'}</div>
                   </div>
                   <div className="mt-2 opacity-80 text-sm">
-                    {netMovement >= 0 ? 'Stok artışı' : 'Stok azalışı'}
+                    {netKg >= 0 ? 'Stok artışı' : 'Stok azalışı'}
+                  </div>
+                </div>
+
+                <div style={{ padding: 24, borderRadius: 16, color: 'white', boxShadow: '0 6px 16px rgba(0,0,0,0.12)', background: netM >= 0 ? '#28a745' : '#fd7e14' }}>
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <div className="text-3xl font-bold">{netM}</div>
+                      <div className="opacity-90">Net Hareket (m)</div>
+                    </div>
+                    <div style={{ fontSize: 20, opacity: 0.9 }}>{netM >= 0 ? '↗' : '↘'}</div>
+                  </div>
+                  <div className="mt-2 opacity-80 text-sm">
+                    {netM >= 0 ? 'Stok artışı' : 'Stok azalışı'}
                   </div>
                 </div>
               </div>

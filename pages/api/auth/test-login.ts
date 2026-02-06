@@ -57,7 +57,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     console.log('🎫 Token oluşturuluyor...');
     const token = jwt.sign(
       { id: user.id, email: user.email, role: user.role },
-      process.env.JWT_SECRET || 'default-secret',
+      process.env.JWT_SECRET || 'default-secret-key',
       { expiresIn: "1d" }
     );
 

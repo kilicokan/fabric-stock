@@ -1,7 +1,7 @@
 import { NextApiRequest, NextApiResponse } from "next";
 import jwt from "jsonwebtoken";
 
-const SECRET_KEY = process.env.JWT_SECRET || "supersecretkey";
+const SECRET_KEY = process.env.JWT_SECRET || "default-secret-key";
 
 export default function handler(req: NextApiRequest, res: NextApiResponse) {
   const token = req.headers.authorization?.split(" ")[1]; // "Bearer token"

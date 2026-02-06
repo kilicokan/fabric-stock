@@ -51,7 +51,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
     const token = jwt.sign(
       { id: user.id, email: user.email, role: user.role },
-      process.env.JWT_SECRET as string,
+      process.env.JWT_SECRET || 'default-secret-key',
       { expiresIn: "1d" }
     );
 
@@ -67,6 +67,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       },
     });
   } catch (error) {
-    return res.status(500).json({ message: "Sunucu hatası" });
+    console.error('💥 Login hatası:', error);
+    return res.status(500).json({ message: "Sunucu hatası", error: error.message });
   }
 }

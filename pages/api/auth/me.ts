@@ -11,14 +11,14 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
   try {
     const token = req.headers.authorization?.replace('Bearer ', '');
-    
+
     if (!token) {
       return res.status(401).json({ error: 'Token bulunamadı' });
     }
 
     // JWT token'ı doğrula ve decode et
-    const decoded = jwt.verify(token, process.env.JWT_SECRET || 'secret-key') as any;
-    
+    const decoded = jwt.verify(token, process.env.JWT_SECRET || 'default-secret-key') as any;
+
     // Kullanıcı bilgilerini veritabanından al
     const user = await prisma.user.findUnique({
       where: { id: decoded.id },
@@ -28,7 +28,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         name: true,
         role: true,
         stockAccess: true,
-        fasonAccess: true
+        fasonAccess: true,
+        mobileAccess: true
       }
     });
 
@@ -38,8 +39,20 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
     return res.json({ user });
 
-  } catch (error) {
+  } catch (error: any) {
     console.error('Auth me error:', error);
-    return res.status(401).json({ error: 'Geçersiz token' });
+
+    // Check if it's a JWT error
+    if (error.name === 'JsonWebTokenError' || error.name === 'TokenExpiredError') {
+      return res.status(401).json({ error: 'Geçersiz token' });
+    }
+
+    // Check if it's a Prisma/database error
+    if (error.code || error.meta) {
+      return res.status(500).json({ error: 'Veritabanı hatası' });
+    }
+
+    // Other server errors
+    return res.status(500).json({ error: 'Sunucu hatası' });
   }
 }
