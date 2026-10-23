@@ -112,6 +112,7 @@ model SpreadingMachine {
   name           String
   cuttingTableId Int
   layerSource    String         @default("MANUAL")
+  dataSource     String         @default("scale") @map("data_source")
   isActive       Boolean        @default(true)
   createdAt      DateTime       @default(now())
   updatedAt      DateTime       @updatedAt

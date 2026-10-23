@@ -11,7 +11,13 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       orderBy: { name: 'asc' },
       include: { cuttingTable: { select: { id: true, name: true } } },
     });
-    return res.status(200).json({ success: true, data: machines });
+    return res.status(200).json({
+      success: true,
+      data: machines.map(machine => ({
+        ...machine,
+        dataSource: machine.dataSource || 'scale',
+      })),
+    });
   }
 
   if (req.method === 'POST') {

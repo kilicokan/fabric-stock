@@ -21,6 +21,7 @@ import { verifyToken } from '@/lib/auth';
 
 const mockPrisma = prisma as unknown as {
   spreadingMachine: {
+    findMany: jest.Mock;
     create: jest.Mock;
     update: jest.Mock;
   };
@@ -29,6 +30,25 @@ const mockVerifyToken = verifyToken as jest.MockedFunction<typeof verifyToken>;
 
 describe('/api/spreading-machines layer source', () => {
   beforeEach(() => jest.clearAllMocks());
+
+  it('returns scale as the default data source for existing machines', async () => {
+    mockPrisma.spreadingMachine.findMany.mockResolvedValue([{
+      id: 1,
+      code: 'CUT-01',
+      name: 'Kesim 1',
+      dataSource: undefined,
+      cuttingTable: { id: 2, name: 'Masa 2' },
+    }]);
+    const { req, res } = createMocks({ method: 'GET' });
+
+    await handler(req, res);
+
+    expect(res._getStatusCode()).toBe(200);
+    expect(res._getJSONData()).toEqual({
+      success: true,
+      data: [expect.objectContaining({ id: 1, dataSource: 'scale' })],
+    });
+  });
 
   it('defaults new machines to manual counting', async () => {
     mockVerifyToken.mockReturnValue({ id: 1, email: 'admin@example.com', role: 'ADMIN' });
