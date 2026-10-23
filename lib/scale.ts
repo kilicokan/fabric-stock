@@ -167,12 +167,19 @@ export const connectScale = async (
       };
     };
     const port = await nav.serial.requestPort();
-    await port.open({
-      baudRate,
-      dataBits: 8,
-      stopBits: 1,
-      parity: 'none',
-    });
+    // Tarayıcı aynı fiziksel porta aynı nesneyi verir; zaten açıksa yeniden açmadan kullan.
+    if (port.readable) return port;
+    try {
+      await port.open({
+        baudRate,
+        dataBits: 8,
+        stopBits: 1,
+        parity: 'none',
+      });
+    } catch (openError) {
+      const alreadyOpen = openError instanceof Error && /already open/i.test(openError.message);
+      if (!alreadyOpen || !port.readable) throw openError;
+    }
     return port;
   } catch (e) {
     const msg = e instanceof Error ? e.message : 'Tartı bağlantısı iptal edildi.';
