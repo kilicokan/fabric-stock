@@ -1,4 +1,5 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, JSX } from 'react';
+import { useRouter } from 'next/router';
 import {
   Card,
   CardContent,
@@ -26,7 +27,8 @@ import {
   User,
   TrendingUp,
   TrendingDown,
-  CreditCard
+  CreditCard,
+  Eye
 } from 'lucide-react';
 import axios from 'axios';
 
@@ -43,11 +45,16 @@ interface Workshop {
   totalEarnings: number;
   totalPayments: number;
   isActive: boolean;
+  capacity?: number;
+  capacityType?: string;
+  definedCapacityUsage?: number;
+  definedCapacityPercentage?: number;
   createdAt: string;
   updatedAt: string;
 }
 
 const FasonWorkshops: React.FC = () => {
+  const router = useRouter();
   const [workshops, setWorkshops] = useState<Workshop[]>([]);
   const [loading, setLoading] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
@@ -62,7 +69,9 @@ const FasonWorkshops: React.FC = () => {
     contactPerson: '',
     phone: '',
     address: '',
-    isActive: true
+    isActive: true,
+    capacity: '',
+    capacityType: 'TL'
   });
 
   // Inline CSS styles
@@ -95,16 +104,25 @@ const FasonWorkshops: React.FC = () => {
     try {
       setLoading(true);
       const token = localStorage.getItem('token');
-      const response = await axios.get('/api/fason/workshops', {
+      const response = await axios.get('/api/fason/workshops?includeCapacity=true', {
         headers: { Authorization: `Bearer ${token}` }
       });
-      const workshopsWithDefaults = response.data.map((workshop: any) => ({
+      
+      // Handle both old and new API response formats
+      const workshopData = response.data?.data || response.data || [];
+      const workshopsArray = Array.isArray(workshopData) ? workshopData : [];
+      
+      const workshopsWithDefaults = workshopsArray.map((workshop: any) => ({
         ...workshop,
         balance: workshop.balance || 0,
         totalEarnings: workshop.totalEarnings || 0,
         totalPayments: workshop.totalPayments || 0,
         email: workshop.email || '',
-        status: workshop.status || 'ACTIVE'
+        status: workshop.status || 'ACTIVE',
+        capacity: workshop.capacity || null,
+        capacityType: workshop.capacityType || 'TL',
+        definedCapacityUsage: workshop.definedCapacityUsage || 0,
+        definedCapacityPercentage: workshop.definedCapacityPercentage || 0
       }));
       setWorkshops(workshopsWithDefaults);
     } catch (error) {
@@ -122,7 +140,9 @@ const FasonWorkshops: React.FC = () => {
       contactPerson: '',
       phone: '',
       address: '',
-      isActive: true
+      isActive: true,
+      capacity: '',
+      capacityType: 'TL'
     });
     setOpenDialog(true);
   };
@@ -135,7 +155,9 @@ const FasonWorkshops: React.FC = () => {
       contactPerson: workshop.contactPerson,
       phone: workshop.phone,
       address: workshop.address,
-      isActive: workshop.isActive
+      isActive: workshop.isActive,
+      capacity: workshop.capacity?.toString() || '',
+      capacityType: workshop.capacityType || 'TL'
     });
     setOpenDialog(true);
   };
@@ -145,15 +167,13 @@ const FasonWorkshops: React.FC = () => {
       const token = localStorage.getItem('token');
       if (editingWorkshop) {
         // Update existing workshop
-        const response = await axios.put('/api/fason/workshops', {
-          id: editingWorkshop.id,
-          ...formData
-        }, {
+        const response = await axios.put(`/api/fason/workshops?id=${editingWorkshop.id}`, formData, {
           headers: { Authorization: `Bearer ${token}` }
         });
+        const updatedWorkshop = response.data?.data || response.data;
         setWorkshops(prev => prev.map(workshop =>
           workshop.id === editingWorkshop.id
-            ? response.data
+            ? updatedWorkshop
             : workshop
         ));
       } else {
@@ -161,11 +181,13 @@ const FasonWorkshops: React.FC = () => {
         const response = await axios.post('/api/fason/workshops', formData, {
           headers: { Authorization: `Bearer ${token}` }
         });
-        setWorkshops(prev => [...prev, response.data]);
+        const newWorkshop = response.data?.data || response.data;
+        setWorkshops(prev => [...prev, newWorkshop]);
       }
       setOpenDialog(false);
     } catch (error) {
       console.error('Atölye kaydedilirken hata:', error);
+      alert('Atölye kaydedilirken bir hata oluştu. Lütfen tekrar deneyin.');
     }
   };
 
@@ -235,7 +257,7 @@ const FasonWorkshops: React.FC = () => {
                 MIRA STOK
               </h1>
               <p style={{ color: 'rgba(255, 255, 255, 0.9)', fontSize: '16px', margin: 0 }}>
-                Fason Atölye Yönetimi
+                Dış Kaynak Üretim Atölye Yönetimi
               </p>
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
@@ -455,6 +477,47 @@ const FasonWorkshops: React.FC = () => {
                   </div>
                 </div>
 
+                {/* Kapasite Bilgisi */}
+                {workshop.capacity && (
+                  <div style={{ 
+                    padding: '12px 16px', 
+                    backgroundColor: '#FEF3C7', 
+                    borderRadius: '12px',
+                    border: '1px solid #FCD34D',
+                    marginBottom: '12px'
+                  }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                      <div>
+                        <div style={{ fontSize: '14px', color: '#92400E', fontWeight: '500' }}>Atölye Kapasitesi</div>
+                        <div style={{ fontSize: '12px', color: '#92400E', marginTop: '2px' }}>
+                          {workshop.capacityType === 'TL' ? 'Tutar Bazlı' : 'Adet Bazlı'}
+                        </div>
+                      </div>
+                      <span style={{ fontSize: '14px', fontWeight: 'bold', color: '#92400E' }}>
+                        {workshop.capacity.toLocaleString('tr-TR')} {workshop.capacityType === 'TL' ? '₺' : 'Adet'}
+                      </span>
+                    </div>
+                    <div style={{ width: '100%', height: '6px', backgroundColor: '#FCD34D', borderRadius: '3px', overflow: 'hidden' }}>
+                      <div style={{
+                        height: '100%',
+                        width: `${workshop.definedCapacityPercentage || 0}%`,
+                        backgroundColor: workshop.definedCapacityPercentage >= 90 ? '#EF4444' : workshop.definedCapacityPercentage >= 70 ? '#F59E0B' : '#10B981',
+                        transition: 'width 0.3s ease'
+                      }} />
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '6px', fontSize: '12px', color: '#92400E' }}>
+                      <span>
+                        {workshop.capacityType === 'TL' 
+                          ? `₺${(workshop.definedCapacityUsage || 0).toLocaleString('tr-TR', { maximumFractionDigits: 0 })} / ₺${workshop.capacity.toLocaleString('tr-TR', { maximumFractionDigits: 0 })}` 
+                          : `${(workshop.definedCapacityUsage || 0).toLocaleString('tr-TR')} / ${workshop.capacity.toLocaleString('tr-TR')} Adet`}
+                      </span>
+                      <span style={{ fontWeight: 'bold' }}>
+                        %{(workshop.definedCapacityPercentage || 0).toFixed(1)}
+                      </span>
+                    </div>
+                  </div>
+                )}
+
                 {/* Finansal Bilgiler */}
                 <div style={{ 
                   padding: '16px', 
@@ -487,22 +550,45 @@ const FasonWorkshops: React.FC = () => {
                     </span>
                   </div>
 
-                  {workshop.balance > 0 && (
+                  <div style={{ display: 'flex', gap: '8px' }}>
+                    {workshop.balance > 0 && (
+                      <button
+                        onClick={() => {
+                          const amount = prompt('Ödeme miktarını girin:');
+                          if (amount && !isNaN(parseFloat(amount))) {
+                            handlePayment(workshop, parseFloat(amount));
+                          }
+                        }}
+                        style={{
+                          flex: 1,
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          gap: '8px',
+                          padding: '8px 16px',
+                          backgroundColor: '#10B981',
+                          color: 'white',
+                          border: 'none',
+                          borderRadius: '8px',
+                          fontSize: '14px',
+                          fontWeight: '500',
+                          cursor: 'pointer'
+                        }}
+                      >
+                        <CreditCard size={16} />
+                        Ödeme Yap
+                      </button>
+                    )}
                     <button
-                      onClick={() => {
-                        const amount = prompt('Ödeme miktarını girin:');
-                        if (amount && !isNaN(parseFloat(amount))) {
-                          handlePayment(workshop, parseFloat(amount));
-                        }
-                      }}
+                      onClick={() => router.push(`/fason/workshop-orders?workshopId=${workshop.id}&workshopName=${encodeURIComponent(workshop.name)}`)}
                       style={{
-                        width: '100%',
+                        flex: 1,
                         display: 'flex',
                         alignItems: 'center',
                         justifyContent: 'center',
                         gap: '8px',
                         padding: '8px 16px',
-                        backgroundColor: '#10B981',
+                        backgroundColor: '#3B82F6',
                         color: 'white',
                         border: 'none',
                         borderRadius: '8px',
@@ -511,11 +597,11 @@ const FasonWorkshops: React.FC = () => {
                         cursor: 'pointer'
                       }}
                     >
-                      <CreditCard size={16} />
-                      Ödeme Yap
+                      <Eye size={16} />
+                      İş Emirleri
                     </button>
-                  )}
-                </div>
+                  </div>
+                  </div>
               </CardContent>
             </Card>
           ))}
@@ -626,6 +712,24 @@ const FasonWorkshops: React.FC = () => {
               fullWidth
               required
             />
+            <TextField
+              label="Kapasite"
+              value={formData.capacity}
+              onChange={(e) => setFormData({ ...formData, capacity: e.target.value })}
+              fullWidth
+              type="number"
+              inputProps={{ step: '0.01' }}
+            />
+            <TextField
+              select
+              label="Kapasite Türü"
+              value={formData.capacityType}
+              onChange={(e) => setFormData({ ...formData, capacityType: e.target.value })}
+              fullWidth
+            >
+              <MenuItem value="TL">Tutar (₺)</MenuItem>
+              <MenuItem value="ADET">Adet</MenuItem>
+            </TextField>
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
               <input
                 type="checkbox"

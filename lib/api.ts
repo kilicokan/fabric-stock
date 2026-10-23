@@ -9,7 +9,7 @@ const api = axios.create({
 // Add request interceptor to include auth token
 api.interceptors.request.use(
   (config) => {
-    const token = localStorage.getItem('token');
+    const token = localStorage.getItem('token') || localStorage.getItem('authToken');
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
     }
@@ -32,9 +32,9 @@ api.interceptors.request.use(
  */
 export const fabricService = {
   getFabrics: () => api.get('/fabrics'),
-  createFabric: (data) => api.post('/fabrics', data),
-  updateFabric: (id, data) => api.put(`/fabrics/${id}`, data),
-  deleteFabric: (id) => api.delete(`/fabrics/${id}`),
+  createFabric: (data: unknown) => api.post('/fabrics', data),
+  updateFabric: (id: number | string, data: unknown) => api.put(`/fabrics/${id}`, data),
+  deleteFabric: (id: number | string) => api.delete(`/fabrics/${id}`),
 };
 
 // Diğer servisler...

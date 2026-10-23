@@ -1,7 +1,7 @@
-// pages/fabrics/index.tsx
+// components/header.tsx
 import { useState, useEffect } from 'react';
-import Layout from '../../components/Layout';
-import { fabricService } from '../../lib/api';
+import Layout from './Layout';
+import { fabricService } from '../lib/api';
 
 export default function FabricsPage() {
   const [fabrics, setFabrics] = useState([]);

@@ -1,18 +1,28 @@
 import prisma from '@/lib/prisma';
-import jwt from 'jsonwebtoken';
+import jwt, { JwtPayload } from 'jsonwebtoken';
 import type { NextApiRequest, NextApiResponse } from 'next';
+import { withCors } from '@/lib/cors';
+import { getJwtSecret } from '@/lib/runtime-config';
 
-const verifyToken = (req: NextApiRequest) => {
+type AuthTokenPayload = JwtPayload & { id: number };
+
+const getErrorMessage = (error: unknown): string =>
+  error instanceof Error ? error.message : 'Unknown error';
+
+const verifyToken = (req: NextApiRequest): AuthTokenPayload => {
   const token = req.headers.authorization?.replace('Bearer ', '');
-  if (!token) throw new Error('Token bulunamadı');
-  return jwt.verify(token, process.env.JWT_SECRET || 'default-secret-key');
+  if (!token) throw new Error('Token bulunamadi');
+
+  const decoded = jwt.verify(token, getJwtSecret());
+  if (typeof decoded === 'string') throw new Error('Invalid token payload');
+
+  const id = Number((decoded as { id?: unknown }).id);
+  if (Number.isNaN(id)) throw new Error('Invalid token payload');
+
+  return { ...decoded, id };
 };
 
-export default async function handler(req: NextApiRequest, res: NextApiResponse) {
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'PATCH, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
-
+const handler = async (req: NextApiRequest, res: NextApiResponse) => {
   if (req.method === 'OPTIONS') {
     return res.status(200).end();
   }
@@ -22,33 +32,44 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   }
 
   try {
-    const user = verifyToken(req) as any;
-    const { messageIds } = req.body;
+    const user = verifyToken(req);
+    const { messageIds } = req.body as { messageIds?: unknown };
 
-    if (!messageIds || !Array.isArray(messageIds)) {
+    if (!Array.isArray(messageIds)) {
       return res.status(400).json({ error: 'messageIds array is required' });
+    }
+
+    const numericMessageIds = messageIds
+      .map((id) => Number(id))
+      .filter((id) => !Number.isNaN(id));
+
+    if (numericMessageIds.length === 0) {
+      return res.status(400).json({ error: 'messageIds must contain numeric IDs' });
     }
 
     const updated = await prisma.message.updateMany({
       where: {
-        id: { in: messageIds },
+        id: { in: numericMessageIds },
         recipientId: user.id,
-        isRead: false
+        isRead: false,
       },
       data: {
         isRead: true,
-        readAt: new Date()
-      }
+        readAt: new Date(),
+      },
     });
 
     return res.status(200).json({
-      updated: updated.count
+      updated: updated.count,
     });
-  } catch (error) {
+  } catch (error: unknown) {
     console.error('Error marking messages as read:', error);
-    if (error instanceof jwt.JsonWebTokenError) {
+    const message = getErrorMessage(error);
+    if (error instanceof jwt.JsonWebTokenError || message === 'Token bulunamadi') {
       return res.status(401).json({ error: 'Invalid token' });
     }
     return res.status(500).json({ error: 'Failed to mark messages as read' });
   }
-}
+};
+
+export default withCors(handler);

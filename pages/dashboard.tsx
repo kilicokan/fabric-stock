@@ -1,6 +1,5 @@
-'use client';
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import AuthGuard from "../components/AuthGuard";
 
 interface WorkOrder {
@@ -22,28 +21,71 @@ interface WorkOrder {
 function DashboardContent() {
   const [workOrders, setWorkOrders] = useState<WorkOrder[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState<'all' | 'pending' | 'in-progress' | 'completed'>('all');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [page, setPage] = useState(1);
+  const [showScrollTop, setShowScrollTop] = useState(false);
+  const listRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     fetchMobileWorkOrders();
   }, []);
 
+  useEffect(() => {
+    const handleScroll = () => {
+      if (listRef.current) {
+        setShowScrollTop(listRef.current.scrollTop > 300);
+      }
+    };
+
+    const element = listRef.current;
+    if (element) {
+      element.addEventListener('scroll', handleScroll);
+      return () => element.removeEventListener('scroll', handleScroll);
+    }
+  }, []);
+
+  const scrollToTop = () => {
+    if (listRef.current) {
+      listRef.current.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+  };
+
   const fetchMobileWorkOrders = async () => {
     try {
       setLoading(true);
-      const response = await fetch('/api/fason/work-orders/mobile');
+      setError(null);
+      const token = localStorage.getItem("token");
+      if (!token) throw new Error("Oturum bulunamadı. Lütfen tekrar giriş yapın.");
+      const response = await fetch(`/api/fason/work-orders/mobile?page=1&limit=50`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
+      }
       const data = await response.json();
       setWorkOrders(data.workOrders || []);
     } catch (error) {
       console.error('İşler yüklenirken hata:', error);
+      setError('İşler yüklenirken bir hata oluştu. Lütfen sayfayı yenileyin.');
+      setWorkOrders([]);
     } finally {
       setLoading(false);
     }
   };
 
-  const filteredOrders = statusFilter === 'all' 
-    ? workOrders 
-    : workOrders.filter(order => order.status === statusFilter);
+  const filteredOrders = workOrders
+    .filter(order => statusFilter === 'all' || order.status === statusFilter)
+    .filter(order => {
+      const searchLower = searchQuery.toLowerCase();
+      return (
+        order.orderNo.toLowerCase().includes(searchLower) ||
+        order.productName.toLowerCase().includes(searchLower) ||
+        order.customerName.toLowerCase().includes(searchLower) ||
+        order.workshopName.toLowerCase().includes(searchLower)
+      );
+    });
 
   const stats = [
     {
@@ -90,11 +132,11 @@ function DashboardContent() {
     <main style={{ maxWidth: "1200px", margin: "40px auto", padding: "0 20px" }}>
       <div style={{ textAlign: "center", marginBottom: "40px" }}>
         <span style={{ backgroundColor: "#e0e7ff", color: "#4338ca", padding: "4px 12px", borderRadius: "12px", fontSize: "14px" }}>
-          Fason Takip Sistemi
+          Dış Kaynak Üretim Takip Sistemi
         </span>
-        <h1 style={{ fontSize: "2.5rem", fontWeight: "bold", marginTop: "12px" }}>Mira Fason Takip</h1>
+        <h1 style={{ fontSize: "2.5rem", fontWeight: "bold", marginTop: "12px" }}>Mira Dış Kaynak Üretim Takip</h1>
         <p style={{ fontSize: "1.125rem", color: "#6b7280", marginTop: "8px" }}>
-          Fason atölye süreçlerini gerçek zamanlı takip edin, iş emirlerini yönetin ve üretim verimliliğinizi artırın.
+          Dış Kaynak Üretim atölye süreçlerini gerçek zamanlı takip edin, iş emirlerini yönetin ve üretim verimliliğinizi artırın.
         </p>
       </div>
 
@@ -117,6 +159,29 @@ function DashboardContent() {
       {/* My Work Orders Section */}
       <div style={{ marginBottom: "40px" }}>
         <h2 style={{ fontSize: "1.5rem", fontWeight: "bold", marginBottom: "20px" }}>Benim İşlerim</h2>
+
+        {/* Search Box */}
+        <div style={{ marginBottom: "20px" }}>
+          <input
+            type="text"
+            placeholder="İş emrini, ürünü, müşteriyi veya atölyeyi ara..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            style={{
+              width: "100%",
+              padding: "12px 16px",
+              border: "1px solid #e5e7eb",
+              borderRadius: "8px",
+              fontSize: "14px",
+              backgroundColor: "white",
+              boxShadow: "0 1px 3px rgba(0,0,0,0.1)",
+              transition: "border-color 0.2s ease",
+              boxSizing: "border-box",
+            }}
+            onFocus={(e) => (e.currentTarget.style.borderColor = "#4338ca")}
+            onBlur={(e) => (e.currentTarget.style.borderColor = "#e5e7eb")}
+          />
+        </div>
 
         {/* Filter Buttons */}
         <div style={{ display: "flex", gap: "10px", marginBottom: "20px", flexWrap: "wrap" }}>
@@ -146,28 +211,86 @@ function DashboardContent() {
         </div>
 
         {/* Work Orders List */}
+        {error && (
+          <div style={{ 
+            textAlign: "center", 
+            padding: "20px", 
+            backgroundColor: "#FEE2E2",
+            color: "#DC2626",
+            borderRadius: "8px",
+            marginBottom: "20px"
+          }}>
+            {error}
+          </div>
+        )}
         {loading ? (
           <div style={{ textAlign: "center", padding: "40px", color: "#6b7280" }}>Yükleniyor...</div>
         ) : filteredOrders.length === 0 ? (
           <div style={{ textAlign: "center", padding: "40px", color: "#6b7280" }}>
-            Bu durumda iş bulunmamaktadır
+            {searchQuery ? "Arama kriterine uygun iş bulunmamaktadır" : "Bu durumda iş bulunmamaktadır"}
           </div>
         ) : (
-          <div style={{ display: "grid", gap: "16px" }}>
+          <div 
+            ref={listRef}
+            style={{ 
+              display: "grid", 
+              gap: "16px",
+              maxHeight: "600px",
+              overflowY: "auto",
+              paddingRight: "8px",
+            }}
+          >
             {filteredOrders.map(order => (
               <WorkOrderCard key={order.id} order={order} />
             ))}
           </div>
         )}
+
+        {/* Scroll to Top Button */}
+        {showScrollTop && (
+          <button
+            onClick={scrollToTop}
+            style={{
+              position: "fixed",
+              bottom: "30px",
+              right: "30px",
+              width: "50px",
+              height: "50px",
+              borderRadius: "50%",
+              backgroundColor: "#4338ca",
+              color: "white",
+              border: "none",
+              cursor: "pointer",
+              boxShadow: "0 4px 12px rgba(67, 56, 202, 0.4)",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              fontSize: "24px",
+              transition: "all 0.3s ease",
+              zIndex: 1000,
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.backgroundColor = "#3730a3";
+              e.currentTarget.style.boxShadow = "0 6px 16px rgba(67, 56, 202, 0.6)";
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.backgroundColor = "#4338ca";
+              e.currentTarget.style.boxShadow = "0 4px 12px rgba(67, 56, 202, 0.4)";
+            }}
+            title="Yukarı Kaydır"
+          >
+            ↑
+          </button>
+        )}
       </div>
 
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(250px, 1fr))", gap: "20px" }}>
-        <Card title="Fason Dashboard" description="İş emirlerini görüntüleyin, süreçleri takip edin ve detaylı raporlar oluşturun" />
+<div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(250px, 1fr))", gap: "20px" }}>
+        <Card title="Dış Kaynak Üretim Dashboard" description="İş emirlerini Görüntüleyin, süreçleri takip edin ve detaylı raporlar oluşturun" />
         <Card title="Mobil Takipçi" description="Telefon uygulaması için optimize edilmiş gerçek zamanlı takip formu" />
-        <Card title="Atölye Yönetimi" description="Fason atölyelerini kaydedin, düzenleyin ve performanslarını izleyin" />
+        <Card title="Atölye Yönetimi" description="Dış Kaynak Üretim atölyelerini kaydedin, düzenleyin ve performanslarını izleyin" />
         <Card title="İş Emri Oluştur" description="Manuel iş emri oluşturun veya ERP sisteminden otomatik alın" />
-        <Card title="Takipçi Yönetimi" description="Fason takipçilerini yönetin, görevler atayın ve performans takibi yapın" />
-        <Card title="Fason Raporları" description="Detaylı fason takip raporları, analizler ve performans metrikleri" />
+        <Card title="Takipçi Yönetimi" description="Dış Kaynak Üretim takipülerini yönetin, görevler atayın ve performans takibi yapın" />
+        <Card title="Dış Kaynak Üretim Raporları" description="Detaylı dış kaynak üretim takip raporları, analizler ve performans metrikleri" />
       </div>
     </main>
   );

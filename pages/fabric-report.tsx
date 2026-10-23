@@ -1,8 +1,16 @@
 import { useEffect, useState } from "react";
 import axios from "axios";
 
+interface StockReportItem {
+  id: number;
+  fabricType: string;
+  color: string;
+  weightKg: number;
+  lengthMeter: number;
+}
+
 export default function Reports() {
-  const [stock, setStock] = useState<any[]>([]);
+  const [stock, setStock] = useState<StockReportItem[]>([]);
 
   useEffect(() => {
     axios.get("/api/reports/stock").then((res) => setStock(res.data));

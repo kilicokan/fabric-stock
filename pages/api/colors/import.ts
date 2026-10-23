@@ -1,12 +1,16 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 import prisma from '../../../lib/prisma';
 import * as XLSX from 'xlsx';
+import type { Color } from '@prisma/client';
 
 interface ImportColor {
   name: string;
   code?: string;
   description?: string;
 }
+
+const getErrorMessage = (error: unknown): string =>
+  error instanceof Error ? error.message : 'Unknown error';
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   try {
@@ -21,7 +25,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     }
 
     const errors: string[] = [];
-    const successfulImports: any[] = [];
+    const successfulImports: Color[] = [];
     const duplicateNames: string[] = [];
 
     // Validate and prepare colors for import
@@ -56,8 +60,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           data: importColor,
         });
         successfulImports.push(newColor);
-      } catch (err: any) {
-        errors.push(`Satır ${rowNumber}: Renk eklenirken hata: ${err.message}`);
+      } catch (err: unknown) {
+        errors.push(`Satır ${rowNumber}: Renk eklenirken hata: ${getErrorMessage(err)}`);
       }
     }
 
@@ -73,16 +77,14 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
     return res.status(200).json(result);
 
-  } catch (err: any) {
+  } catch (err: unknown) {
     console.error('Import API Error:', err);
-    return res.status(500).json({ message: 'Sunucu hatası', error: err.message });
-  } finally {
-    await prisma.$disconnect();
+    return res.status(500).json({ message: 'Sunucu hatası', error: getErrorMessage(err) });
   }
 }
 
 // Helper function to parse CSV content
-export function parseCSV(csvContent: string): any[] {
+export function parseCSV(csvContent: string): Array<Record<string, string>> {
   const lines = csvContent.split('\n').filter(line => line.trim());
   if (lines.length < 2) return [];
 
@@ -91,7 +93,7 @@ export function parseCSV(csvContent: string): any[] {
 
   return rows.map(row => {
     const values = row.split(',').map(v => v.trim().replace(/"/g, ''));
-    const obj: any = {};
+    const obj: Record<string, string> = {};
     headers.forEach((header, index) => {
       obj[header] = values[index] || '';
     });
@@ -100,9 +102,10 @@ export function parseCSV(csvContent: string): any[] {
 }
 
 // Helper function to parse Excel file
-export function parseExcel(buffer: ArrayBuffer): any[] {
+export function parseExcel(buffer: ArrayBuffer): Array<Record<string, unknown>> {
   const workbook = XLSX.read(buffer, { type: 'array' });
   const sheetName = workbook.SheetNames[0];
   const worksheet = workbook.Sheets[sheetName];
-  return XLSX.utils.sheet_to_json(worksheet);
+  return XLSX.utils.sheet_to_json<Record<string, unknown>>(worksheet);
 }
+

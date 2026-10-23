@@ -20,47 +20,63 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   }
 
   try {
-    // Get all workshops with their fason trackings and work orders
+    // Get all workshops with only required fields to keep payload light
     const workshops = await prisma.fasonWorkshop.findMany({
-      include: {
+      select: {
+        id: true,
+        name: true,
+        specialization: true,
+        balance: true,
         fasonTrackings: {
-          include: {
-            workOrder: true
+          select: {
+            createdAt: true,
+            workOrder: {
+              select: {
+                id: true,
+                quantity: true,
+                status: true
+              }
+            }
           }
         }
       }
     });
 
     const reports: WorkshopReport[] = workshops.map((workshop) => {
-      // Get unique work orders from trackings
-      const workOrders = workshop.fasonTrackings.map(tracking => tracking.workOrder);
-      const uniqueWorkOrders = workOrders.filter((wo, index, self) =>
-        self.findIndex(w => w.id === wo.id) === index
-      );
+      const uniqueWorkOrderIds = new Set<number>();
+      let currentGoods = 0;
+      let totalWorks = 0;
+      let completedWorks = 0;
+      let lastTrackingDate: Date | null = null;
 
-      // Calculate current goods (sum of quantities from work orders that are not completed)
-      const currentGoods = uniqueWorkOrders
-        .filter(wo => wo.status !== 'TESLIM_EDILDI')
-        .reduce((sum, wo) => sum + wo.quantity, 0);
+      for (const tracking of workshop.fasonTrackings) {
+        if (!lastTrackingDate || tracking.createdAt > lastTrackingDate) {
+          lastTrackingDate = tracking.createdAt;
+        }
 
-      // Calculate unit price (average from work orders, but since unitPrice isn't in WorkOrder, use a default or calculate differently)
-      // Note: WorkOrder doesn't have unitPrice in schema, so using 0 for now
+        const workOrder = tracking.workOrder;
+        if (!workOrder || uniqueWorkOrderIds.has(workOrder.id)) {
+          continue;
+        }
+
+        uniqueWorkOrderIds.add(workOrder.id);
+        totalWorks += 1;
+
+        if (workOrder.status === 'TESLIM_EDILDI') {
+          completedWorks += 1;
+        } else {
+          currentGoods += workOrder.quantity || 0;
+        }
+      }
+
+      // WorkOrder modelinde unitPrice olmadığı için 0 bırakılıyor
       const unitPrice = 0;
-
-      // Calculate total value
       const totalValue = currentGoods * unitPrice;
-
-      // Use balance from workshop model
       const balance = workshop.balance;
 
-      // Get last work date from trackings
-      const lastWorkDate = workshop.fasonTrackings.length > 0
-        ? workshop.fasonTrackings.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())[0].createdAt.toISOString().split('T')[0]
+      const lastWorkDate = lastTrackingDate
+        ? lastTrackingDate.toISOString().split('T')[0]
         : new Date().toISOString().split('T')[0];
-
-      // Calculate total works and completed works
-      const totalWorks = uniqueWorkOrders.length;
-      const completedWorks = uniqueWorkOrders.filter(wo => wo.status === 'TESLIM_EDILDI').length;
 
       return {
         id: workshop.id,
@@ -77,13 +93,12 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     });
 
     res.status(200).json(reports);
-  } catch (error: any) {
-    console.error('Fason raporları alınırken hata:', error);
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : 'Unknown error';
+    console.error('Dış Kaynak Üretim raporları alınırken hata:', error);
     res.status(500).json({
-      message: 'Fason raporları alınırken hata oluştu',
-      error: error.message
+      message: 'Dış Kaynak Üretim raporları alınırken hata oluştu',
+      error: message
     });
-  } finally {
-    await prisma.$disconnect();
   }
 }

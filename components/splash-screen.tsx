@@ -1,6 +1,7 @@
-"use client"
+"use client";
 
-import { useEffect, useState } from "react"
+import Image from "next/image";
+import { useEffect, useState } from "react";
 
 interface SplashScreenProps {
   autoHide?: boolean;
@@ -8,231 +9,134 @@ interface SplashScreenProps {
   isLogout?: boolean;
 }
 
-export default function SplashScreen({ autoHide = true, onHide, isLogout = false }: SplashScreenProps) {
-  const [isVisible, setIsVisible] = useState(true)
+const SPLASH_DURATION_MS = 2500;
 
-  // Güncellenmiş mesaj
-  const loadingMessage = isLogout ? "Oturum kapatılıyor..." : "Sistem başlatılıyor..."
+export default function SplashScreen({ autoHide = true, onHide, isLogout = false }: SplashScreenProps) {
+  const [isVisible, setIsVisible] = useState(true);
 
   useEffect(() => {
-    if (autoHide) {
-      const timer = setTimeout(() => {
-        setIsVisible(false)
-        onHide?.()
-      }, 3500)
+    if (!autoHide) return;
 
-      return () => clearTimeout(timer)
-    }
-  }, [autoHide, onHide])
+    const timer = window.setTimeout(() => {
+      setIsVisible(false);
+      onHide?.();
+    }, SPLASH_DURATION_MS);
 
-  if (!isVisible) return null
+    return () => window.clearTimeout(timer);
+  }, [autoHide, onHide]);
+
+  if (!isVisible) return null;
+
+  const title = isLogout ? "Oturum Kapatiliyor" : "Oturum Aciliyor";
+  const subtitle = isLogout ? "Guvenli cikis hazirlaniyor..." : "Guvenli calisma alani hazirlaniyor...";
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-white overflow-hidden">
-      {/* Grid pattern overlay */}
-      <div className="absolute inset-0 opacity-10">
-        <div
-          className="w-full h-full"
-          style={{
-            backgroundImage: `
-            linear-gradient(to right, #333 1px, transparent 1px),
-            linear-gradient(to bottom, #333 1px, transparent 1px)
-          `,
-            backgroundSize: "40px 40px",
-          }}
-        />
-      </div>
+    <div className="fixed inset-0 z-[200] overflow-hidden bg-slate-100">
+      <div className="absolute inset-0 bg-[radial-gradient(circle_at_top,rgba(30,64,175,0.2),transparent_58%)]" />
+      <div className="absolute inset-0 bg-[linear-gradient(120deg,rgba(148,163,184,0.14)_1px,transparent_1px)] [background-size:38px_38px]" />
+      <div className="absolute -left-20 top-20 h-56 w-56 rounded-full bg-blue-200/60 blur-3xl animate-float-slow" />
+      <div className="absolute -right-14 bottom-14 h-52 w-52 rounded-full bg-slate-300/60 blur-3xl animate-float-slower" />
 
-      {/* Ana içerik */}
-      <div className="relative z-10 flex flex-col items-center gap-8">
-        {/* Logo container */}
-        <div className="relative">
-          {/* Dış halka animasyonu */}
-          <div className="absolute inset-0 -m-8">
-            <div className="w-full h-full border-2 border-white/20 rounded-full animate-ping" />
-          </div>
-          <div className="absolute inset-0 -m-6">
-            <div
-              className="w-full h-full border-2 border-white/30 rounded-full animate-pulse"
-              style={{ animationDelay: "0.5s" }}
-            />
-          </div>
-
-          {/* Logo */}
-          <div className="relative bg-white rounded-3xl p-8 shadow-2xl animate-scale-in">
-            <div className="flex items-center gap-3">
-              {/* İkon - Üretim takip simgesi */}
-              <div className="relative">
-                <svg
-                  width="48"
-                  height="48"
-                  viewBox="0 0 48 48"
-                  fill="none"
-                  xmlns="http://www.w3.org/2000/svg"
-                  className="animate-fade-in"
-                >
-                  {/* Fabrika/üretim ikonu */}
-                  <path
-                    d="M8 40V24L16 20V28L24 24V32L32 28V40H8Z"
-                    fill="url(#gradient1)"
-                    className="animate-slide-up"
-                    style={{ animationDelay: "0.3s" }}
-                  />
-                  <path
-                    d="M32 40V20L40 16V40H32Z"
-                    fill="url(#gradient2)"
-                    className="animate-slide-up"
-                    style={{ animationDelay: "0.5s" }}
-                  />
-                  <rect
-                    x="10"
-                    y="32"
-                    width="3"
-                    height="5"
-                    fill="#fff"
-                    className="animate-fade-in"
-                    style={{ animationDelay: "0.8s" }}
-                  />
-                  <rect
-                    x="16"
-                    y="32"
-                    width="3"
-                    height="5"
-                    fill="#fff"
-                    className="animate-fade-in"
-                    style={{ animationDelay: "0.9s" }}
-                  />
-                  <rect
-                    x="22"
-                    y="32"
-                    width="3"
-                    height="5"
-                    fill="#fff"
-                    className="animate-fade-in"
-                    style={{ animationDelay: "1s" }}
-                  />
-                  <rect
-                    x="34"
-                    y="32"
-                    width="3"
-                    height="5"
-                    fill="#fff"
-                    className="animate-fade-in"
-                    style={{ animationDelay: "1.1s" }}
-                  />
-
-                  <defs>
-                    <linearGradient id="gradient1" x1="8" y1="20" x2="32" y2="40" gradientUnits="userSpaceOnUse">
-                      <stop stopColor="#3b82f6" />
-                      <stop offset="1" stopColor="#2563eb" />
-                    </linearGradient>
-                    <linearGradient id="gradient2" x1="32" y1="16" x2="40" y2="40" gradientUnits="userSpaceOnUse">
-                      <stop stopColor="#f97316" />
-                      <stop offset="1" stopColor="#ea580c" />
-                    </linearGradient>
-                  </defs>
-                </svg>
-
-                {/* Dönen halka */}
-                <div className="absolute -inset-2 border-2 border-accent rounded-full animate-spin-slow opacity-30" />
-              </div>
-
-              {/* Logo text */}
-              <div className="flex flex-col animate-fade-in" style={{ animationDelay: "0.6s" }}>
-                <span className="text-3xl font-bold text-primary tracking-tight">
-                  mira
-                  <span className="text-accent">app</span>
-                </span>
-                <span className="text-xs text-muted-foreground tracking-wider uppercase"></span>
-              </div>
+      <div className="relative z-10 flex min-h-screen items-center justify-center px-6">
+        <div className="w-full max-w-md rounded-3xl border border-slate-200/80 bg-white/90 p-8 shadow-[0_28px_70px_-36px_rgba(15,23,42,0.6)] backdrop-blur-sm md:p-10">
+          <div className="flex items-center gap-4">
+            <div className="relative h-16 w-16 overflow-hidden rounded-2xl border border-slate-200 bg-white">
+              <Image
+                src="/miraapp-logo.jpg"
+                alt="MiraApp Logo"
+                fill
+                className="object-cover"
+                priority
+                sizes="64px"
+              />
+            </div>
+            <div>
+              <p className="text-[0.65rem] font-semibold uppercase tracking-[0.24em] text-slate-500">
+                MiraApp
+              </p>
+              <h1 className="text-2xl font-semibold tracking-tight text-slate-900 animate-brand-text">miraap</h1>
             </div>
           </div>
-        </div>
 
-        {/* Yükleme çubuğu */}
-        <div className="w-64 h-1 bg-white/20 rounded-full overflow-hidden">
-          <div className="h-full bg-white rounded-full animate-loading-bar" />
-        </div>
+          <div className="mt-8 border-t border-slate-200/80 pt-6">
+            <p className="text-xs font-semibold uppercase tracking-[0.28em] text-slate-500">{title}</p>
+            <p className="mt-2 text-sm text-slate-600">{subtitle}</p>
 
-        {/* Yükleniyor metni */}
-        <div className="text-gray-700 text-sm font-medium animate-pulse">{loadingMessage}</div>
+            <div className="mt-5 h-2 overflow-hidden rounded-full bg-slate-200">
+              <div className="h-full w-1/2 rounded-full bg-gradient-to-r from-blue-700 via-blue-500 to-cyan-400 animate-progress-sweep" />
+            </div>
+          </div>
+
+          <p className="mt-8 text-[0.64rem] uppercase tracking-[0.2em] text-slate-400">
+            Copyright {new Date().getFullYear()} Mira Software Solutions
+          </p>
+        </div>
       </div>
 
       <style jsx>{`
-        @keyframes scale-in {
+        @keyframes progress-sweep {
           0% {
-            transform: scale(0.8);
-            opacity: 0;
+            transform: translateX(-130%);
+          }
+          70% {
+            transform: translateX(110%);
           }
           100% {
-            transform: scale(1);
-            opacity: 1;
+            transform: translateX(240%);
           }
         }
 
-        @keyframes fade-in {
-          0% {
-            opacity: 0;
-          }
-          100% {
-            opacity: 1;
-          }
-        }
-
-        @keyframes slide-up {
-          0% {
-            transform: translateY(10px);
-            opacity: 0;
-          }
+        @keyframes float-slow {
+          0%,
           100% {
             transform: translateY(0);
-            opacity: 1;
-          }
-        }
-
-        @keyframes loading-bar {
-          0% {
-            width: 0%;
           }
           50% {
-            width: 70%;
+            transform: translateY(-14px);
           }
+        }
+
+        @keyframes float-slower {
+          0%,
           100% {
-            width: 100%;
+            transform: translateY(0);
+          }
+          50% {
+            transform: translateY(10px);
           }
         }
 
-        @keyframes spin-slow {
-          0% {
-            transform: rotate(0deg);
-          }
+        .animate-progress-sweep {
+          animation: progress-sweep 2.35s cubic-bezier(0.25, 0.7, 0.3, 1) infinite;
+        }
+
+        .animate-float-slow {
+          animation: float-slow 7s ease-in-out infinite;
+        }
+
+        .animate-float-slower {
+          animation: float-slower 8.2s ease-in-out infinite;
+        }
+
+        @keyframes brand-text {
+          0%,
           100% {
-            transform: rotate(360deg);
+            transform: translateY(0);
+            letter-spacing: 0.01em;
+            text-shadow: 0 0 0 rgba(37, 99, 235, 0);
+          }
+          50% {
+            transform: translateY(-2px);
+            letter-spacing: 0.04em;
+            text-shadow: 0 6px 18px rgba(37, 99, 235, 0.28);
           }
         }
 
-        .animate-scale-in {
-          animation: scale-in 0.6s ease-out forwards;
-        }
-
-        .animate-fade-in {
-          animation: fade-in 0.6s ease-out forwards;
-          opacity: 0;
-        }
-
-        .animate-slide-up {
-          animation: slide-up 0.6s ease-out forwards;
-          opacity: 0;
-        }
-
-        .animate-loading-bar {
-          animation: loading-bar 3s ease-in-out forwards;
-        }
-
-        .animate-spin-slow {
-          animation: spin-slow 3s linear infinite;
+        .animate-brand-text {
+          display: inline-block;
+          animation: brand-text 2.1s ease-in-out infinite;
         }
       `}</style>
     </div>
-  )
+  );
 }

@@ -1,273 +1,304 @@
-import { useState, useEffect } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import axios from "axios";
-import ExportButtons from '../../components/ExportButtons';
-import * as XLSX from 'xlsx';
+import * as XLSX from "xlsx";
+import ExportButtons from "../../components/ExportButtons";
+import api from "@/lib/api";
+
+type Customer = {
+  id: number;
+  name: string;
+  phone?: string | null;
+  email?: string | null;
+};
+
+type CustomerForm = {
+  name: string;
+  contact: string;
+  address: string;
+};
+
+const parseCSVLine = (line: string): string[] => {
+  const result: string[] = [];
+  let current = "";
+  let inQuotes = false;
+
+  for (let index = 0; index < line.length; index += 1) {
+    const char = line[index];
+    if (char === "\"") {
+      if (inQuotes && line[index + 1] === "\"") {
+        current += "\"";
+        index += 1;
+      } else {
+        inQuotes = !inQuotes;
+      }
+    } else if (char === "," && !inQuotes) {
+      result.push(current.trim());
+      current = "";
+    } else {
+      current += char;
+    }
+  }
+
+  result.push(current.trim());
+  return result;
+};
+
+const parseCSV = (csvContent: string): Record<string, string>[] => {
+  const lines = csvContent.split("\n").filter((line) => line.trim());
+  if (lines.length < 2) {
+    return [];
+  }
+
+  const headers = parseCSVLine(lines[0]);
+  return lines.slice(1).map((line) => {
+    const values = parseCSVLine(line);
+    const mapped: Record<string, string> = {};
+    headers.forEach((header, index) => {
+      mapped[header] = values[index] || "";
+    });
+    return mapped;
+  });
+};
+
+const getErrorMessage = (error: unknown, fallback: string): string => {
+  if (axios.isAxiosError(error)) {
+    return error.response?.data?.message || fallback;
+  }
+  if (error instanceof Error) {
+    return error.message;
+  }
+  return fallback;
+};
 
 export default function CustomerListPage() {
-  const [form, setForm] = useState({ id: "", name: "", contact: "", address: "" });
-  const [list, setList] = useState<any[]>([]);
-  const [loading, setLoading] = useState({ submit: false, list: false });
-  const [error, setError] = useState<string>("");
-  const [success, setSuccess] = useState<string>("");
-  const [editingId, setEditingId] = useState<string | null>(null);
+  const [form, setForm] = useState<CustomerForm>({ name: "", contact: "", address: "" });
+  const [list, setList] = useState<Customer[]>([]);
+  const [loading, setLoading] = useState({ submit: false, list: false, import: false });
+  const [editingId, setEditingId] = useState<number | null>(null);
+  const [error, setError] = useState("");
+  const [success, setSuccess] = useState("");
 
-  const load = async () => {
+  const fileInputId = "customer-import-input";
+
+  const load = useCallback(async () => {
     try {
-      setLoading((s) => ({ ...s, list: true }));
-      const { data } = await axios.get("/api/customers");
+      setLoading((current) => ({ ...current, list: true }));
+      const { data } = await api.get<Customer[]>("/customers");
       setList(data);
-    } catch (e) {
-      setError("Müşteri listesi yüklenemedi");
+    } catch {
+      setError("Müşteri listesi yüklenemedi.");
     } finally {
-      setLoading((s) => ({ ...s, list: false }));
+      setLoading((current) => ({ ...current, list: false }));
     }
-  };
-
-  useEffect(() => {
-    load();
   }, []);
 
-  const submit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  const onFieldChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const { name, value } = event.target;
+    setForm((current) => ({ ...current, [name]: value }));
+  };
+
+  const resetForm = () => {
+    setForm({ name: "", contact: "", address: "" });
+    setEditingId(null);
+  };
+
+  const submit = async (event: React.FormEvent) => {
+    event.preventDefault();
+    setError("");
+    setSuccess("");
+
     try {
-      setError("");
-      setSuccess("");
-      setLoading((s) => ({ ...s, submit: true }));
+      setLoading((current) => ({ ...current, submit: true }));
 
       if (editingId) {
-        // Güncelleme
-        await axios.put("/api/customers", { ...form, id: editingId });
-        setSuccess("Müşteri başarıyla güncellendi!");
+        await api.put("/customers", { id: editingId, ...form });
+        setSuccess("Müşteri başarıyla güncellendi.");
       } else {
-        // Yeni ekleme
-        await axios.post("/api/customers", form);
-        setSuccess("Müşteri başarıyla eklendi!");
+        await api.post("/customers", form);
+        setSuccess("Müşteri başarıyla eklendi.");
       }
 
-      setForm({ id: "", name: "", contact: "", address: "" });
-      setEditingId(null);
-      load();
-    } catch (e: any) {
-      setError(e?.response?.data?.error || "İşlem başarısız");
+      resetForm();
+      await load();
+    } catch (requestError: unknown) {
+      setError(getErrorMessage(requestError, "İşlem başarısız."));
     } finally {
-      setLoading((s) => ({ ...s, submit: false }));
+      setLoading((current) => ({ ...current, submit: false }));
     }
   };
 
-  const editCustomer = (customer: any) => {
+  const editCustomer = (customer: Customer) => {
     setForm({
-      id: customer.id.toString(),
       name: customer.name,
       contact: customer.phone || "",
       address: customer.email || "",
     });
-    setEditingId(customer.id.toString());
+    setEditingId(customer.id);
   };
 
   const deleteCustomer = async (id: number) => {
-    if (!confirm("Bu müşteriyi silmek istediğinizden emin misiniz?")) return;
+    if (!confirm("Bu müşteriyi silmek istediğinizden emin misiniz?")) {
+      return;
+    }
+
+    setError("");
+    setSuccess("");
 
     try {
-      await axios.delete("/api/customers", { data: { id } });
-      setSuccess("Müşteri başarıyla silindi!");
-      load();
-    } catch (e: any) {
-      setError(e?.response?.data?.error || "Silme işlemi başarısız");
+      await api.delete("/customers", { data: { id } });
+      setSuccess("Müşteri başarıyla silindi.");
+      await load();
+    } catch (requestError: unknown) {
+      setError(getErrorMessage(requestError, "Silme işlemi başarısız."));
     }
   };
 
-  const cancelEdit = () => {
-    setForm({ id: "", name: "", contact: "", address: "" });
-    setEditingId(null);
-  };
-
-  const onChange = (e: React.ChangeEvent<HTMLInputElement>) =>
-    setForm((f) => ({ ...f, [e.target.name]: e.target.value }));
-
-  // Import function
   const handleImport = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
-    if (!file) return;
+    if (!file) {
+      return;
+    }
 
     try {
-      const fileExtension = file.name.split('.').pop()?.toLowerCase();
-      let parsedData: any[] = [];
+      setLoading((current) => ({ ...current, import: true }));
+      const extension = file.name.split(".").pop()?.toLowerCase();
+      let parsedData: Record<string, unknown>[] = [];
 
-      if (fileExtension === 'csv') {
-        const text = await file.text();
-        parsedData = parseCSV(text);
-      } else if (fileExtension === 'xlsx' || fileExtension === 'xls') {
+      if (extension === "csv") {
+        parsedData = parseCSV(await file.text());
+      } else if (extension === "xlsx" || extension === "xls") {
         const buffer = await file.arrayBuffer();
-        const workbook = XLSX.read(buffer, { type: 'array' });
-        parsedData = XLSX.utils.sheet_to_json(workbook.Sheets[workbook.SheetNames[0]]);
+        const workbook = XLSX.read(buffer, { type: "array" });
+        parsedData = XLSX.utils.sheet_to_json(workbook.Sheets[workbook.SheetNames[0]]) as Record<
+          string,
+          unknown
+        >[];
       } else {
-        alert('Desteklenmeyen dosya formatı. Lütfen CSV veya Excel dosyası yükleyin.');
+        alert("Desteklenmeyen dosya formatı. Lütfen CSV veya Excel dosyası yükleyin.");
         return;
       }
 
-      const response = await axios.post('/api/customers/import', { customers: parsedData });
-      alert(response.data.message);
-      // Refresh the list
-      load();
-    } catch (error: any) {
-      console.error('Import error:', error);
-      alert('İçe aktarma sırasında hata oluştu: ' + (error.response?.data?.message || error.message));
+      const response = await api.post("/customers/import", { customers: parsedData });
+      alert(response.data?.message || "İçe aktarma tamamlandı.");
+      await load();
+    } catch (importError: unknown) {
+      alert(`İçe aktarma sırasında hata oluştu: ${getErrorMessage(importError, "Bilinmeyen hata")}`);
+    } finally {
+      setLoading((current) => ({ ...current, import: false }));
+      event.target.value = "";
     }
   };
 
-  // Helper function to parse CSV with proper quote handling
-  const parseCSV = (csvContent: string): any[] => {
-    const lines = csvContent.split('\n').filter(line => line.trim());
-    if (lines.length < 2) return [];
-
-    const headers = parseCSVLine(lines[0]);
-    const rows = lines.slice(1);
-
-    return rows.map(row => {
-      const values = parseCSVLine(row);
-      const obj: any = {};
-      headers.forEach((header, index) => {
-        obj[header] = values[index] || '';
-      });
-      return obj;
-    });
-  };
-
-  const parseCSVLine = (line: string): string[] => {
-    const result: string[] = [];
-    let current = '';
-    let inQuotes = false;
-    for (let i = 0; i < line.length; i++) {
-      const char = line[i];
-      if (char === '"') {
-        if (inQuotes && line[i + 1] === '"') {
-          current += '"';
-          i++; // skip next quote
-        } else {
-          inQuotes = !inQuotes;
-        }
-      } else if (char === ',' && !inQuotes) {
-        result.push(current.trim());
-        current = '';
-      } else {
-        current += char;
-      }
-    }
-    result.push(current.trim());
-    return result;
-  };
+  const exportRows = useMemo(
+    () =>
+      list.map((customer) => ({
+        "Müşteri Adı": customer.name,
+        Telefon: customer.phone || "",
+        "E-posta": customer.email || "",
+      })),
+    [list]
+  );
 
   return (
-    <div className="container">
-      <h1 className="title">👥 Müşteri Yönetimi</h1>
+    <div className="fs-entity-shell">
+      <h1 className="fs-entity-title">Müşteri Yönetimi</h1>
 
-      {error && <div className="error-message">{error}</div>}
-      {success && <div className="success-message">{success}</div>}
+      {error ? <div className="fs-message fs-message-error">{error}</div> : null}
+      {success ? <div className="fs-message fs-message-success">{success}</div> : null}
 
-      <form onSubmit={submit} className="form">
-        <div className="input-group">
-          <label className="label">Müşteri Adı *</label>
+      <form onSubmit={submit} className="fs-entity-form">
+        <div className="fs-field-group">
+          <label className="fs-field-label">Müşteri Adı *</label>
           <input
+            className="fs-field-input"
             name="name"
             value={form.name}
-            onChange={onChange}
+            onChange={onFieldChange}
             placeholder="Müşteri adı"
-            className="input"
             required
           />
         </div>
 
-        <div className="input-group">
-          <label className="label">Telefon</label>
+        <div className="fs-field-group">
+          <label className="fs-field-label">Telefon</label>
           <input
+            className="fs-field-input"
             name="contact"
             value={form.contact}
-            onChange={onChange}
+            onChange={onFieldChange}
             placeholder="Telefon numarası"
-            className="input"
           />
         </div>
 
-        <div className="input-group">
-          <label className="label">E-posta</label>
+        <div className="fs-field-group">
+          <label className="fs-field-label">E-posta</label>
           <input
+            className="fs-field-input"
             name="address"
-            value={form.address}
-            onChange={onChange}
-            placeholder="E-posta adresi"
-            className="input"
             type="email"
+            value={form.address}
+            onChange={onFieldChange}
+            placeholder="E-posta adresi"
           />
         </div>
 
-        <div className="submit-container">
-          <button
-            type="button"
-            onClick={cancelEdit}
-            className="cancel-button"
-            style={{ display: editingId ? "inline-block" : "none" }}
-          >
-            İptal
-          </button>
-          <button
-            disabled={loading.submit}
-            className={loading.submit ? "submit-button loading" : "submit-button"}
-          >
+        <div className="fs-form-actions">
+          {editingId ? (
+            <button type="button" className="fs-btn fs-btn-secondary" onClick={resetForm}>
+              İptal
+            </button>
+          ) : null}
+          <button type="submit" className="fs-btn fs-btn-primary" disabled={loading.submit}>
             {loading.submit ? "Kaydediliyor..." : editingId ? "Güncelle" : "Kaydet"}
           </button>
         </div>
       </form>
 
-      {/* Import and Export buttons */}
-      <div style={{ marginBottom: "1rem", display: "flex", gap: "1rem", alignItems: "center" }}>
+      <div className="fs-toolbar">
         <input
+          id={fileInputId}
           type="file"
           accept=".csv,.xlsx,.xls"
           onChange={handleImport}
           style={{ display: "none" }}
-          id="import-file"
+          disabled={loading.import}
         />
-        <label htmlFor="import-file">
-          <button style={{ padding: '0.75rem 2rem', backgroundColor: '#28a745', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '1rem', fontWeight: '600', transition: 'background-color 0.3s' }}>
-            İçe Aktar
-          </button>
+        <label htmlFor={fileInputId} className="fs-btn fs-btn-secondary">
+          {loading.import ? "İçe aktarılıyor..." : "İçe Aktar"}
         </label>
-        <ExportButtons
-          data={list.map((customer) => ({
-            "Müşteri Adı": customer.name,
-            "Telefon": customer.phone || "",
-            "E-posta": customer.email || "",
-          }))}
-          filename="Musteriler_Dokumu"
-        />
+        <div className="fs-export-wrap">
+          <ExportButtons data={exportRows} filename="Musteriler_Dokumu" />
+        </div>
       </div>
 
-      <h2 className="subtitle">Müşteri Listesi</h2>
+      <h2 className="fs-entity-subtitle">Müşteri Listesi</h2>
 
       {loading.list ? (
-        <div className="loading-text">Yükleniyor...</div>
+        <div className="fs-loading-text">Yükleniyor...</div>
       ) : (
-        <div className="list">
-          {list.map((c) => (
-            <div key={c.id} className="list-item">
-              <div className="customer-info">
-                <div className="customer-name">{c.name}</div>
-                <div className="customer-details">
-                  {c.phone || "-"} {c.email ? `• ${c.email}` : ""}
+        <div className="fs-entity-list">
+          {list.map((customer) => (
+            <div key={customer.id} className="fs-entity-item">
+              <div className="fs-entity-main">
+                <p className="fs-entity-name">{customer.name}</p>
+                <div className="fs-entity-meta">
+                  {customer.phone || "-"} {customer.email ? `• ${customer.email}` : ""}
                 </div>
               </div>
-              <div className="actions">
+              <div className="fs-entity-actions">
                 <button
-                  onClick={() => editCustomer(c)}
-                  className="edit-button"
-                  disabled={editingId === c.id.toString()}
+                  type="button"
+                  className="fs-btn fs-btn-warning"
+                  onClick={() => editCustomer(customer)}
+                  disabled={editingId === customer.id}
                 >
                   Düzenle
                 </button>
-                <button
-                  onClick={() => deleteCustomer(c.id)}
-                  className="delete-button"
-                >
+                <button type="button" className="fs-btn fs-btn-danger" onClick={() => deleteCustomer(customer.id)}>
                   Sil
                 </button>
               </div>
@@ -275,209 +306,6 @@ export default function CustomerListPage() {
           ))}
         </div>
       )}
-
-      <style jsx>{`
-        .container {
-          max-width: 800px;
-          margin: 2rem auto;
-          padding: 2rem;
-          background-color: #f8f9fa;
-          border-radius: 12px;
-          box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
-          font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-        }
-
-        .title {
-          text-align: center;
-          color: #2c3e50;
-          margin-bottom: 1.5rem;
-          font-size: 1.8rem;
-        }
-
-        .subtitle {
-          color: #2c3e50;
-          margin-top: 2rem;
-          margin-bottom: 1rem;
-          font-size: 1.3rem;
-          border-bottom: 2px solid #dee2e6;
-          padding-bottom: 0.5rem;
-        }
-
-        .form {
-          display: flex;
-          flex-direction: column;
-          gap: 1.2rem;
-        }
-
-        .input-group {
-          display: flex;
-          flex-direction: column;
-          gap: 0.5rem;
-        }
-
-        .label {
-          font-weight: 600;
-          color: #2c3e50;
-          font-size: 0.9rem;
-        }
-
-        .input {
-          padding: 0.75rem;
-          border: 1px solid #ddd;
-          border-radius: 6px;
-          font-size: 1rem;
-          outline: none;
-          transition: border-color 0.3s;
-        }
-
-        .input:focus {
-          border-color: #007bff;
-        }
-
-        .submit-button {
-          padding: 0.9rem 2rem;
-          background-color: #007bff;
-          color: white;
-          border: none;
-          border-radius: 6px;
-          cursor: pointer;
-          font-size: 1.1rem;
-          font-weight: 600;
-          transition: background-color 0.3s;
-        }
-
-        .submit-button:hover:not(.loading) {
-          background-color: #0056b3;
-        }
-
-        .submit-button.loading {
-          background-color: #6c757d;
-          cursor: not-allowed;
-        }
-
-        .cancel-button {
-          padding: 0.9rem 2rem;
-          background-color: #6c757d;
-          color: white;
-          border: none;
-          border-radius: 6px;
-          cursor: pointer;
-          font-size: 1.1rem;
-          font-weight: 600;
-          margin-right: 1rem;
-          transition: background-color 0.3s;
-        }
-
-        .cancel-button:hover {
-          background-color: #5a6268;
-        }
-
-        .submit-container {
-          display: flex;
-          justify-content: flex-end;
-          margin-top: 1rem;
-        }
-
-        .error-message {
-          background-color: #f8d7da;
-          color: #721c24;
-          padding: 0.75rem;
-          border-radius: 6px;
-          margin-bottom: 1.5rem;
-          border: 1px solid #f5c6cb;
-        }
-
-        .success-message {
-          background-color: #d4edda;
-          color: #155724;
-          padding: 0.75rem;
-          border-radius: 6px;
-          margin-bottom: 1.5rem;
-          border: 1px solid #c3e6cb;
-        }
-
-        .list {
-          display: flex;
-          flex-direction: column;
-          gap: 0.75rem;
-        }
-
-        .list-item {
-          background-color: white;
-          padding: 1rem;
-          border-radius: 6px;
-          border: 1px solid #dee2e6;
-          box-shadow: 0 2px 4px rgba(0,0,0,0.05);
-          display: flex;
-          justify-content: space-between;
-          align-items: center;
-        }
-
-        .customer-info {
-          flex: 1;
-        }
-
-        .customer-name {
-          font-weight: 600;
-          color: #2c3e50;
-          font-size: 1rem;
-          margin-bottom: 0.25rem;
-        }
-
-        .customer-details {
-          color: #6c757d;
-          font-size: 0.9rem;
-        }
-
-        .actions {
-          display: flex;
-          gap: 0.5rem;
-        }
-
-        .edit-button {
-          padding: 0.5rem 1rem;
-          background-color: #ffc107;
-          color: #212529;
-          border: none;
-          border-radius: 4px;
-          cursor: pointer;
-          font-size: 0.9rem;
-          font-weight: 600;
-          transition: background-color 0.3s;
-        }
-
-        .edit-button:hover:not(:disabled) {
-          background-color: #e0a800;
-        }
-
-        .edit-button:disabled {
-          background-color: #6c757d;
-          cursor: not-allowed;
-        }
-
-        .delete-button {
-          padding: 0.5rem 1rem;
-          background-color: #dc3545;
-          color: white;
-          border: none;
-          border-radius: 4px;
-          cursor: pointer;
-          font-size: 0.9rem;
-          font-weight: 600;
-          transition: background-color 0.3s;
-        }
-
-        .delete-button:hover {
-          background-color: #c82333;
-        }
-
-        .loading-text {
-          text-align: center;
-          padding: 2rem;
-          color: #6c757d;
-          font-style: italic;
-        }
-      `}</style>
     </div>
   );
 }

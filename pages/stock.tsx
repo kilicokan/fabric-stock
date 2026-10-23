@@ -81,7 +81,7 @@ export default function StockPage() {
                   </div>
                   <div style={styles.statInfo}>
                     <h3 style={styles.statTitle}>{item.fabricType}</h3>
-                    <p style={styles.statSubtitle}>{item.color}</p>
+                    <p style={styles.statSubtitle}>{item.color || "Belirtilmedi"}</p>
                     <p style={styles.statValue}>
                       {typeof item.remainingKg === "number" ? item.remainingKg.toFixed(2) : "0.00"} kg
                     </p>

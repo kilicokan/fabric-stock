@@ -1,6 +1,16 @@
 import type { NextApiRequest, NextApiResponse } from "next";
-import { PrismaClient } from "@prisma/client";
-const prisma = new PrismaClient();
+import prisma from "@/lib/prisma";
+
+const getErrorMessage = (error: unknown): string =>
+  error instanceof Error ? error.message : "Unknown error";
+
+const getErrorCode = (error: unknown): string | null => {
+  if (typeof error === "object" && error !== null && "code" in error) {
+    const code = (error as { code?: unknown }).code;
+    return typeof code === "string" ? code : null;
+  }
+  return null;
+};
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   try {
@@ -40,9 +50,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
     res.setHeader("Allow", ["GET", "POST", "PUT", "DELETE"]);
     return res.status(405).json({ error: `Method ${req.method} Not Allowed` });
-  } catch (err: any) {
+  } catch (err: unknown) {
     console.error("COLORS API ERROR:", err);
-    if (err?.code === "P2002") return res.status(409).json({ error: "Bu renk kodu veya adı zaten kayıtlı" });
-    return res.status(500).json({ error: "Internal Server Error", details: err?.message });
+    if (getErrorCode(err) === "P2002") return res.status(409).json({ error: "Bu renk kodu veya adı zaten kayıtlı" });
+    return res.status(500).json({ error: "Internal Server Error", details: getErrorMessage(err) });
   }
 }
+

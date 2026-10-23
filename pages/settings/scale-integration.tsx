@@ -1,20 +1,45 @@
-import { useState, useEffect } from "react";
+import { useEffect, useState } from "react";
 import axios from "axios";
+import {
+  buildScaleQueryParams,
+  readScaleSettings,
+  saveScaleSettings,
+  type ScaleReadResponse,
+  type ScaleSettings,
+} from "@/lib/scale";
 
-interface ScaleSettings {
-  port: string;
-  baudRate: number;
-}
+type ApiErrorLike = {
+  response?: {
+    data?: {
+      error?: string;
+      message?: string;
+    };
+  };
+  message?: string;
+};
 
+const getErrorMessage = (error: unknown, fallback: string): string => {
+  if (typeof error === "object" && error !== null) {
+    const candidate = error as ApiErrorLike;
+    const apiError = candidate.response?.data?.error || candidate.response?.data?.message;
+    if (typeof apiError === "string" && apiError.trim()) return apiError;
+    if (typeof candidate.message === "string" && candidate.message.trim()) return candidate.message;
+  }
+  return fallback;
+};
 export default function ScaleIntegrationPage() {
   const [settings, setSettings] = useState<ScaleSettings>({
-    port: "COM3",
+    port: "",
     baudRate: 19200,
   });
   const [currentWeight, setCurrentWeight] = useState<string>("0.00");
   const [loading, setLoading] = useState<boolean>(false);
   const [error, setError] = useState<string>("");
   const [success, setSuccess] = useState<string>("");
+
+  useEffect(() => {
+    setSettings(readScaleSettings());
+  }, []);
 
   // Test scale connection
   const handleTestScale = async () => {
@@ -23,16 +48,19 @@ export default function ScaleIntegrationPage() {
     setSuccess("");
 
     try {
-      const response = await axios.get("/api/scale", {
-        params: {
-          port: settings.port,
-          baudRate: settings.baudRate,
-        },
+      const response = await axios.get<ScaleReadResponse>("/api/scale", {
+        params: buildScaleQueryParams(settings),
       });
+      if (response.data.ok === false) {
+        const failure = response.data as { error?: string };
+        setError(failure.error || "Tarti baglantisi basarisiz");
+        return;
+      }
+
       setCurrentWeight(response.data.weight);
       setSuccess("Tartı bağlantısı başarılı! Mevcut ağırlık: " + response.data.weight + " kg");
-    } catch (err: any) {
-      setError(err.response?.data?.error || "Tartı bağlantısı başarısız");
+    } catch (err: unknown) {
+      setError(getErrorMessage(err, "Tarti baglantisi basarisiz"));
       console.error(err);
     } finally {
       setLoading(false);
@@ -41,6 +69,7 @@ export default function ScaleIntegrationPage() {
 
   // Save settings (for now, just local state - could be saved to database later)
   const handleSaveSettings = () => {
+    saveScaleSettings(settings);
     setSuccess("Ayarlar kaydedildi");
     setTimeout(() => setSuccess(""), 3000);
   };
@@ -63,6 +92,7 @@ export default function ScaleIntegrationPage() {
               onChange={(e) => setSettings(prev => ({ ...prev, port: e.target.value }))}
               style={styles.select}
             >
+              <option value="">Port seçiniz</option>
               <option value="COM1">COM1</option>
               <option value="COM2">COM2</option>
               <option value="COM3">COM3</option>
@@ -124,10 +154,10 @@ export default function ScaleIntegrationPage() {
         <h2 style={styles.subtitle}>Bilgi</h2>
         <ul style={styles.infoList}>
           <li>Tartı cihazınızın bağlı olduğu COM portunu seçin</li>
-          <li>Baud rate genellikle 9600'dür, ancak cihazınızın dokümantasyonunu kontrol edin</li>
-          <li>Tartı cihazı seri port üzerinden veri göndermelidir (örnek: "W: 0123.45 kg")</li>
+          <li>{"Baud rate genellikle 9600'dur, ancak cihazin dokumantasyonunu kontrol edin"}</li>
+          <li>{'Tarti cihazi seri port uzerinden veri gondermelidir (ornek: "W: 0123.45 kg")'}</li>
           <li>Test butonu ile bağlantıyı doğrulayabilirsiniz</li>
-          <li>Kumaş giriş formunda "Tartıdan Al" butonu bu ayarları kullanacaktır</li>
+          <li>{'Kumas giris formunda "Tartidan Al" butonu bu ayarlari kullanacaktir'}</li>
         </ul>
       </div>
     </div>

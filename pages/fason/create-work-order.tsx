@@ -1,7 +1,6 @@
 "use client";
 
-import { useState, useEffect, type ChangeEvent } from "react";
-import Link from "next/link";
+import { useState, useEffect, useCallback, type ChangeEvent } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -26,7 +25,6 @@ import {
   DialogContent,
   DialogHeader,
   DialogTitle,
-  DialogTrigger,
 } from "@/components/ui/dialog";
 import {
   Select,
@@ -35,8 +33,15 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Search, Factory, Plus, Save, X } from "lucide-react";
-import SewingInstruction from "@/components/sewing-instruction";
+import { Search, Factory, Plus, Save, Users, Boxes, ClipboardCheck, X, Trash2 } from "lucide-react";
+import SewingInstruction, { defaultSewingNotes, type SewingNotesData } from "@/components/sewing-instruction";
+import { readParameterSettings } from "@/lib/parameters";
+import styles from "./create-work-order.module.css";
+
+const getAuthHeader = (): HeadersInit => {
+  const token = localStorage.getItem("token") || localStorage.getItem("authToken");
+  return token ? { Authorization: `Bearer ${token}` } : {};
+};
 
 interface ModelInfo {
   id: number;
@@ -55,8 +60,10 @@ interface ModelInfo {
 interface Product {
   id: number;
   code: string;
+  modelNo?: string;
   name: string;
   description: string;
+  image?: string;
 }
 
 interface Workshop {
@@ -76,6 +83,29 @@ interface Workshop {
   updatedAt: string;
 }
 
+interface CuttingTable {
+  id: number;
+  name: string;
+  assignedUserId: number | null;
+  assignedUser: { id: number; name: string | null; email: string; role?: string } | null;
+}
+
+interface FasonTracking {
+  processType: string;
+  workshopId: number | null;
+  workshop: { id: number; name: string } | null;
+  cuttingTableId: number | null;
+  cuttingTable: { id: number; name: string } | null;
+  status: string;
+}
+
+interface Customer {
+  id: number;
+  name: string;
+  phone?: string | null;
+  email?: string | null;
+}
+
 interface WorkOrder {
   id: number;
   orderNo: string;
@@ -86,8 +116,8 @@ interface WorkOrder {
   status: string;
   deliveryDate?: string;
   priority: string;
-  assignedToMobile: boolean;
   createdAt: string;
+  fasonTrackings?: FasonTracking[];
 }
 
 export default function FasonCreateWorkOrder() {
@@ -97,11 +127,12 @@ export default function FasonCreateWorkOrder() {
   const [modelInfos, setModelInfos] = useState<ModelInfo[]>([]);
   const [workOrders, setWorkOrders] = useState<WorkOrder[]>([]);
   const [loading, setLoading] = useState(false);
+  const [groupingMode] = useState<"separate" | "combined">(() => readParameterSettings().fasonWorkOrderGroupingMode);
 
   const [formData, setFormData] = useState({
     orderNo: "",
     date: new Date().toISOString().split("T")[0],
-    customer: "",
+    customerNames: [] as string[],
     requestDate: new Date().toISOString().split("T")[0],
     plannedDate: new Date().toISOString().split("T")[0],
     loadingDate: "",
@@ -115,12 +146,19 @@ export default function FasonCreateWorkOrder() {
   const [colors, setColors] = useState<{ id: number; name: string }[]>([]);
   const [selectedModelIndex, setSelectedModelIndex] = useState<number | null>(null);
 
-  const [assignedToMobile, setAssignedToMobile] = useState<boolean | null>(null);
-  const [isWorkshopModalOpen, setIsWorkshopModalOpen] = useState(false);
+  const [isFasonCutting, setIsFasonCutting] = useState(false);
+  const [selectedWorkshopId, setSelectedWorkshopId] = useState("");
+  const [sewingNotes, setSewingNotes] = useState<SewingNotesData>(defaultSewingNotes());
   const [workshops, setWorkshops] = useState<Workshop[]>([]);
-  const [filteredWorkshops, setFilteredWorkshops] = useState<Workshop[]>([]);
-  const [workshopSearch, setWorkshopSearch] = useState("");
   const [selectedOrderId, setSelectedOrderId] = useState<number | null>(null);
+  const [cuttingTables, setCuttingTables] = useState<CuttingTable[]>([]);
+  const [isCuttingTableModalOpen, setIsCuttingTableModalOpen] = useState(false);
+  const [assigningCuttingTable, setAssigningCuttingTable] = useState(false);
+  const [customers, setCustomers] = useState<Customer[]>([]);
+  const [filteredCustomers, setFilteredCustomers] = useState<Customer[]>([]);
+  const [selectedCustomers, setSelectedCustomers] = useState<Customer[]>([]);
+  const [customerSearch, setCustomerSearch] = useState("");
+  const [isCustomerModalOpen, setIsCustomerModalOpen] = useState(false);
 
   const handleAddModelInfo = () => {
     const newModel: ModelInfo = {
@@ -139,6 +177,12 @@ export default function FasonCreateWorkOrder() {
     setModelInfos([...modelInfos, newModel]);
   };
 
+  const handleModelRemove = (index: number) => {
+    if (window.confirm("Bu satırı silmek istediğinizden emin misiniz?")) {
+      setModelInfos((prev) => prev.filter((_, i) => i !== index));
+    }
+  };
+
   const handleInputChange = (e: ChangeEvent<HTMLInputElement>) => {
     const { name, value } = e.target;
     setFormData((prev) => ({ ...prev, [name]: value }));
@@ -152,18 +196,46 @@ export default function FasonCreateWorkOrder() {
     setter(checked);
   };
 
-  const fetchWorkOrders = async () => {
+  const fetchWorkOrders = useCallback(async () => {
     try {
-      const token = localStorage.getItem("token");
-      const response = await fetch("/api/fason/work-orders", {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      const data = await response.json();
-      setWorkOrders(data.workOrders || []);
+      const pageSize = 100;
+      const allWorkOrders: WorkOrder[] = [];
+      let page = 1;
+      let total = Number.POSITIVE_INFINITY;
+
+      while (allWorkOrders.length < total) {
+        const response = await fetch(`/api/fason/work-orders?page=${page}&limit=${pageSize}`, {
+          headers: getAuthHeader(),
+        });
+        if (!response.ok) {
+          throw new Error(`Work orders request failed: ${response.status}`);
+        }
+        const payload = await response.json();
+        if (!Array.isArray(payload.data)) {
+          throw new Error("Work orders response did not contain a data array");
+        }
+        allWorkOrders.push(...payload.data);
+        total = Number(payload.pagination?.total ?? allWorkOrders.length);
+        page += 1;
+        if (payload.data.length < pageSize) break;
+      }
+
+      setWorkOrders(allWorkOrders);
     } catch (error) {
       console.error("Error fetching work orders:", error);
     }
-  };
+  }, []);
+
+  const fetchCuttingTables = useCallback(async () => {
+    try {
+      const response = await fetch("/api/cutting-tables", { headers: getAuthHeader() });
+      if (!response.ok) throw new Error(`Cutting tables request failed: ${response.status}`);
+      const payload = await response.json();
+      setCuttingTables(Array.isArray(payload.data) ? payload.data : []);
+    } catch (error) {
+      console.error("Error fetching cutting tables:", error);
+    }
+  }, []);
 
   const handleSubmit = async () => {
     if (!formData.orderNo.trim()) {
@@ -174,8 +246,29 @@ export default function FasonCreateWorkOrder() {
       alert("En az bir model bilgisi eklenmelidir!");
       return;
     }
+    if (isFasonCutting && !selectedWorkshopId) {
+      alert("Fason kesim için kesim atölyesi seçilmelidir.");
+      return;
+    }
 
     const invalidModels: string[] = [];
+    const modelCodes = modelInfos.map((m) => m.modelCode?.trim()).filter(Boolean);
+    const duplicateCodes = modelCodes.filter((code, index) => modelCodes.indexOf(code) !== index);
+    if (duplicateCodes.length > 0) {
+      // Check if duplicates have different colors - if so, it's allowed
+      const uniqueDuplicates = [...new Set(duplicateCodes)];
+      const hasColorConflict = uniqueDuplicates.some((code) => {
+        const modelsWithCode = modelInfos.filter((m) => m.modelCode?.trim() === code);
+        const colors = modelsWithCode.map((m) => m.color?.trim()).filter(Boolean);
+        const uniqueColors = [...new Set(colors)];
+        // If there are duplicates with the same color, it's a conflict
+        return uniqueColors.length < modelsWithCode.length;
+      });
+      if (hasColorConflict) {
+        invalidModels.push(`Aynı model kodu ve renk kombinasyonu tekrar edemez: ${uniqueDuplicates.join(", ")}`);
+      }
+    }
+
     modelInfos.forEach((model, index) => {
       if (!model.modelCode?.trim()) invalidModels.push(`Model ${index + 1}: Model kodu eksik`);
       if (!model.modelName?.trim()) invalidModels.push(`Model ${index + 1}: Model adı eksik`);
@@ -194,38 +287,91 @@ export default function FasonCreateWorkOrder() {
       const createdOrders = [];
       const failedOrders: string[] = [];
 
-      for (const model of modelInfos) {
+      if (groupingMode === "combined") {
+        // Combined mode: Create single work order with all models
+        const totalQuantity = modelInfos.reduce((sum, m) => sum + (m.totalQuantity || 0), 0);
+        const totalAmount = modelInfos.reduce((sum, m) => sum + (m.totalAmount || 0), 0);
+        const modelDescriptions = modelInfos
+          .map((m) => `${m.modelCode} - ${m.modelName} (${m.color || "Renk yok"}) x${m.totalQuantity}`)
+          .join("\n");
+
         const workOrderData = {
-          orderNo: `${formData.orderNo}-${model.modelCode}`,
-          productCode: model.modelCode,
-          productName: model.modelName,
-          quantity: model.totalQuantity,
-          customerName: formData.customer,
+          orderNo: formData.orderNo,
+          productCode: modelInfos.map((m) => m.modelCode).join(", "),
+          productName: modelInfos.map((m) => m.modelName).join(", "),
+          quantity: totalQuantity,
+          customerName: formData.customerNames.join(", "),
+          customerNames: formData.customerNames,
           deliveryDate: formData.plannedDate,
-          notes: model.description,
-          assignedToMobile: assignedToMobile ?? false,
+          notes: `Modeller:\n${modelDescriptions}\n\nToplam Tutar: ${totalAmount.toLocaleString("tr-TR", { minimumFractionDigits: 2 })}`,
+          fasonCutting: isFasonCutting,
+          workshopId: isFasonCutting ? Number(selectedWorkshopId) : null,
+          sewingNotes: JSON.stringify(sewingNotes),
         };
 
         try {
-          const token = localStorage.getItem("token");
           const response = await fetch("/api/fason/work-orders", {
             method: "POST",
             headers: {
               "Content-Type": "application/json",
-              Authorization: `Bearer ${token}`,
+              ...getAuthHeader(),
             },
             body: JSON.stringify(workOrderData),
           });
 
           if (response.ok) {
-            const createdOrder = await response.json();
-            createdOrders.push(createdOrder);
+            const apiResponse = await response.json();
+            createdOrders.push(apiResponse.data || apiResponse);
           } else {
             const errorData = await response.json();
-            failedOrders.push(`${model.modelCode}: ${errorData.error || "Bilinmeyen hata"}`);
+            failedOrders.push(`Tek iş emri: ${errorData.error || "Bilinmeyen hata"}`);
           }
-        } catch (fetchError) {
-          failedOrders.push(`${model.modelCode}: Bağlantı hatası`);
+        } catch {
+          failedOrders.push("Tek iş emri: Bağlantı hatası");
+        }
+      } else {
+        // Separate mode: Create separate work order for each model
+        for (const model of modelInfos) {
+          // Include color in orderNo if there are multiple models with same modelCode
+          const sameCodeModels = modelInfos.filter((m) => m.modelCode?.trim() === model.modelCode?.trim());
+          const orderNoSuffix = sameCodeModels.length > 1 && model.color?.trim()
+            ? `${model.modelCode}-${model.color}`
+            : model.modelCode;
+
+          const workOrderData = {
+            orderNo: `${formData.orderNo}-${orderNoSuffix}`,
+            productCode: model.modelCode,
+            productName: model.modelName,
+            quantity: model.totalQuantity,
+            customerName: formData.customerNames.join(", "),
+            customerNames: formData.customerNames,
+            deliveryDate: formData.plannedDate,
+            notes: model.description,
+            fasonCutting: isFasonCutting,
+            workshopId: isFasonCutting ? Number(selectedWorkshopId) : null,
+            sewingNotes: JSON.stringify(sewingNotes),
+          };
+
+          try {
+            const response = await fetch("/api/fason/work-orders", {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                ...getAuthHeader(),
+              },
+              body: JSON.stringify(workOrderData),
+            });
+
+            if (response.ok) {
+              const apiResponse = await response.json();
+              createdOrders.push(apiResponse.data || apiResponse);
+            } else {
+              const errorData = await response.json();
+              failedOrders.push(`${model.modelCode}: ${errorData.error || "Bilinmeyen hata"}`);
+            }
+          } catch {
+            failedOrders.push(`${model.modelCode}: Bağlantı hatası`);
+          }
         }
       }
 
@@ -236,47 +382,23 @@ export default function FasonCreateWorkOrder() {
         }
         alert(message);
 
-        // Send message to mobile user if assigned to mobile
-        if (assignedToMobile) {
-          try {
-            const token = localStorage.getItem("token");
-            const userResponse = await fetch("/api/users", {
-              headers: { Authorization: `Bearer ${token}` },
-            });
-            const users = await userResponse.json();
-            const mobileUser = users.find((u: any) => u.role === "FASON_TRACKER");
-            if (mobileUser) {
-              const messageContent = `Yeni iş emri atandı: ${createdOrders
-                .map((o) => o.orderNo)
-                .join(", ")}`;
-              await fetch("/api/messages", {
-                method: "POST",
-                headers: {
-                  "Content-Type": "application/json",
-                  Authorization: `Bearer ${token}`,
-                },
-                body: JSON.stringify({
-                  recipientId: mobileUser.id,
-                  content: messageContent,
-                }),
-              });
-            }
-          } catch (error) {
-            console.error("Error sending message:", error);
-          }
-        }
-
         // Reset form
         setFormData({
           orderNo: "",
           date: new Date().toISOString().split("T")[0],
-          customer: "",
+          customerNames: [],
           requestDate: new Date().toISOString().split("T")[0],
           plannedDate: new Date().toISOString().split("T")[0],
           loadingDate: "",
         });
+        setSelectedCustomers([]);
+        setCustomerSearch("");
+        setFilteredCustomers(customers);
         setModelInfos([]);
-        fetchWorkOrders();
+        setIsFasonCutting(false);
+        setSelectedWorkshopId("");
+        setSewingNotes(defaultSewingNotes());
+        await fetchWorkOrders();
       } else {
         alert(`İş emri oluşturulamadı!\n\nHatalar:\n${failedOrders.join("\n")}`);
       }
@@ -290,16 +412,42 @@ export default function FasonCreateWorkOrder() {
 
   const fetchProducts = async () => {
     try {
-      const response = await fetch("/api/products");
-      const data = await response.json();
-      setProducts(data);
-      setFilteredProducts(data);
+      const response = await fetch("/api/products", {
+        headers: getAuthHeader(),
+      });
+      if (!response.ok) {
+        throw new Error(`Products request failed: ${response.status}`);
+      }
+      const responseData = await response.json();
+      const data = responseData.data || responseData;
+      const normalizedProducts: Product[] = (Array.isArray(data) ? data : [])
+        .map((item) => {
+          const source = item as {
+            id?: unknown;
+            code?: unknown;
+            modelNo?: unknown;
+            name?: unknown;
+            description?: unknown;
+            image?: unknown;
+          };
+          return {
+            id: Number(source.id) || 0,
+            code: String(source.code || source.modelNo || "").trim(),
+            modelNo: String(source.modelNo || "").trim() || undefined,
+            name: String(source.name || "").trim(),
+            description: String(source.description || "").trim(),
+            image: typeof source.image === "string" ? source.image : undefined,
+          };
+        })
+        .filter((product) => product.id > 0 && (product.code || product.name));
+      setProducts(normalizedProducts);
+      setFilteredProducts(normalizedProducts);
     } catch (error) {
       console.error("Error fetching products:", error);
     }
   };
 
-  const fetchColors = async () => {
+  const fetchColors = useCallback(async () => {
     try {
       const response = await fetch("/api/colors");
       const data = await response.json();
@@ -307,27 +455,45 @@ export default function FasonCreateWorkOrder() {
     } catch (error) {
       console.error("Error fetching colors:", error);
     }
-  };
+  }, []);
 
-  const fetchWorkshops = async () => {
+  const fetchCustomers = useCallback(async () => {
     try {
-      const token = localStorage.getItem("token");
-      const response = await fetch("/api/fason/workshops", {
-        headers: { Authorization: `Bearer ${token}` },
+      const response = await fetch("/api/customers", {
+        headers: getAuthHeader(),
       });
+      if (!response.ok) {
+        throw new Error(`Customers request failed: ${response.status}`);
+      }
       const data = await response.json();
-      setWorkshops(data);
-      setFilteredWorkshops(data);
+      const customerList = Array.isArray(data) ? data : [];
+      setCustomers(customerList);
+      setFilteredCustomers(customerList);
+    } catch (error) {
+      console.error("Error fetching customers:", error);
+    }
+  }, []);
+
+  const fetchWorkshops = useCallback(async () => {
+    try {
+      const response = await fetch("/api/fason/workshops", {
+        headers: getAuthHeader(),
+      });
+      if (!response.ok) throw new Error(`Workshops request failed: ${response.status}`);
+      const { data } = await response.json();
+      setWorkshops(Array.isArray(data) ? data : []);
     } catch (error) {
       console.error("Error fetching workshops:", error);
     }
-  };
+  }, []);
 
   useEffect(() => {
     fetchWorkOrders();
+    fetchCuttingTables();
     fetchColors();
     fetchWorkshops();
-  }, []);
+    fetchCustomers();
+  }, [fetchWorkOrders, fetchCuttingTables, fetchColors, fetchWorkshops, fetchCustomers]);
 
   const handleProductSearch = (e: ChangeEvent<HTMLInputElement>) => {
     const searchTerm = e.target.value.toLowerCase();
@@ -349,8 +515,7 @@ export default function FasonCreateWorkOrder() {
   const handleProductSelect = (product: Product) => {
     if (selectedModelIndex === null) return;
 
-    const codeMatch = product.name.match(/^([A-Za-z]+-\d+)/);
-    const extractedCode = codeMatch ? codeMatch[1] : product.name;
+    const extractedCode = product.code || product.modelNo || product.name;
 
     const updatedModels = [...modelInfos];
     updatedModels[selectedModelIndex] = {
@@ -363,62 +528,153 @@ export default function FasonCreateWorkOrder() {
     setModelInfos(updatedModels);
     setIsProductModalOpen(false);
     setSelectedModelIndex(null);
+
+    setSewingNotes((prev) => ({
+      ...prev,
+      modelInfo: {
+        ...prev.modelInfo,
+        productCode: extractedCode,
+        productName: product.name,
+        productImage: product.image || prev.modelInfo.productImage,
+        modelNo: extractedCode,
+        modelName: product.name,
+      },
+    }))
   };
 
-  const handleWorkshopSearch = (e: ChangeEvent<HTMLInputElement>) => {
-    const searchTerm = e.target.value.toLowerCase();
-    setWorkshopSearch(searchTerm);
-    const filtered = workshops.filter(
-      (workshop) =>
-        workshop.name.toLowerCase().includes(searchTerm) ||
-        workshop.contactPerson.toLowerCase().includes(searchTerm)
+  const syncCustomerNames = (names: string[]) => {
+    setFormData((prev) => ({ ...prev, customerNames: names }));
+  };
+
+  const handleCustomerSearch = (e: ChangeEvent<HTMLInputElement>) => {
+    const searchTerm = e.target.value;
+    const normalizedSearch = searchTerm.trim().toLowerCase();
+    setCustomerSearch(searchTerm);
+
+    setFilteredCustomers(
+      customers.filter((customer) => {
+        const alreadySelected = selectedCustomers.some((selected) => selected.id === customer.id);
+        if (alreadySelected) return false;
+        if (!normalizedSearch) return true;
+
+        return (
+          customer.name.toLowerCase().includes(normalizedSearch) ||
+          customer.phone?.includes(searchTerm) ||
+          customer.email?.toLowerCase().includes(normalizedSearch)
+        );
+      })
     );
-    setFilteredWorkshops(filtered);
   };
 
-  const handleWorkshopSelect = (workshop: Workshop) => {
-    if (selectedOrderId) {
-      handleWorkshopAssign(selectedOrderId);
-      setSelectedOrderId(null);
-    } else {
-      setAssignedToMobile(true);
+  const openCustomerModal = () => {
+    setCustomerSearch("");
+    setFilteredCustomers(
+      customers.filter(
+        (customer) => !selectedCustomers.some((selected) => selected.id === customer.id)
+      )
+    );
+    setIsCustomerModalOpen(true);
+  };
+
+  const handleCustomerSelect = (customer: Customer) => {
+    if (selectedCustomers.some((selected) => selected.id === customer.id)) {
+      return;
     }
-    setIsWorkshopModalOpen(false);
+
+    const updatedCustomers = [...selectedCustomers, customer];
+    setSelectedCustomers(updatedCustomers);
+    syncCustomerNames(updatedCustomers.map((item) => item.name));
+    setCustomerSearch("");
+    setFilteredCustomers(
+      customers.filter((item) => !updatedCustomers.some((selected) => selected.id === item.id))
+    );
+    setIsCustomerModalOpen(false);
   };
 
-  const handleModalClose = () => {
+  const handleCustomerRemove = (customerName: string) => {
+    const updatedCustomers = selectedCustomers.filter((customer) => customer.name !== customerName);
+    setSelectedCustomers(updatedCustomers);
+    syncCustomerNames(updatedCustomers.map((item) => item.name));
+
+    const normalizedSearch = customerSearch.trim().toLowerCase();
+    setFilteredCustomers(
+      customers.filter((customer) => {
+        const alreadySelected = updatedCustomers.some((selected) => selected.id === customer.id);
+        if (alreadySelected) return false;
+        if (!normalizedSearch) return true;
+
+        return (
+          customer.name.toLowerCase().includes(normalizedSearch) ||
+          customer.phone?.includes(customerSearch) ||
+          customer.email?.toLowerCase().includes(normalizedSearch)
+        );
+      })
+    );
+  };
+
+  const handleCustomerAdd = () => {
+    const customName = customerSearch.trim();
+    if (!customName) return;
+
+    if (formData.customerNames.some((name) => name.toLowerCase() === customName.toLowerCase())) {
+      setCustomerSearch("");
+      return;
+    }
+
+    const customCustomer: Customer = {
+      id: Date.now(),
+      name: customName,
+      phone: null,
+      email: null,
+    };
+
+    const updatedCustomers = [...selectedCustomers, customCustomer];
+    setSelectedCustomers(updatedCustomers);
+    syncCustomerNames(updatedCustomers.map((item) => item.name));
+    setCustomerSearch("");
+    setFilteredCustomers(
+      customers.filter((item) => !updatedCustomers.some((selected) => selected.id === item.id))
+    );
+  };
+
+  const handleCuttingTableModalClose = () => {
     setSelectedOrderId(null);
-    setIsWorkshopModalOpen(false);
+    setIsCuttingTableModalOpen(false);
   };
 
   const handleCellClick = (order: WorkOrder) => {
-    if (!order.assignedToMobile) {
-      setSelectedOrderId(order.id);
-      setIsWorkshopModalOpen(true);
-    }
+    const cuttingTracking = order.fasonTrackings?.find((tracking) => tracking.processType === "KESIM");
+    if (cuttingTracking?.workshopId || cuttingTracking?.cuttingTableId) return;
+    setSelectedOrderId(order.id);
+    setIsCuttingTableModalOpen(true);
   };
 
-  const handleWorkshopAssign = async (orderId: number) => {
+  const handleCuttingTableAssign = async (cuttingTableId: number) => {
+    if (!selectedOrderId) return;
+
     try {
-      const token = localStorage.getItem("token");
-      const response = await fetch(`/api/fason/work-orders/${orderId}`, {
-        method: "PUT",
+      setAssigningCuttingTable(true);
+      const response = await fetch(`/api/fason/work-orders/${selectedOrderId}/cutting-assignment`, {
+        method: "PATCH",
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
+          ...getAuthHeader(),
         },
-        body: JSON.stringify({ assignedToMobile: true }),
+        body: JSON.stringify({ cuttingTableId }),
       });
 
-      if (response.ok) {
-        setWorkOrders((prev) =>
-          prev.map((order) =>
-            order.id === orderId ? { ...order, assignedToMobile: true } : order
-          )
-        );
+      if (!response.ok) {
+        const payload = await response.json();
+        throw new Error(payload.error || payload.message || "Kesim masası atanamadı.");
       }
+
+      await fetchWorkOrders();
+      handleCuttingTableModalClose();
     } catch (error) {
-      console.error("Error updating mobile assignment:", error);
+      console.error("Error assigning cutting table:", error);
+      alert(error instanceof Error ? error.message : "Kesim masası atanamadı.");
+    } finally {
+      setAssigningCuttingTable(false);
     }
   };
 
@@ -444,38 +700,149 @@ export default function FasonCreateWorkOrder() {
     setModelInfos(updatedModels);
   };
 
+  const totalModelQuantity = modelInfos.reduce((total, model) => {
+    const quantity = Number.isFinite(model.totalQuantity) ? model.totalQuantity : 0;
+    return total + quantity;
+  }, 0);
+
+  const totalModelAmount = modelInfos.reduce((total, model) => {
+    const amount = Number.isFinite(model.totalAmount) ? model.totalAmount : 0;
+    return total + amount;
+  }, 0);
+
+  const cuttingWorkshops = workshops.filter(
+    (workshop) => workshop.isActive && ["KESIM", "TUM"].includes(workshop.specialization)
+  );
+  const selectedOrder = workOrders.find((order) => order.id === selectedOrderId) || null;
+  const availableCuttingTables = cuttingTables.filter(
+    (table) => table.assignedUserId !== null && table.assignedUser !== null
+  );
+
   return (
-    <div className="container mx-auto p-6">
-      {/* Header */}
-      <div className="flex justify-between items-center mb-6">
-        <div>
-          <h1 className="text-2xl font-bold">İş Emri Oluştur</h1>
-          <p className="text-muted-foreground">Sipariş Girişi ve Üretim Planlama</p>
-        </div>
-        <div className="flex gap-3">
-          <Button variant="outline" onClick={() => window.history.back()}>
-            İptal
-          </Button>
-          <Button onClick={handleSubmit} disabled={loading}>
-            {loading ? "Kaydediliyor..." : "Kaydet"}
-          </Button>
-        </div>
-      </div>
+    <div className={`${styles.pageShell} min-h-screen`}>
+      <div className="w-full space-y-6 px-4 py-6 md:px-6 lg:px-8">
+        {/* Header */}
+        <Card className={`${styles.heroCard} overflow-hidden text-white`}>
+          <CardContent className={`${styles.heroContent} p-5 md:p-6`}>
+            <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+              <div className="space-y-2">
+                <div className="flex items-center gap-2">
+                  <div
+                    className={`${styles.heroPill} inline-flex items-center gap-2 rounded-full px-3 py-1 text-xs font-medium`}
+                  >
+                    <Factory className="h-3.5 w-3.5" />
+                    Dış Kaynak Üretim
+                  </div>
+                  <div className={`${styles.versionBadge} rounded-full px-3 py-1 text-xs font-semibold`}>
+                    Tasarım v2
+                  </div>
+                </div>
+                <h1 className={`${styles.heroTitle} text-2xl font-bold tracking-tight md:text-3xl`}>
+                  İş Emri Oluştur
+                </h1>
+                <p className={`${styles.heroSubtitle} text-sm md:text-base`}>
+                  Sipariş girişini tamamlayıp üretim planını tek ekranda yönetin.
+                </p>
+              </div>
+              <div className="flex flex-wrap items-center gap-3">
+                <Button
+                  variant="outline"
+                  className="border-white/30 bg-white/10 text-white hover:bg-white/20 hover:text-white"
+                  onClick={() => window.history.back()}
+                >
+                  İptal
+                </Button>
+                <Button
+                  onClick={handleSubmit}
+                  disabled={loading}
+                  className="bg-white text-slate-900 hover:bg-slate-200"
+                >
+                  <Save className="mr-2 h-4 w-4" />
+                  {loading ? "Kaydediliyor..." : "Kaydet"}
+                </Button>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
 
-      {/* Tab Navigation */}
-      <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
-        <TabsList>
-          <TabsTrigger value="genel">Genel</TabsTrigger>
-          <TabsTrigger value="detay">Detay</TabsTrigger>
-          <TabsTrigger value="aciklama">Genel Açıklama</TabsTrigger>
-          <TabsTrigger value="dikim">Dikim Talimatı</TabsTrigger>
-        </TabsList>
+        <div className={`${styles.statsGrid} grid grid-cols-1 gap-3 md:grid-cols-3`}>
+          <Card className={`${styles.statCard} border-slate-200/80 bg-white/90 shadow-sm`}>
+            <CardContent className="flex items-center justify-between p-4">
+              <div>
+                <p className="text-xs font-medium uppercase tracking-wide text-slate-500">Model Satırı</p>
+                <p className="mt-1 text-2xl font-semibold text-slate-900">{modelInfos.length}</p>
+              </div>
+              <div className="rounded-full bg-sky-100 p-2.5 text-sky-600">
+                <Boxes className="h-4 w-4" />
+              </div>
+            </CardContent>
+          </Card>
+          <Card className={`${styles.statCard} border-slate-200/80 bg-white/90 shadow-sm`}>
+            <CardContent className="flex items-center justify-between p-4">
+              <div>
+                <p className="text-xs font-medium uppercase tracking-wide text-slate-500">
+                  Toplam Miktar
+                </p>
+                <p className="mt-1 text-2xl font-semibold text-slate-900">
+                  {totalModelQuantity.toLocaleString("tr-TR")}
+                </p>
+              </div>
+              <div className="rounded-full bg-emerald-100 p-2.5 text-emerald-600">
+                <ClipboardCheck className="h-4 w-4" />
+              </div>
+            </CardContent>
+          </Card>
+          <Card className={`${styles.statCard} border-slate-200/80 bg-white/90 shadow-sm`}>
+            <CardContent className="flex items-center justify-between p-4">
+              <div>
+                <p className="text-xs font-medium uppercase tracking-wide text-slate-500">
+                  Seçili Müşteri
+                </p>
+                <p className="mt-1 text-2xl font-semibold text-slate-900">
+                  {formData.customerNames.length}
+                </p>
+              </div>
+              <div className="rounded-full bg-amber-100 p-2.5 text-amber-600">
+                <Users className="h-4 w-4" />
+              </div>
+            </CardContent>
+          </Card>
+        </div>
 
-        <TabsContent value="genel" className="space-y-6">
+        {/* Tab Navigation */}
+        <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
+          <TabsList className={`${styles.tabList} grid h-auto w-full grid-cols-2 gap-2 rounded-xl border border-slate-200 bg-white p-2 shadow-sm md:grid-cols-4`}>
+            <TabsTrigger
+              value="genel"
+              className={`${styles.tabTrigger} rounded-lg py-2 text-sm data-[state=active]:bg-slate-900 data-[state=active]:text-white`}
+            >
+              Genel
+            </TabsTrigger>
+            <TabsTrigger
+              value="detay"
+              className={`${styles.tabTrigger} rounded-lg py-2 text-sm data-[state=active]:bg-slate-900 data-[state=active]:text-white`}
+            >
+              Detay
+            </TabsTrigger>
+            <TabsTrigger
+              value="aciklama"
+              className={`${styles.tabTrigger} rounded-lg py-2 text-sm data-[state=active]:bg-slate-900 data-[state=active]:text-white`}
+            >
+              Genel Açıklama
+            </TabsTrigger>
+            <TabsTrigger
+              value="dikim"
+              className={`${styles.tabTrigger} rounded-lg py-2 text-sm data-[state=active]:bg-slate-900 data-[state=active]:text-white`}
+            >
+              Dikim Talimatı
+            </TabsTrigger>
+          </TabsList>
+
+          <TabsContent value="genel" className="space-y-6">
           {/* Order Header Section */}
-          <Card>
-            <CardContent className="pt-6 space-y-6">
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+            <Card className={`${styles.sectionCard} border-slate-200/80 bg-white/95 shadow-sm`}>
+              <CardContent className="space-y-6 p-5 md:p-6">
+                <div className="grid grid-cols-1 gap-5 md:grid-cols-2 lg:grid-cols-4">
                 <div>
                   <Label htmlFor="orderNo">İş Emri No</Label>
                   <Input
@@ -496,7 +863,7 @@ export default function FasonCreateWorkOrder() {
                   />
                 </div>
 
-                <div className="flex items-center gap-4">
+                <div className="flex items-center gap-3 rounded-lg border border-slate-200 bg-slate-50/80 px-3 py-2.5">
                   <div className="flex items-center space-x-2">
                     <Checkbox
                       id="sealed"
@@ -521,17 +888,85 @@ export default function FasonCreateWorkOrder() {
                 </div>
 
                 <div>
-                  <Label>Müşteri</Label>
-                  <Input
-                    name="customer"
-                    value={formData.customer}
-                    onChange={handleInputChange}
-                    placeholder="Müşteri adı / firma"
-                  />
+                  <Label>Müşteriler</Label>
+                  <div className="space-y-3">
+                    <div
+                      role="button"
+                      tabIndex={0}
+                      onClick={openCustomerModal}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" || e.key === " ") {
+                          e.preventDefault();
+                          openCustomerModal();
+                        }
+                      }}
+                      className="flex min-h-[48px] w-full flex-wrap gap-2 rounded-lg border border-slate-200 bg-white p-3 text-left transition-colors hover:bg-slate-50"
+                    >
+                      {formData.customerNames.length > 0 ? (
+                        formData.customerNames.map((customerName) => (
+                          <span
+                            key={customerName}
+                            className={`${styles.customerChip} inline-flex items-center gap-2 rounded-full px-3 py-1 text-sm ring-1`}
+                          >
+                            {customerName}
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleCustomerRemove(customerName);
+                              }}
+                              className="text-slate-500 transition-colors hover:text-slate-800"
+                            >
+                              <X className="h-3 w-3" />
+                            </button>
+                          </span>
+                        ))
+                      ) : (
+                        <span className="text-sm text-muted-foreground">
+                          Bir veya birden fazla müşteri seçin
+                        </span>
+                      )}
+                    </div>
+
+                    <div className="flex flex-col gap-2 sm:flex-row">
+                      <Input
+                        value={customerSearch}
+                        onChange={handleCustomerSearch}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") {
+                            e.preventDefault();
+                            handleCustomerAdd();
+                          }
+                        }}
+                        placeholder="Müşteri ara veya yeni isim yazın"
+                      />
+                      <Button type="button" variant="outline" onClick={openCustomerModal} className="sm:w-auto">
+                        Müşteri Listesinden Seç
+                      </Button>
+                    </div>
+
+                    {filteredCustomers.length > 0 && (
+                      <div className="max-h-40 overflow-y-auto rounded-lg border border-slate-200 bg-white">
+                        {filteredCustomers.slice(0, 8).map((customer) => (
+                          <button
+                            key={customer.id}
+                            type="button"
+                            onClick={() => handleCustomerSelect(customer)}
+                            className="flex w-full items-center justify-between border-b border-slate-100 px-3 py-2 text-left last:border-b-0 hover:bg-slate-50"
+                          >
+                            <span className="font-medium text-slate-800">{customer.name}</span>
+                            <span className="text-xs text-slate-500">
+                              {customer.phone || customer.email || "Kayıtlı müşteri"}
+                            </span>
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
                 </div>
               </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                <div className="grid grid-cols-1 gap-5 md:grid-cols-3">
                 <div>
                   <Label>İsteme Tarihi</Label>
                   <Input
@@ -548,48 +983,77 @@ export default function FasonCreateWorkOrder() {
                     onChange={(e) => handleDateChange(e, "plannedDate")}
                   />
                 </div>
-                <div className="flex items-center space-x-2">
-                  <Checkbox
-                    id="assignToMobile"
-                    checked={assignedToMobile || false}
-                    onChange={(e: ChangeEvent<HTMLInputElement>) =>
-                      setAssignedToMobile(e.target.checked)
-                    }
-                  />
-                  <Label htmlFor="assignToMobile">Mobil Takibe Ata</Label>
+                  <div className="space-y-3 rounded-lg border border-slate-200 bg-slate-50/80 px-3 py-2.5">
+                    <div className="flex items-center space-x-2">
+                      <Checkbox
+                        id="fasonCutting"
+                        checked={isFasonCutting}
+                        onChange={(e: ChangeEvent<HTMLInputElement>) => {
+                          setIsFasonCutting(e.target.checked);
+                          if (!e.target.checked) setSelectedWorkshopId("");
+                        }}
+                      />
+                      <Label htmlFor="fasonCutting">Fason Kesim</Label>
+                    </div>
+                    {isFasonCutting && (
+                      <div className="space-y-2">
+                        <Label htmlFor="cuttingWorkshop">Kesim Atölyesi</Label>
+                        <Select value={selectedWorkshopId} onValueChange={setSelectedWorkshopId}>
+                          <SelectTrigger id="cuttingWorkshop">
+                            <SelectValue placeholder="Kesim atölyesi seçin" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {cuttingWorkshops.map((workshop) => (
+                              <SelectItem key={workshop.id} value={String(workshop.id)}>
+                                {workshop.name}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        {cuttingWorkshops.length === 0 && (
+                          <p className="text-xs text-red-600">Aktif kesim atölyesi bulunamadı.</p>
+                        )}
+                      </div>
+                    )}
                 </div>
               </div>
-            </CardContent>
+              </CardContent>
           </Card>
 
           {/* Model Bilgileri */}
-          <Card>
-            <CardContent className="pt-6">
-              <div className="flex justify-between items-center mb-4">
-                <h2 className="text-lg font-semibold">Model Bilgileri</h2>
-                <Button onClick={handleAddModelInfo} variant="outline" size="sm">
+          <Card className={`${styles.sectionCard} border-slate-200/80 bg-white/95 shadow-sm`}>
+            <CardContent className="p-5 md:p-6">
+              <div className="mb-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                <div>
+                  <h2 className="text-lg font-semibold text-slate-900">Model Bilgileri</h2>
+                  <p className="text-sm text-slate-500">
+                    Toplam Tutar: {totalModelAmount.toLocaleString("tr-TR", { minimumFractionDigits: 2 })}
+                  </p>
+                </div>
+                <Button onClick={handleAddModelInfo} variant="outline" size="sm" className="w-full sm:w-auto">
                   <Plus className="mr-2 h-4 w-4" /> Yeni Satır
                 </Button>
               </div>
 
-              <div className="overflow-x-auto">
+              <div className={`${styles.tableWrap} overflow-x-auto rounded-lg border border-slate-200`}>
                 <Table>
                   <TableHeader>
-                    <TableRow>
-                      <TableHead>Model Kodu</TableHead>
-                      <TableHead>Model Adı</TableHead>
-                      <TableHead>Açıklama</TableHead>
-                      <TableHead>Renk</TableHead>
-                      <TableHead>Döviz</TableHead>
-                      <TableHead>Döviz Fiyat</TableHead>
-                      <TableHead>Fiyat</TableHead>
-                      <TableHead>Paket (Lot)</TableHead>
-                      <TableHead>Toplam Miktar</TableHead>
+                    <TableRow className="bg-slate-50">
+                      <TableHead className="font-semibold text-slate-700">Model Kodu</TableHead>
+                      <TableHead className="font-semibold text-slate-700">Model Adı</TableHead>
+                      <TableHead className="font-semibold text-slate-700">Açıklama</TableHead>
+                      <TableHead className="font-semibold text-slate-700">Renk</TableHead>
+                      <TableHead className="font-semibold text-slate-700">Döviz</TableHead>
+                      <TableHead className="font-semibold text-slate-700">Döviz Fiyat</TableHead>
+                      <TableHead className="font-semibold text-slate-700">Fiyat</TableHead>
+                      <TableHead className="font-semibold text-slate-700">Paket (Lot)</TableHead>
+                      <TableHead className="font-semibold text-slate-700">Toplam Miktar</TableHead>
+                      <TableHead className="font-semibold text-slate-700">İşlemler</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     {modelInfos.map((model, index) => (
-                      <TableRow key={model.id} className="hover:bg-muted/50">
+                      <TableRow key={`model-${index}-${model.modelCode}`} className="hover:bg-slate-50">
                         <TableCell
                           className="cursor-pointer"
                           onDoubleClick={() => handleModelDoubleClick(index)}
@@ -632,8 +1096,8 @@ export default function FasonCreateWorkOrder() {
                               <SelectValue placeholder="Seç" />
                             </SelectTrigger>
                             <SelectContent>
-                              {colors.map((color) => (
-                                <SelectItem key={color.id} value={color.name}>
+                              {colors.map((color, idx) => (
+                                <SelectItem key={`color-${index}-${idx}`} value={color.name}>
                                   {color.name}
                                 </SelectItem>
                               ))}
@@ -688,8 +1152,25 @@ export default function FasonCreateWorkOrder() {
                             className="border-none p-0 h-auto text-right font-semibold focus:ring-0"
                           />
                         </TableCell>
+                        <TableCell>
+                          <button
+                            type="button"
+                            onClick={() => handleModelRemove(index)}
+                            className="text-slate-400 hover:text-red-600 transition-colors"
+                            title="Satırı sil"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </button>
+                        </TableCell>
                       </TableRow>
                     ))}
+                    {modelInfos.length === 0 && (
+                      <TableRow>
+                        <TableCell colSpan={10} className="py-8 text-center text-sm text-slate-500">
+                          Henüz model satırı eklenmedi. Yeni Satır ile başlayabilirsiniz.
+                        </TableCell>
+                      </TableRow>
+                    )}
                   </TableBody>
                 </Table>
               </div>
@@ -697,77 +1178,98 @@ export default function FasonCreateWorkOrder() {
           </Card>
         </TabsContent>
 
-        <TabsContent value="detay">
-          <Card>
-            <CardContent className="pt-6">
+        <TabsContent value="detay" className="space-y-6">
+          <Card className={`${styles.sectionCard} border-slate-200/80 bg-white/95 shadow-sm`}>
+            <CardContent className="p-5 md:p-6">
               <p>Detay sekmesi içeriği buraya gelecek</p>
             </CardContent>
           </Card>
         </TabsContent>
 
-        <TabsContent value="aciklama">
-          <Card>
-            <CardContent className="pt-6">
+        <TabsContent value="aciklama" className="space-y-6">
+          <Card className={`${styles.sectionCard} border-slate-200/80 bg-white/95 shadow-sm`}>
+            <CardContent className="p-5 md:p-6">
               <p>Genel açıklama sekmesi içeriği buraya gelecek</p>
             </CardContent>
           </Card>
         </TabsContent>
 
-        <TabsContent value="dikim">
-          <Card>
-            <CardContent className="pt-6">
-              <SewingInstruction />
+        <TabsContent value="dikim" className="space-y-6">
+          <Card className={`${styles.sectionCard} border-slate-200/80 bg-white/95 shadow-sm`}>
+            <CardContent className="p-5 md:p-6">
+              <SewingInstruction
+              value={sewingNotes}
+              onChange={setSewingNotes}
+              currentUser="admin"
+              productImage={sewingNotes.modelInfo.productImage}
+              productCode={sewingNotes.modelInfo.productCode}
+              productName={sewingNotes.modelInfo.productName}
+            />
             </CardContent>
           </Card>
         </TabsContent>
       </Tabs>
 
-      {/* Work Orders List */}
-      <Card className="mt-8">
-        <CardContent className="pt-6">
-          <h2 className="text-lg font-semibold mb-4">
-            Oluşturulan İş Emirleri ({workOrders.length})
-          </h2>
+      {/* Work Orders List - Compact Card Grid */}
+        <Card className={`${styles.sectionCard} border-slate-200/80 bg-white/95 shadow-sm`}>
+          <CardContent className="p-5 md:p-6">
+            <div className="mb-4 flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+              <h2 className="text-lg font-semibold text-slate-900">
+                Oluşturulan İş Emirleri ({workOrders.length})
+              </h2>
+              <span className="text-sm text-slate-500">
+                Tüm iş emirleri kesim aşamasında başlar
+              </span>
+            </div>
 
-          <div className="overflow-x-auto">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>İş Emri No</TableHead>
-                  <TableHead>Ürün Kodu</TableHead>
-                  <TableHead>Ürün Adı</TableHead>
-                  <TableHead>Miktar</TableHead>
-                  <TableHead>Müşteri</TableHead>
-                  <TableHead>Durum</TableHead>
-                  <TableHead>Mobil Atanmış</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {workOrders.map((order) => (
-                  <TableRow key={order.id}>
-                    <TableCell>{order.orderNo}</TableCell>
-                    <TableCell>{order.productCode}</TableCell>
-                    <TableCell>{order.productName}</TableCell>
-                    <TableCell>{order.quantity}</TableCell>
-                    <TableCell>{order.customerName}</TableCell>
-                    <TableCell>{order.status.replace("_", " ")}</TableCell>
-                    <TableCell
-                      className="cursor-pointer"
-                      onClick={() => handleCellClick(order)}
-                    >
-                      {order.assignedToMobile ? (
-                        <span className="text-green-600">Mobile atanmış</span>
-                      ) : (
-                        <span className="text-amber-600">Mobile atanmamış</span>
-                      )}
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </div>
-        </CardContent>
-      </Card>
+            <div className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-3">
+              {workOrders.map((order) => {
+                const cuttingTracking = order.fasonTrackings?.find((tracking) => tracking.processType === "KESIM");
+                const isCuttingAssigned = Boolean(cuttingTracking?.workshopId || cuttingTracking?.cuttingTableId);
+
+                return (
+                  <div
+                    key={order.orderNo}
+                    className={`${styles.workOrderCard} ${isCuttingAssigned ? "" : "cursor-pointer"} rounded-xl border border-slate-200 p-4 transition-all hover:-translate-y-0.5 hover:shadow-md`}
+                    onClick={() => handleCellClick(order)}
+                  >
+                    <div className="mb-2 flex items-start justify-between gap-2">
+                      <div>
+                        <p className="text-sm font-semibold text-sky-700">{order.orderNo}</p>
+                        <p className="text-xs text-slate-600">{order.productCode}</p>
+                      </div>
+                      <span
+                        className={`whitespace-nowrap rounded-full px-2.5 py-1 text-xs font-medium ${
+                          isCuttingAssigned
+                            ? "bg-green-100 text-green-700"
+                            : "bg-amber-100 text-amber-700"
+                        }`}
+                      >
+                        {cuttingTracking?.workshop
+                          ? `Fason: ${cuttingTracking.workshop.name}`
+                          : cuttingTracking?.cuttingTable
+                            ? `Masa: ${cuttingTracking.cuttingTable.name}`
+                            : "Kesim masası seç"}
+                      </span>
+                    </div>
+                    <p className="mb-1 line-clamp-1 text-xs text-slate-700">{order.productName}</p>
+                    <div className="flex items-center justify-between text-xs">
+                      <span className="text-slate-600">Miktar: {order.quantity}</span>
+                      <span className="text-slate-500">{order.status.replace("_", " ")}</span>
+                    </div>
+                    <p className="mt-1 truncate text-xs text-slate-600">Müşteri: {order.customerName}</p>
+                  </div>
+                );
+              })}
+            </div>
+
+            {workOrders.length === 0 && (
+              <div className="rounded-lg border border-dashed border-slate-300 bg-slate-50/60 py-10 text-center text-sm text-slate-500">
+                Henüz iş emri oluşturulmamıştır
+              </div>
+            )}
+          </CardContent>
+        </Card>
 
       {/* Product Selection Modal */}
       <Dialog open={isProductModalOpen} onOpenChange={setIsProductModalOpen}>
@@ -796,7 +1298,7 @@ export default function FasonCreateWorkOrder() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {filteredProducts.map((product) => (
+                {(filteredProducts || []).map((product) => (
                   <TableRow
                     key={product.id}
                     className="cursor-pointer hover:bg-muted"
@@ -813,51 +1315,95 @@ export default function FasonCreateWorkOrder() {
         </DialogContent>
       </Dialog>
 
-      {/* Workshop Selection Modal */}
-      <Dialog open={isWorkshopModalOpen} onOpenChange={setIsWorkshopModalOpen}>
-        <DialogContent className="max-w-4xl">
+      <Dialog
+        open={isCuttingTableModalOpen}
+        onOpenChange={(open) => {
+          if (!open && !assigningCuttingTable) handleCuttingTableModalClose();
+        }}
+      >
+        <DialogContent className="max-w-2xl">
           <DialogHeader>
-            <DialogTitle>Fason Atölye Seçimi</DialogTitle>
+            <DialogTitle>Kesim Masası Seçimi</DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-slate-600">
+            {selectedOrder ? `${selectedOrder.orderNo} için kesim masasını seçin.` : "İş emri seçilmedi."}
+            {" "}Masa kullanıcısı otomatik olarak atanır.
+          </p>
+          <div className="max-h-96 space-y-2 overflow-y-auto">
+            {availableCuttingTables.map((table) => (
+              <button
+                key={table.id}
+                type="button"
+                disabled={assigningCuttingTable}
+                onClick={() => handleCuttingTableAssign(table.id)}
+                className="flex w-full items-center justify-between rounded-lg border border-slate-200 px-4 py-3 text-left hover:bg-slate-50 disabled:cursor-wait disabled:opacity-60"
+              >
+                <span className="font-medium text-slate-800">{table.name}</span>
+                <span className="text-sm text-slate-500">
+                  {table.assignedUser?.name || table.assignedUser?.email || "Atanmış kullanıcı"}
+                </span>
+              </button>
+            ))}
+            {availableCuttingTables.length === 0 && (
+              <p className="rounded-lg border border-dashed border-slate-300 p-4 text-sm text-slate-600">
+                Kesim masalarına kullanıcı atanmamış. Önce Kesim Masaları ayarlarından masaları fason takipçi kullanıcılarına bağlayın.
+              </p>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={isCustomerModalOpen} onOpenChange={setIsCustomerModalOpen}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Müşteri Listesi</DialogTitle>
           </DialogHeader>
 
           <div className="relative mb-4">
             <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
             <Input
-              placeholder="Atölye adı veya yetkili ile ara..."
+              placeholder="Müşteri adı ile ara..."
               className="pl-10"
-              value={workshopSearch}
-              onChange={handleWorkshopSearch}
+              value={customerSearch}
+              onChange={handleCustomerSearch}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && filteredCustomers.length === 0) {
+                  e.preventDefault();
+                  handleCustomerAdd();
+                }
+              }}
             />
           </div>
 
-          <div className="max-h-96 overflow-y-auto">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Ad</TableHead>
-                  <TableHead>Uzmanlık</TableHead>
-                  <TableHead>Yetkili</TableHead>
-                  <TableHead>Telefon</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {filteredWorkshops.map((workshop) => (
-                  <TableRow
-                    key={workshop.id}
-                    className="cursor-pointer hover:bg-muted"
-                    onClick={() => handleWorkshopSelect(workshop)}
-                  >
-                    <TableCell>{workshop.name}</TableCell>
-                    <TableCell>{workshop.specialization}</TableCell>
-                    <TableCell>{workshop.contactPerson}</TableCell>
-                    <TableCell>{workshop.phone}</TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
+          <div className="max-h-96 overflow-y-auto rounded-md border">
+            {filteredCustomers.length > 0 ? (
+              filteredCustomers.map((customer) => (
+                <button
+                  key={customer.id}
+                  type="button"
+                  onClick={() => handleCustomerSelect(customer)}
+                  className="flex w-full items-center justify-between border-b px-3 py-3 text-left last:border-b-0 hover:bg-slate-50"
+                >
+                  <span className="font-medium text-slate-800">{customer.name}</span>
+                  <span className="text-xs text-slate-500">
+                    {customer.phone || customer.email || "Kayıtlı müşteri"}
+                  </span>
+                </button>
+              ))
+            ) : (
+              <div className="space-y-3 p-4 text-center">
+                <p className="text-sm text-muted-foreground">
+                  Aramaya uygun müşteri bulunamadı.
+                </p>
+                <Button type="button" variant="outline" onClick={handleCustomerAdd}>
+                  Yazılı Müşteriyi Ekle
+                </Button>
+              </div>
+            )}
           </div>
         </DialogContent>
       </Dialog>
+      </div>
     </div>
   );
 }

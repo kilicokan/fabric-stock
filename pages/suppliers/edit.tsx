@@ -1,176 +1,247 @@
-import { useState, useEffect } from "react";
+﻿import { useCallback, useEffect, useState } from "react";
 import axios from "axios";
-import { useRouter } from "next/router";
+
+type Supplier = {
+  id: number;
+  name: string;
+  phone?: string | null;
+  email?: string | null;
+};
+
+type SupplierForm = {
+  name: string;
+  phone: string;
+  email: string;
+};
+
+const getErrorMessage = (error: unknown, fallback: string): string => {
+  if (axios.isAxiosError(error)) {
+    return error.response?.data?.message || fallback;
+  }
+  if (error instanceof Error) {
+    return error.message;
+  }
+  return fallback;
+};
 
 export default function SupplierEditPage() {
-  const router = useRouter();
-  const [form, setForm] = useState({ id: "", name: "", phone: "", email: "" });
-  const [list, setList] = useState<any[]>([]);
+  const [form, setForm] = useState<SupplierForm>({ name: "", phone: "", email: "" });
+  const [list, setList] = useState<Supplier[]>([]);
   const [loading, setLoading] = useState({ submit: false, list: false });
-  const [error, setError] = useState<string>("");
-  const [success, setSuccess] = useState<string>("");
-  const [editingId, setEditingId] = useState<string | null>(null);
+  const [error, setError] = useState("");
+  const [success, setSuccess] = useState("");
+  const [editingId, setEditingId] = useState<number | null>(null);
+  const [viewMode, setViewMode] = useState<"list" | "card">("list");
 
-  const load = async () => {
+  const load = useCallback(async () => {
     try {
-      setLoading((s) => ({ ...s, list: true }));
-      const { data } = await axios.get("/api/suppliers");
+      setLoading((current) => ({ ...current, list: true }));
+      const { data } = await axios.get<Supplier[]>("/api/suppliers");
       setList(data);
-    } catch (e) {
-      setError("Tedarikçi listesi yüklenemedi");
+    } catch {
+      setError("Tedarikci listesi yuklenemedi.");
     } finally {
-      setLoading((s) => ({ ...s, list: false }));
+      setLoading((current) => ({ ...current, list: false }));
     }
-  };
-
-  useEffect(() => {
-    load();
   }, []);
 
-  const submit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  const onFieldChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const { name, value } = event.target;
+    setForm((current) => ({ ...current, [name]: value }));
+  };
+
+  const resetForm = () => {
+    setForm({ name: "", phone: "", email: "" });
+    setEditingId(null);
+  };
+
+  const submit = async (event: React.FormEvent) => {
+    event.preventDefault();
+    setError("");
+    setSuccess("");
+
     try {
-      setError("");
-      setSuccess("");
-      setLoading((s) => ({ ...s, submit: true }));
+      setLoading((current) => ({ ...current, submit: true }));
 
       if (editingId) {
-        // Güncelleme
-        await axios.put("/api/suppliers", { ...form, id: editingId });
-        setSuccess("Tedarikçi başarıyla güncellendi!");
+        await axios.put("/api/suppliers", { id: editingId, ...form });
+        setSuccess("Tedarikci basariyla guncellendi.");
       } else {
-        // Yeni ekleme
         await axios.post("/api/suppliers", form);
-        setSuccess("Tedarikçi başarıyla eklendi!");
+        setSuccess("Tedarikci basariyla eklendi.");
       }
 
-      setForm({ id: "", name: "", phone: "", email: "" });
-      setEditingId(null);
-      load();
-    } catch (e: any) {
-      setError(e?.response?.data?.error || "İşlem başarısız");
+      resetForm();
+      await load();
+    } catch (requestError: unknown) {
+      setError(getErrorMessage(requestError, "Islem basarisiz."));
     } finally {
-      setLoading((s) => ({ ...s, submit: false }));
+      setLoading((current) => ({ ...current, submit: false }));
     }
   };
 
-  const editSupplier = (supplier: any) => {
+  const editSupplier = (supplier: Supplier) => {
     setForm({
-      id: supplier.id.toString(),
       name: supplier.name,
       phone: supplier.phone || "",
       email: supplier.email || "",
     });
-    setEditingId(supplier.id.toString());
+    setEditingId(supplier.id);
   };
 
   const deleteSupplier = async (id: number) => {
-    if (!confirm("Bu tedarikçiyi silmek istediğinizden emin misiniz?")) return;
+    if (!confirm("Bu tedarikciyi silmek istediginizden emin misiniz?")) {
+      return;
+    }
+
+    setError("");
+    setSuccess("");
 
     try {
       await axios.delete("/api/suppliers", { data: { id } });
-      setSuccess("Tedarikçi başarıyla silindi!");
-      load();
-    } catch (e: any) {
-      setError(e?.response?.data?.error || "Silme işlemi başarısız");
+      setSuccess("Tedarikci basariyla silindi.");
+      await load();
+    } catch (requestError: unknown) {
+      setError(getErrorMessage(requestError, "Silme islemi basarisiz."));
     }
   };
 
-  const cancelEdit = () => {
-    setForm({ id: "", name: "", phone: "", email: "" });
-    setEditingId(null);
-  };
-
-  const onChange = (e: React.ChangeEvent<HTMLInputElement>) =>
-    setForm((f) => ({ ...f, [e.target.name]: e.target.value }));
-
   return (
-    <div className="container">
-      <h1 className="title">🏭 Tedarikçi Yönetimi</h1>
+    <div className="fs-entity-shell">
+      <h1 className="fs-entity-title">Tedarikci Yonetimi</h1>
 
-      {error && <div className="error-message">{error}</div>}
-      {success && <div className="success-message">{success}</div>}
+      {error ? <div className="fs-message fs-message-error">{error}</div> : null}
+      {success ? <div className="fs-message fs-message-success">{success}</div> : null}
 
-      <form onSubmit={submit} className="form">
-        <div className="input-group">
-          <label className="label">Tedarikçi Adı *</label>
+      <form onSubmit={submit} className="fs-entity-form">
+        <div className="fs-field-group">
+          <label className="fs-field-label">Tedarikci Adi *</label>
           <input
+            className="fs-field-input"
             name="name"
             value={form.name}
-            onChange={onChange}
-            placeholder="Tedarikçi adı"
-            className="input"
+            onChange={onFieldChange}
+            placeholder="Tedarikci adi"
             required
           />
         </div>
 
-        <div className="input-group">
-          <label className="label">Telefon</label>
+        <div className="fs-field-group">
+          <label className="fs-field-label">Telefon</label>
           <input
+            className="fs-field-input"
             name="phone"
             value={form.phone}
-            onChange={onChange}
-            placeholder="Telefon numarası"
-            className="input"
+            onChange={onFieldChange}
+            placeholder="Telefon numarasi"
           />
         </div>
 
-        <div className="input-group">
-          <label className="label">E-posta</label>
+        <div className="fs-field-group">
+          <label className="fs-field-label">E-posta</label>
           <input
+            className="fs-field-input"
             name="email"
-            value={form.email}
-            onChange={onChange}
-            placeholder="E-posta adresi"
-            className="input"
             type="email"
+            value={form.email}
+            onChange={onFieldChange}
+            placeholder="E-posta adresi"
           />
         </div>
 
-        <div className="submit-container">
-          <button
-            type="button"
-            onClick={cancelEdit}
-            className="cancel-button"
-            style={{ display: editingId ? "inline-block" : "none" }}
-          >
-            İptal
-          </button>
-          <button
-            disabled={loading.submit}
-            className={loading.submit ? "submit-button loading" : "submit-button"}
-          >
-            {loading.submit ? "Kaydediliyor..." : editingId ? "Güncelle" : "Kaydet"}
+        <div className="fs-form-actions">
+          {editingId ? (
+            <button type="button" className="fs-btn fs-btn-secondary" onClick={resetForm}>
+              Iptal
+            </button>
+          ) : null}
+          <button type="submit" className="fs-btn fs-btn-primary" disabled={loading.submit}>
+            {loading.submit ? "Kaydediliyor..." : editingId ? "Guncelle" : "Kaydet"}
           </button>
         </div>
       </form>
 
-      <h2 className="subtitle">Tedarikçi Listesi</h2>
+      <h2 className="fs-entity-subtitle">Tedarikci Listesi</h2>
+
+      <div className="fs-view-toggle">
+        <button
+          type="button"
+          className={`fs-btn ${viewMode === "list" ? "fs-btn-primary" : "fs-btn-secondary"}`}
+          onClick={() => setViewMode("list")}
+        >
+          Liste Gorunumu
+        </button>
+        <button
+          type="button"
+          className={`fs-btn ${viewMode === "card" ? "fs-btn-primary" : "fs-btn-secondary"}`}
+          onClick={() => setViewMode("card")}
+        >
+          Kart Gorunumu
+        </button>
+      </div>
 
       {loading.list ? (
-        <div className="loading-text">Yükleniyor...</div>
-      ) : (
-        <div className="list">
-          {list.map((s) => (
-            <div key={s.id} className="list-item">
-              <div className="supplier-info">
-                <div className="supplier-name">{s.name}</div>
-                <div className="supplier-details">
-                  {s.phone || "-"} {s.email ? `• ${s.email}` : ""}
+        <div className="fs-loading-text">Yukleniyor...</div>
+      ) : list.length === 0 ? (
+        <div className="fs-loading-text">Henuz tedarikci kaydi yok.</div>
+      ) : viewMode === "list" ? (
+        <div className="fs-entity-list">
+          {list.map((supplier) => (
+            <div key={supplier.id} className="fs-entity-item">
+              <div className="fs-entity-main">
+                <p className="fs-entity-name">{supplier.name}</p>
+                <div className="fs-entity-meta">
+                  {supplier.phone || "-"} {supplier.email ? `- ${supplier.email}` : ""}
                 </div>
               </div>
-              <div className="actions">
+              <div className="fs-entity-actions">
                 <button
-                  onClick={() => editSupplier(s)}
-                  className="edit-button"
-                  disabled={editingId === s.id.toString()}
+                  type="button"
+                  className="fs-btn fs-btn-warning"
+                  onClick={() => editSupplier(supplier)}
+                  disabled={editingId === supplier.id}
                 >
-                  Düzenle
+                  Duzenle
                 </button>
+                <button type="button" className="fs-btn fs-btn-danger" onClick={() => deleteSupplier(supplier.id)}>
+                  Sil
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <div className="fs-supplier-card-grid">
+          {list.map((supplier) => (
+            <div key={supplier.id} className="fs-supplier-card">
+              <div className="fs-supplier-card-main">
+                <p className="fs-entity-name">{supplier.name}</p>
+                <div className="fs-supplier-card-meta">
+                  <div className="fs-supplier-card-meta-row">
+                    <span>Telefon</span>
+                    <strong>{supplier.phone || "-"}</strong>
+                  </div>
+                  <div className="fs-supplier-card-meta-row">
+                    <span>E-posta</span>
+                    <strong>{supplier.email || "-"}</strong>
+                  </div>
+                </div>
+              </div>
+
+              <div className="fs-supplier-card-actions">
                 <button
-                  onClick={() => deleteSupplier(s.id)}
-                  className="delete-button"
+                  type="button"
+                  className="fs-btn fs-btn-warning"
+                  onClick={() => editSupplier(supplier)}
+                  disabled={editingId === supplier.id}
                 >
+                  Duzenle
+                </button>
+                <button type="button" className="fs-btn fs-btn-danger" onClick={() => deleteSupplier(supplier.id)}>
                   Sil
                 </button>
               </div>
@@ -178,209 +249,6 @@ export default function SupplierEditPage() {
           ))}
         </div>
       )}
-
-      <style jsx>{`
-        .container {
-          max-width: 800px;
-          margin: 2rem auto;
-          padding: 2rem;
-          background-color: #f8f9fa;
-          border-radius: 12px;
-          box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
-          font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-        }
-
-        .title {
-          text-align: center;
-          color: #2c3e50;
-          margin-bottom: 1.5rem;
-          font-size: 1.8rem;
-        }
-
-        .subtitle {
-          color: #2c3e50;
-          margin-top: 2rem;
-          margin-bottom: 1rem;
-          font-size: 1.3rem;
-          border-bottom: 2px solid #dee2e6;
-          padding-bottom: 0.5rem;
-        }
-
-        .form {
-          display: flex;
-          flex-direction: column;
-          gap: 1.2rem;
-        }
-
-        .input-group {
-          display: flex;
-          flex-direction: column;
-          gap: 0.5rem;
-        }
-
-        .label {
-          font-weight: 600;
-          color: #2c3e50;
-          font-size: 0.9rem;
-        }
-
-        .input {
-          padding: 0.75rem;
-          border: 1px solid #ddd;
-          border-radius: 6px;
-          font-size: 1rem;
-          outline: none;
-          transition: border-color 0.3s;
-        }
-
-        .input:focus {
-          border-color: #007bff;
-        }
-
-        .submit-button {
-          padding: 0.9rem 2rem;
-          background-color: #007bff;
-          color: white;
-          border: none;
-          border-radius: 6px;
-          cursor: pointer;
-          font-size: 1.1rem;
-          font-weight: 600;
-          transition: background-color 0.3s;
-        }
-
-        .submit-button:hover:not(.loading) {
-          background-color: #0056b3;
-        }
-
-        .submit-button.loading {
-          background-color: #6c757d;
-          cursor: not-allowed;
-        }
-
-        .cancel-button {
-          padding: 0.9rem 2rem;
-          background-color: #6c757d;
-          color: white;
-          border: none;
-          border-radius: 6px;
-          cursor: pointer;
-          font-size: 1.1rem;
-          font-weight: 600;
-          margin-right: 1rem;
-          transition: background-color 0.3s;
-        }
-
-        .cancel-button:hover {
-          background-color: #5a6268;
-        }
-
-        .submit-container {
-          display: flex;
-          justify-content: flex-end;
-          margin-top: 1rem;
-        }
-
-        .error-message {
-          background-color: #f8d7da;
-          color: #721c24;
-          padding: 0.75rem;
-          border-radius: 6px;
-          margin-bottom: 1.5rem;
-          border: 1px solid #f5c6cb;
-        }
-
-        .success-message {
-          background-color: #d4edda;
-          color: #155724;
-          padding: 0.75rem;
-          border-radius: 6px;
-          margin-bottom: 1.5rem;
-          border: 1px solid #c3e6cb;
-        }
-
-        .list {
-          display: flex;
-          flex-direction: column;
-          gap: 0.75rem;
-        }
-
-        .list-item {
-          background-color: white;
-          padding: 1rem;
-          border-radius: 6px;
-          border: 1px solid #dee2e6;
-          box-shadow: 0 2px 4px rgba(0,0,0,0.05);
-          display: flex;
-          justify-content: space-between;
-          align-items: center;
-        }
-
-        .supplier-info {
-          flex: 1;
-        }
-
-        .supplier-name {
-          font-weight: 600;
-          color: #2c3e50;
-          font-size: 1rem;
-          margin-bottom: 0.25rem;
-        }
-
-        .supplier-details {
-          color: #6c757d;
-          font-size: 0.9rem;
-        }
-
-        .actions {
-          display: flex;
-          gap: 0.5rem;
-        }
-
-        .edit-button {
-          padding: 0.5rem 1rem;
-          background-color: #ffc107;
-          color: #212529;
-          border: none;
-          border-radius: 4px;
-          cursor: pointer;
-          font-size: 0.9rem;
-          font-weight: 600;
-          transition: background-color 0.3s;
-        }
-
-        .edit-button:hover:not(:disabled) {
-          background-color: #e0a800;
-        }
-
-        .edit-button:disabled {
-          background-color: #6c757d;
-          cursor: not-allowed;
-        }
-
-        .delete-button {
-          padding: 0.5rem 1rem;
-          background-color: #dc3545;
-          color: white;
-          border: none;
-          border-radius: 4px;
-          cursor: pointer;
-          font-size: 0.9rem;
-          font-weight: 600;
-          transition: background-color 0.3s;
-        }
-
-        .delete-button:hover {
-          background-color: #c82333;
-        }
-
-        .loading-text {
-          text-align: center;
-          padding: 2rem;
-          color: #6c757d;
-          font-style: italic;
-        }
-      `}</style>
     </div>
   );
 }

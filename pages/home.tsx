@@ -1,73 +1,52 @@
-"use client";
+'use client'
 
-import HomePage from '../components/HomePage';
-import { useEffect, useState } from 'react';
-import { useRouter } from 'next/navigation';
-import axios from 'axios';
-
-type User = {
-  id: number;
-  email: string;
-  name?: string;
-  role: string;
-  stockAccess: boolean;
-  fasonAccess: boolean;
-};
+import { useEffect } from 'react'
+import { useRouter } from 'next/router'
+import HomePage from '../components/HomePage'
+import { useAuth } from '../components/AuthContext'
+import { Skeleton } from '@/components/ui/skeleton'
+import { Alert } from '@/components/ui/alert'
+import { Button } from '@/components/ui/button'
 
 export default function Home() {
-  const [user, setUser] = useState<User | null>(null);
-  const [loading, setLoading] = useState(true);
-  const router = useRouter();
+  const router = useRouter()
+  const { user, loading, authenticated, error } = useAuth()
 
   useEffect(() => {
-    if (typeof window !== 'undefined') {
-      const token = localStorage.getItem('token');
-      if (!token) {
-        router.replace('/login');
-        return;
-      }
-      fetchUserInfo(token);
+    if (!loading && !authenticated) {
+      router.replace('/login')
     }
-  }, [router]);
-
-  const fetchUserInfo = async (token: string) => {
-    try {
-      const response = await axios.get('/api/auth/me', {
-        headers: { Authorization: `Bearer ${token}` }
-      });
-      setUser(response.data.user);
-    } catch (error) {
-      console.error('User info alınamadı:', error);
-      localStorage.removeItem('token');
-      router.replace('/login');
-    } finally {
-      setLoading(false);
-    }
-  };
+  }, [authenticated, loading, router])
 
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="animate-spin rounded-full h-32 w-32 border-b-2 border-blue-500"></div>
-      </div>
-    );
-  }
-
-  if (!user) {
-    return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="text-center">
-          <p className="text-gray-500">Kullanıcı bilgileri yüklenemedi</p>
-          <button 
-            onClick={() => router.replace('/login')}
-            className="mt-4 bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700"
-          >
-            Tekrar Giriş Yap
-          </button>
+      <div className="min-h-screen flex items-center justify-center bg-secondary-50 dark:bg-secondary-900">
+        <div className="w-full max-w-md px-4">
+          <Skeleton count={3} />
         </div>
       </div>
-    );
+    )
   }
 
-  return <HomePage user={user} />;
+  if (!authenticated || !user) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-secondary-50 dark:bg-secondary-900 p-4">
+        <div className="w-full max-w-md">
+          <Alert variant="warning" title="Oturum Gerekli">
+            {error || 'Oturumunuz gecersiz veya suresi dolmus. Lutfen tekrar giris yapiniz.'}
+          </Alert>
+          <Button
+            onClick={() => router.replace('/login')}
+            variant="default"
+            size="lg"
+            className="w-full mt-4"
+          >
+            Giris Sayfasina Git
+          </Button>
+        </div>
+      </div>
+    )
+  }
+
+  return <HomePage user={user} />
 }

@@ -17,6 +17,13 @@ interface CuttingOrder {
   productWeightKg: number;
   productLengthMeter: number;
   unitType: 'kg' | 'm';
+  grammage?: number;
+  fabricEntry?: {
+    fabric?: {
+      name?: string;
+      averageGrammage?: number | null;
+    };
+  };
 }
 
 interface CustomerLayerData {
@@ -105,7 +112,8 @@ export default function CuttingOrders() {
     if (!selectedOrder) return;
 
     const { jsPDF } = await import('jspdf');
-    const autoTable = (await import('jspdf-autotable')).default as (doc: any, options: any) => void;
+    type AutoTableFn = (doc: InstanceType<typeof jsPDF>, options: Record<string, unknown>) => void;
+    const autoTable = (await import('jspdf-autotable')).default as AutoTableFn;
     const doc = new jsPDF();
 
     doc.setFontSize(18);
@@ -179,7 +187,7 @@ export default function CuttingOrders() {
               fontSize: '14px'
             }}
           >
-            📄 PDF'e Aktar
+            📄 PDF&apos;e Aktar
           </button>
         )}
       </div>
@@ -249,6 +257,8 @@ export default function CuttingOrders() {
                   <div><strong>Kesim Masası:</strong> {selectedOrder.cuttingTable.name}</div>
                   <div><strong>Tarih:</strong> {new Date(selectedOrder.createdAt).toLocaleDateString('tr-TR')}</div>
                   <div><strong>Üretim Miktarı:</strong> {selectedOrder.unitType === 'kg' ? selectedOrder.productWeightKg : selectedOrder.productLengthMeter} {selectedOrder.unitType}</div>
+                  <div><strong>Ürün Ortalama Gramajı:</strong> {selectedOrder.grammage ?? 0}</div>
+                  <div><strong>Kumaş Ortalama Gramajı:</strong> {selectedOrder.fabricEntry?.fabric?.averageGrammage ?? 0}</div>
                 </div>
               </div>
 

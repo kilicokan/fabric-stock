@@ -1,7 +1,6 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
-import { PrismaClient } from '@prisma/client';
+import prisma from "@/lib/prisma";
 
-const prisma = new PrismaClient();
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   try {
@@ -20,10 +19,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       return res.status(201).json(newTaxRate);
     }
     return res.status(405).json({ message: 'Yalnızca GET ve POST metodları destekleniyor.' });
-  } catch (err: any) {
+  } catch (err: unknown) {
     console.error('API Error:', err);
-    return res.status(500).json({ message: 'Sunucu hatası', error: err.message });
-  } finally {
-    await prisma.$disconnect();
+    return res.status(500).json({ message: 'Sunucu hatası', error: err instanceof Error ? err.message : 'Bilinmeyen hata' });
   }
 }
+
+

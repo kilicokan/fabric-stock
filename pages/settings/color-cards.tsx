@@ -10,6 +10,40 @@ interface Color {
   description?: string;
 }
 
+type ApiErrorLike = {
+  response?: {
+    data?: {
+      error?: string;
+      message?: string;
+    };
+  };
+  message?: string;
+};
+
+type ImportCell = string | number | boolean | null | undefined;
+type ParsedImportRow = Record<string, ImportCell>;
+
+const getErrorMessage = (error: unknown, fallback: string): string => {
+  if (typeof error === 'object' && error !== null) {
+    const candidate = error as ApiErrorLike;
+    const apiError = candidate.response?.data?.error;
+    if (typeof apiError === 'string' && apiError.trim()) return apiError;
+    const apiMessage = candidate.response?.data?.message;
+    if (typeof apiMessage === 'string' && apiMessage.trim()) return apiMessage;
+    if (typeof candidate.message === 'string' && candidate.message.trim()) return candidate.message;
+  }
+  return fallback;
+};
+
+const pickFirstValue = (row: ParsedImportRow, keys: string[]): string | undefined => {
+  for (const key of keys) {
+    const value = row[key];
+    if (value === undefined || value === null) continue;
+    const text = String(value).trim();
+    if (text) return text;
+  }
+  return undefined;
+};
 export default function ColorCardsPage() {
   const [colors, setColors] = useState<Color[]>([]);
   const [newColorName, setNewColorName] = useState<string>('');
@@ -60,8 +94,8 @@ export default function ColorCardsPage() {
       setNewColorCode('');
       setNewColorDescription('');
       fetchColors(); // Listeyi yenile
-    } catch (err: any) {
-      setError(err.response?.data?.error || 'Renk eklenemedi');
+    } catch (err: unknown) {
+      setError(getErrorMessage(err, 'Renk eklenemedi'));
       console.error(err);
     } finally {
       setLoading(false);
@@ -96,8 +130,8 @@ export default function ColorCardsPage() {
       setEditCode('');
       setEditDescription('');
       fetchColors(); // Listeyi yenile
-    } catch (err: any) {
-      setError(err.response?.data?.error || 'Renk güncellenemedi');
+    } catch (err: unknown) {
+      setError(getErrorMessage(err, 'Renk güncellenemedi'));
       console.error(err);
     } finally {
       setLoading(false);
@@ -114,8 +148,8 @@ export default function ColorCardsPage() {
       setError('');
       await axios.delete(`/api/colors/${colorId}`);
       fetchColors(); // Listeyi yenile
-    } catch (err: any) {
-      setError(err.response?.data?.error || 'Renk silinemedi');
+    } catch (err: unknown) {
+      setError(getErrorMessage(err, 'Renk silinemedi'));
       console.error(err);
     } finally {
       setLoading(false);
@@ -136,7 +170,7 @@ export default function ColorCardsPage() {
 
     try {
       const fileExtension = file.name.split('.').pop()?.toLowerCase();
-      let parsedData: any[] = [];
+      let parsedData: ParsedImportRow[] = [];
 
       if (fileExtension === 'csv') {
         const text = await file.text();
@@ -144,31 +178,39 @@ export default function ColorCardsPage() {
       } else if (fileExtension === 'xlsx' || fileExtension === 'xls') {
         const buffer = await file.arrayBuffer();
         const workbook = XLSX.read(buffer, { type: 'array' });
-        parsedData = XLSX.utils.sheet_to_json(workbook.Sheets[workbook.SheetNames[0]]);
+        parsedData = XLSX.utils.sheet_to_json<ParsedImportRow>(workbook.Sheets[workbook.SheetNames[0]]);
       } else {
         alert('Desteklenmeyen dosya formatı. Lütfen CSV veya Excel dosyası yükleyin.');
         return;
       }
 
       // Transform data to match API expectations
-      const colorsToImport = parsedData.map(row => ({
-        name: row['Renk Adı'] || row['name'] || row['Name'] || row['renk'] || row['Renk'],
-        code: row['Renk Kodu'] || row['code'] || row['Code'] || row['kod'] || row['Kod'] || undefined,
-        description: row['Açıklama'] || row['description'] || row['Description'] || row['aciklama'] || row['Aciklama'] || undefined
-      }));
+      const colorsToImport = parsedData.reduce<Array<{ name: string; code?: string; description?: string }>>(
+        (acc, row) => {
+          const name = pickFirstValue(row, ['Renk Adı', 'name', 'Name', 'renk', 'Renk']);
+          if (!name) return acc;
+          acc.push({
+            name,
+            code: pickFirstValue(row, ['Renk Kodu', 'code', 'Code', 'kod', 'Kod']),
+            description: pickFirstValue(row, ['Açıklama', 'description', 'Description', 'aciklama', 'Aciklama']),
+          });
+          return acc;
+        },
+        []
+      );
 
       const response = await axios.post('/api/colors/import', { colors: colorsToImport });
       alert(response.data.message);
       // Refresh the list
       fetchColors();
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('Import error:', error);
-      alert('İçe aktarma sırasında hata oluştu: ' + (error.response?.data?.message || error.message));
+      alert('Ice aktarma sirasinda hata olustu: ' + getErrorMessage(error, 'Bilinmeyen hata'));
     }
   };
 
   // Helper function to parse CSV with proper quote handling
-  const parseCSV = (csvContent: string): any[] => {
+  const parseCSV = (csvContent: string): Record<string, string>[] => {
     const lines = csvContent.split('\n').filter(line => line.trim());
     if (lines.length < 2) return [];
 
@@ -177,7 +219,7 @@ export default function ColorCardsPage() {
 
     return rows.map(row => {
       const values = parseCSVLine(row);
-      const obj: any = {};
+      const obj: Record<string, string> = {};
       headers.forEach((header, index) => {
         obj[header] = values[index] || '';
       });
@@ -380,14 +422,17 @@ export default function ColorCardsPage() {
   );
 }
 
-const styles = {
+const styles: Record<string, React.CSSProperties> = {
   container: {
-    maxWidth: '1000px',
-    margin: '2rem auto',
+    width: '100%',
+    maxWidth: '100%',
+    minHeight: '100vh',
+    margin: '0',
     padding: '2rem',
     backgroundColor: '#f8f9fa',
-    borderRadius: '12px',
-    boxShadow: '0 4px 12px rgba(0, 0, 0, 0.1)',
+    borderRadius: '0',
+    boxShadow: 'none',
+    boxSizing: 'border-box',
     fontFamily: "'Segoe UI', Tahoma, Geneva, Verdana, sans-serif"
   },
   title: {
@@ -430,7 +475,9 @@ const styles = {
     display: 'flex',
     gap: '1rem',
     alignItems: 'flex-end',
-    flexWrap: 'wrap' as const
+    flexWrap: 'wrap' as const,
+    width: '100%',
+    maxWidth: '100%'
   },
   inputGroup: {
     display: 'flex',

@@ -1,10 +1,15 @@
 import { useState, useEffect } from "react";
 import axios from "axios";
-import Layout from "../../components/Layout/Layout";
+import Layout from "../../components/Layout";
+
+interface NamedOption {
+  id: number | string;
+  name: string;
+}
 
 export default function FabricEntryPage() {
-  const [fabricTypes, setFabricTypes] = useState<any[]>([]);
-  const [colors, setColors] = useState<any[]>([]);
+  const [fabricTypes, setFabricTypes] = useState<NamedOption[]>([]);
+  const [colors, setColors] = useState<NamedOption[]>([]);
   const [fabricTypeId, setFabricTypeId] = useState("");
   const [colorId, setColorId] = useState("");
   const [quantityKg, setQuantityKg] = useState("");
@@ -55,7 +60,7 @@ export default function FabricEntryPage() {
 
   return (
     <Layout>
-      <div className="p-6 max-w-lg mx-auto">
+      <div className="p-6 w-full min-h-screen">
         <h1 className="text-2xl font-bold mb-6">Kumaş Girişi</h1>
 
         {message && <div className="mb-4 p-3 rounded bg-gray-100">{message}</div>}

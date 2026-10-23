@@ -1,7 +1,6 @@
 import * as React from "react"
 import { cn } from "@/lib/utils"
 
-// Card
 export function Card({
   className,
   ...props
@@ -9,7 +8,7 @@ export function Card({
   return (
     <div
       className={cn(
-        "rounded-xl border bg-white text-card-foreground shadow",
+        "rounded-lg border border-secondary-200 dark:border-secondary-700 bg-white dark:bg-secondary-900 shadow-sm hover:shadow-md transition-shadow",
         className
       )}
       {...props}
@@ -17,53 +16,49 @@ export function Card({
   )
 }
 
-// CardHeader
 export function CardHeader({
   className,
   ...props
 }: React.HTMLAttributes<HTMLDivElement>) {
   return (
-    <div className={cn("flex flex-col space-y-1.5 p-6", className)} {...props} />
+    <div className={cn("flex flex-col space-y-1.5 p-6 border-b border-secondary-200 dark:border-secondary-700", className)} {...props} />
   )
 }
 
-// CardTitle
 export function CardTitle({
   className,
   ...props
 }: React.HTMLAttributes<HTMLHeadingElement>) {
   return (
     <h3
-      className={cn("text-2xl font-semibold leading-none tracking-tight", className)}
+      className={cn("text-xl font-semibold leading-tight text-secondary-900 dark:text-secondary-50", className)}
       {...props}
     />
   )
 }
 
-// CardDescription
 export function CardDescription({
   className,
   ...props
 }: React.HTMLAttributes<HTMLParagraphElement>) {
   return (
-    <p className={cn("text-sm text-muted-foreground", className)} {...props} />
+    <p className={cn("text-sm text-secondary-600 dark:text-secondary-400 mt-1", className)} {...props} />
   )
 }
 
-// CardContent
 export function CardContent({
   className,
   ...props
 }: React.HTMLAttributes<HTMLDivElement>) {
-  return <div className={cn("p-6 pt-0", className)} {...props} />
+  return <div className={cn("p-6", className)} {...props} />
 }
 
-// CardFooter
 export function CardFooter({
   className,
   ...props
 }: React.HTMLAttributes<HTMLDivElement>) {
   return (
-    <div className={cn("flex items-center p-6 pt-0", className)} {...props} />
+    <div className={cn("flex items-center justify-end gap-3 p-6 border-t border-secondary-200 dark:border-secondary-700", className)} {...props} />
   )
 }
+

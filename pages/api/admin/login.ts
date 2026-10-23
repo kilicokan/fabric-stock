@@ -1,6 +1,7 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
+import { getJwtSecret } from '@/lib/runtime-config';
 
 // Geçici veritabanı (gerçek projede veritabanı kullanın)
 const adminUser = {
@@ -30,7 +31,7 @@ export default async function handler(
 
   const token = jwt.sign(
     { username: adminUser.username, role: 'admin' },
-    process.env.JWT_SECRET || 'default-secret-key',
+    getJwtSecret(),
     { expiresIn: '1h' }
   );
 

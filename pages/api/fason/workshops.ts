@@ -1,127 +1,227 @@
 import { NextApiRequest, NextApiResponse } from 'next';
-import { PrismaClient } from '@prisma/client';
-import jwt from 'jsonwebtoken';
+import prisma from '@/lib/prisma';
+import { verifyToken } from '@/lib/auth';
+import { successResponse, errorResponse } from '@/lib/api-response';
+import { withCors } from '@/lib/cors';
+import { Prisma, WorkshopType } from '@prisma/client';
 
-const prisma = new PrismaClient();
+const isWorkshopType = (value: unknown): value is WorkshopType =>
+    typeof value === 'string' && Object.values(WorkshopType).includes(value as WorkshopType);
 
-const verifyToken = (req: NextApiRequest) => {
-  const token = req.headers.authorization?.replace('Bearer ', '');
-  if (!token) throw new Error('Token bulunamadı');
-  
-  return jwt.verify(token, process.env.JWT_SECRET || 'default-secret-key');
-};
+async function handler(req: NextApiRequest, res: NextApiResponse) {
 
-export default async function handler(req: NextApiRequest, res: NextApiResponse) {
-  try {
-    const user = verifyToken(req);
-
-    switch (req.method) {
-      case 'GET':
-        return handleGet(req, res);
-      case 'POST':
-        return handlePost(req, res, user);
-      case 'PUT':
-        return handlePut(req, res, user);
-      case 'DELETE':
-        return handleDelete(req, res, user);
-      default:
-        return res.status(405).json({ error: 'Method not allowed' });
+    try {
+        switch (req.method) {
+            case 'GET':
+                // GET is public for mobile apps
+                return handleGet(req, res);
+            case 'POST':
+            case 'PUT':
+            case 'DELETE':
+                // These methods require authentication
+                const user = verifyToken(req.headers.authorization);
+                if (!user) {
+                    return res.status(401).json(errorResponse('Unauthorized', 'UNAUTHORIZED'));
+                }
+                if (req.method === 'POST') return handlePost(req, res);
+                if (req.method === 'PUT') return handlePut(req, res);
+                if (req.method === 'DELETE') return handleDelete(req, res);
+            default:
+                return res.status(405).json(errorResponse('Method not allowed'));
+        }
+    } catch (error) {
+        console.error('💥 API Error:', error);
+        return res.status(500).json(errorResponse('Internal server error'));
     }
-  } catch (error) {
-    console.error('API Error:', error);
-    return res.status(401).json({ error: 'Unauthorized' });
-  }
 }
 
 // Atölyeleri listele
 async function handleGet(req: NextApiRequest, res: NextApiResponse) {
-  const { specialization, isActive } = req.query;
+    const { specialization, isActive, includeCapacity } = req.query;
 
-  const where: any = {};
-  if (specialization) where.specialization = specialization;
-  if (isActive !== undefined) where.isActive = isActive === 'true';
+    const where: Prisma.FasonWorkshopWhereInput = {};
+    if (isWorkshopType(specialization)) where.specialization = specialization;
+    if (isActive !== undefined) where.isActive = isActive === 'true';
 
-  const workshops = await prisma.fasonWorkshop.findMany({
-    where,
-    orderBy: { name: 'asc' }
-  });
+    const workshops = await prisma.fasonWorkshop.findMany({
+        where,
+        orderBy: { name: 'asc' }
+    });
 
-  return res.json(workshops);
+    // Kapasite bilgisini ekle (isterseniz)
+    let workshopsWithCapacity = workshops;
+    if (includeCapacity === 'true') {
+        workshopsWithCapacity = await Promise.all(
+            workshops.map(async (workshop) => {
+                const capacityData = await getWorkshopCapacityData(workshop.id);
+                return {
+                    ...workshop,
+                    ...capacityData
+                };
+            })
+        );
+    }
+
+    return res.json(successResponse(workshopsWithCapacity));
+}
+
+// Helper: Atölyenin kapasite verilerini getir
+// NOT: workshop.capacity = kalan/açık kapasite (malı teslim aldıkça azalır)
+async function getWorkshopCapacityData(workshopId: number) {
+    try {
+        const workshop = await prisma.fasonWorkshop.findUnique({
+            where: { id: workshopId }
+        });
+
+        if (!workshop || !workshop.maxCapacity) {
+            return {
+                definedCapacityUsage: 0,
+                definedCapacityPercentage: 0
+            };
+        }
+
+        // Kalan kapasite (0 veya positive value)
+        const remainingCapacity = Math.max(0, workshop.capacity || 0);
+
+        // Kullanılan kapasite = maxCapacity - kalan kapasite
+        const usedCapacity = Math.max(0, workshop.maxCapacity - remainingCapacity);
+
+        // Kapasite yüzdesini hesapla (0-100%)
+        const capacityPercentage = (usedCapacity / workshop.maxCapacity) * 100;
+
+        if (workshop.capacityType === 'TL') {
+            return {
+                definedCapacityUsage: Math.round(usedCapacity),
+                definedCapacityPercentage: Math.min(100, Math.max(0, capacityPercentage))
+            };
+        } else {
+            // ADET bazlı
+            return {
+                definedCapacityUsage: Math.round(usedCapacity),
+                definedCapacityPercentage: Math.min(100, Math.max(0, capacityPercentage))
+            };
+        }
+    } catch (error) {
+        console.error('Kapasite verisi alınırken hata:', error);
+        return {
+            definedCapacityUsage: 0,
+            definedCapacityPercentage: 0
+        };
+    }
 }
 
 // Yeni atölye oluştur
-async function handlePost(req: NextApiRequest, res: NextApiResponse, user: any) {
-  const {
-    name,
-    contactPerson,
-    phone,
-    address,
-    specialization
-  } = req.body;
+async function handlePost(req: NextApiRequest, res: NextApiResponse) {
+    const {
+        name,
+        contactPerson,
+        phone,
+        address,
+        specialization,
+        capacity,
+        capacityType
+    } = req.body;
 
-  const workshop = await prisma.fasonWorkshop.create({
-    data: {
-      name,
-      contactPerson,
-      phone,
-      address,
-      specialization
+    if (!name || !specialization) {
+        return res.status(400).json(errorResponse('Name and specialization are required', 'VALIDATION_ERROR'));
     }
-  });
 
-  return res.status(201).json(workshop);
+    // Parse maxCapacity (set from form or default to 500000)
+    const maxCapacity = capacity ? parseFloat(capacity) : 500000;
+
+    const workshop = await prisma.fasonWorkshop.create({
+        data: {
+            name,
+            contactPerson,
+            phone,
+            address,
+            specialization,
+            maxCapacity, // Maximum capacity
+            capacity: maxCapacity, // Başlangıçta capacity = maxCapacity (hiç mal atanmadığı için)
+            capacityType: capacityType || 'TL'
+        }
+    });
+
+    return res.status(201).json(successResponse(workshop));
 }
 
 // Atölye güncelle
-async function handlePut(req: NextApiRequest, res: NextApiResponse, user: any) {
-  const { id, ...updateData } = req.body;
+async function handlePut(req: NextApiRequest, res: NextApiResponse) {
+    const { id } = req.query;
+    const updateData = req.body;
 
-  const workshop = await prisma.fasonWorkshop.update({
-    where: { id: parseInt(id) },
-    data: {
-      ...updateData,
-      updatedAt: new Date()
+    if (!id) {
+        return res.status(400).json(errorResponse('ID is required', 'VALIDATION_ERROR'));
     }
-  });
 
-  return res.json(workshop);
+    // Convert capacity to number if it exists and is a string
+    const processedData: Record<string, unknown> = { ...updateData };
+    const rawCapacity = processedData.capacity;
+    if (rawCapacity !== undefined && rawCapacity !== null && rawCapacity !== '') {
+        const newCapacity = parseFloat(String(rawCapacity));
+        processedData.maxCapacity = newCapacity;
+        processedData.capacity = newCapacity;
+    } else {
+        processedData.capacity = null;
+        processedData.maxCapacity = null;
+    }
+
+    const workshop = await prisma.fasonWorkshop.update({
+        where: { id: parseInt(id as string) },
+        data: {
+            ...processedData,
+            updatedAt: new Date()
+        }
+    });
+
+    return res.json(successResponse(workshop));
 }
 
 // Atölye sil
-async function handleDelete(req: NextApiRequest, res: NextApiResponse, user: any) {
-  const { id } = req.query;
+async function handleDelete(req: NextApiRequest, res: NextApiResponse) {
+    const { id } = req.query;
 
-  await prisma.fasonWorkshop.delete({
-    where: { id: parseInt(id as string) }
-  });
+    if (!id) {
+        return res.status(400).json(errorResponse('ID is required', 'VALIDATION_ERROR'));
+    }
 
-  return res.json({ message: 'Workshop deleted successfully' });
+    await prisma.fasonWorkshop.delete({
+        where: { id: parseInt(id as string) }
+    });
+
+    return res.json(successResponse({ message: 'Workshop deleted successfully' }));
 }
 
 // Mobil uygulama için PUBLIC atölyeler endpoint
 export async function mobileWorkshopsPublicHandler(req: NextApiRequest, res: NextApiResponse) {
-  if (req.method !== 'GET') return res.status(405).json({ error: 'Only GET method allowed' });
+    if (req.method !== 'GET') return res.status(405).json({ error: 'Only GET method allowed' });
 
-  // Set CORS headers for mobile access
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+    // Set CORS headers for mobile access
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Methods', 'GET');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
 
-  try {
-    const workshops = await prisma.fasonWorkshop.findMany({
-      where: { isActive: true }, // Only active workshops
-      select: {
-        id: true,
-        name: true,
-        specialization: true,
-        contactPerson: true,
-        phone: true,
-      },
-      orderBy: { name: 'asc' },
-    });
-    res.status(200).json({ workshops });
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: 'Server error' });
-  }
+    try {
+        const workshops = await prisma.fasonWorkshop.findMany({
+            where: { isActive: true }, // Only active workshops
+            select: {
+                id: true,
+                name: true,
+                specialization: true,
+                contactPerson: true,
+                phone: true,
+                capacity: true,
+                capacityType: true,
+            },
+            orderBy: { name: 'asc' },
+        });
+        res.status(200).json({ workshops });
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ error: 'Server error' });
+    }
 }
+
+export default withCors(handler);
+
+

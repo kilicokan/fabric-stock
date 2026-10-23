@@ -1,14 +1,15 @@
 "use client";
 
-import Link from "next/link";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import AuthGuard from "../components/AuthGuard";
-import { Truck, Smartphone, Settings, BarChart3, Users, MapPin, ArrowLeft, Package, Scissors, Flame, Zap, CheckCircle } from "lucide-react";
+import { useTabs } from "../components/TabContext";
+import { Truck, Smartphone, Settings, BarChart3, Users, MapPin, ArrowLeft, Package, Scissors, Flame, Zap } from "lucide-react";
 
 export default function FasonPage() {
   const [loading, setLoading] = useState(true);
   const router = useRouter();
+  const { addTab } = useTabs();
 
   useEffect(() => {
     // Simulate loading
@@ -16,12 +17,51 @@ export default function FasonPage() {
     return () => clearTimeout(timer);
   }, []);
 
+  const getComponentForPath = async (path: string): Promise<React.ComponentType | null> => {
+    const basePath = path.split("?")[0];
+    const pathMap: Record<string, () => Promise<{ default: React.ComponentType }>> = {
+      "/fason/dashboard": () => import("./fason/dashboard"),
+      "/fason/mobile-tracker": () => import("./fason/mobile-tracker"),
+      "/fason/workshops": () => import("./fason/workshops"),
+      "/fason/create-work-order": () => import("./fason/create-work-order"),
+      "/fason/cutting-suggestions": () => import("./fason/cutting-suggestions"),
+      "/fason/cutting-workshop": () => import("./fason/cutting-workshop"),
+      "/reports/cutting-fabric-conversion": () => import("./reports/cutting-fabric-conversion"),
+      "/fason/trackers": () => import("./fason/trackers"),
+      "/fason/reports": () => import("./fason/reports"),
+      "/reports/order-cutting": () => import("./reports/order-cutting"),
+    };
+
+    const importFn = pathMap[basePath];
+    if (!importFn) return null;
+
+    try {
+      const loaded = await importFn();
+      return loaded.default;
+    } catch (error) {
+      console.error("Sayfa yuklenemedi:", path, error);
+      return null;
+    }
+  };
+
+  const handleModuleClick = async (route: string, title: string) => {
+    const component = await getComponentForPath(route);
+    if (component) {
+      addTab({
+        title,
+        path: route,
+        component,
+        closable: true,
+      });
+    }
+  };
+
   if (loading) {
     return (
       <AuthGuard requireAuth={true} requiredAccess="fason">
         <div style={styles.loadingContainer}>
           <div style={styles.loadingSpinner}></div>
-          <p style={styles.loadingText}>Fason modülü yükleniyor...</p>
+          <p style={styles.loadingText}>Dış Kaynak Üretim modülü yükleniyor...</p>
         </div>
       </AuthGuard>
     );
@@ -44,10 +84,10 @@ export default function FasonPage() {
               
               <div style={styles.headerInfo}>
                 <h1 style={styles.pageTitle}>
-                  🚛 Mira Fason Takip
+                  Mira Dış Kaynak Üretim Takip
                 </h1>
                 <p style={styles.pageSubtitle}>
-                  Fason atölye süreçlerini takip edin ve yönetin
+                  Dış Kaynak Üretim atölye süreçlerini takip edin ve yönetin
                 </p>
               </div>
             </div>
@@ -56,87 +96,155 @@ export default function FasonPage() {
           {/* Ana Modüller Grid */}
           <div style={styles.menuGrid}>
             {/* Dashboard */}
-            <Link href="/fason/dashboard">
-              <div style={{...styles.menuCard, ...styles.dashboardCard}}>
-                <div style={styles.menuIcon}>
-                  <BarChart3 style={styles.menuIconSvg} />
-                </div>
-                <h3 style={styles.menuTitle}>Fason Dashboard</h3>
-                <p style={styles.menuDescription}>
-                  İş emirlerini görüntüleyin, süreçleri takip edin ve raporlar oluşturun
-                </p>
+            <button
+              type="button"
+              onClick={() => void handleModuleClick("/fason/dashboard", "Dış Kaynak Üretim Dashboard")}
+              style={{...styles.menuCard, ...styles.dashboardCard}}
+            >
+              <div style={styles.menuIcon}>
+                <BarChart3 style={styles.menuIconSvg} />
               </div>
-            </Link>
+              <h3 style={styles.menuTitle}>Dış Kaynak Üretim Dashboard</h3>
+              <p style={styles.menuDescription}>
+                İş emirlerini görüntüleyin, süreçleri takip edin ve raporlar oluşturun
+              </p>
+            </button>
 
             {/* Mobil Takipçi */}
-            <Link href="/fason/mobile-tracker">
-              <div style={{...styles.menuCard, ...styles.mobileCard}}>
-                <div style={styles.menuIcon}>
-                  <Smartphone style={styles.menuIconSvg} />
-                </div>
-                <h3 style={styles.menuTitle}>Mobil Takipçi</h3>
-                <p style={styles.menuDescription}>
-                  Telefon uygulaması için optimize edilmiş takip formu
-                </p>
+            <button
+              type="button"
+              onClick={() => void handleModuleClick("/fason/mobile-tracker", "Mobil Takipçi")}
+              style={{...styles.menuCard, ...styles.mobileCard}}
+            >
+              <div style={styles.menuIcon}>
+                <Smartphone style={styles.menuIconSvg} />
               </div>
-            </Link>
+              <h3 style={styles.menuTitle}>Mobil Takipçi</h3>
+              <p style={styles.menuDescription}>
+                Telefon uygulaması için optimize edilmiş takip formu
+              </p>
+            </button>
 
             {/* Atölye Yönetimi */}
-            <Link href="/fason/workshops">
-              <div style={{...styles.menuCard, ...styles.workshopCard}}>
-                <div style={styles.menuIcon}>
-                  <MapPin style={styles.menuIconSvg} />
-                </div>
-                <h3 style={styles.menuTitle}>Atölye Yönetimi</h3>
-                <p style={styles.menuDescription}>
-                  Fason atölyelerini kaydedin ve yönetin
-                </p>
+            <button
+              type="button"
+              onClick={() => void handleModuleClick("/fason/workshops", "Atölye Yönetimi")}
+              style={{...styles.menuCard, ...styles.workshopCard}}
+            >
+              <div style={styles.menuIcon}>
+                <MapPin style={styles.menuIconSvg} />
               </div>
-            </Link>
+              <h3 style={styles.menuTitle}>Atölye Yönetimi</h3>
+              <p style={styles.menuDescription}>
+                Dış Kaynak Üretim atölyelerini kaydedin ve yönetin
+              </p>
+            </button>
 
             {/* İş Emri Oluştur */}
-            <Link href="/fason/create-work-order">
-              <div style={{...styles.menuCard, ...styles.orderCard}}>
-                <div style={styles.menuIcon}>
-                  <Settings style={styles.menuIconSvg} />
-                </div>
-                <h3 style={styles.menuTitle}>İş Emri Oluştur</h3>
-                <p style={styles.menuDescription}>
-                  Manuel iş emri oluşturun veya ERP'den emirleri görüntüleyin
-                </p>
+            <button
+              type="button"
+              onClick={() => void handleModuleClick("/fason/create-work-order", "İş Emri Oluştur")}
+              style={{...styles.menuCard, ...styles.orderCard}}
+            >
+              <div style={styles.menuIcon}>
+                <Settings style={styles.menuIconSvg} />
               </div>
-            </Link>
+              <h3 style={styles.menuTitle}>İş Emri Oluştur</h3>
+              <p style={styles.menuDescription}>
+                Manuel iş emri oluşturun veya ERP&apos;den emirleri görüntüleyin
+              </p>
+            </button>
 
             {/* Takipçi Yönetimi */}
-            <Link href="/fason/trackers">
-              <div style={{...styles.menuCard, ...styles.trackerCard}}>
-                <div style={styles.menuIcon}>
-                  <Users style={styles.menuIconSvg} />
-                </div>
-                <h3 style={styles.menuTitle}>Takipçi Yönetimi</h3>
-                <p style={styles.menuDescription}>
-                  Fason takipçilerini yönetin ve görevler atayın
-                </p>
+            <button
+              type="button"
+              onClick={() => void handleModuleClick("/fason/cutting-suggestions", "Kesim Onerileri")}
+              style={{...styles.menuCard, ...styles.cuttingCard}}
+            >
+              <div style={styles.menuIcon}>
+                <Scissors style={styles.menuIconSvg} />
               </div>
-            </Link>
+              <h3 style={styles.menuTitle}>Kesim Onerileri</h3>
+              <p style={styles.menuDescription}>
+                Recete, stok ve termin uygunluguna gore kesime verilecek isleri secin
+              </p>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => void handleModuleClick("/fason/cutting-workshop", "Kesimhane Ekranı")}
+              style={{...styles.menuCard, ...styles.cuttingCard}}
+            >
+              <div style={styles.menuIcon}>
+                <Package style={styles.menuIconSvg} />
+              </div>
+              <h3 style={styles.menuTitle}>Kesimhane Ekranı</h3>
+              <p style={styles.menuDescription}>
+                Kesime atanmış iş emirlerini bildirim şeklinde takip edin ve sahadan veri girin
+              </p>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => void handleModuleClick("/reports/cutting-fabric-conversion", "Kumaş Dönüşüm Raporu")}
+              style={{...styles.menuCard, ...styles.reportsCard}}
+            >
+              <div style={styles.menuIcon}>
+                <BarChart3 style={styles.menuIconSvg} />
+              </div>
+              <h3 style={styles.menuTitle}>Kumaş Dönüşüm Raporu</h3>
+              <p style={styles.menuDescription}>
+                Metre veya kilo bazlı kumaş çıkışlarını karşılaştırın ve karşılıklı dönüştürün
+              </p>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => void handleModuleClick("/fason/trackers", "Takipçi Yönetimi")}
+              style={{...styles.menuCard, ...styles.trackerCard}}
+            >
+              <div style={styles.menuIcon}>
+                <Users style={styles.menuIconSvg} />
+              </div>
+              <h3 style={styles.menuTitle}>Takipçi Yönetimi</h3>
+              <p style={styles.menuDescription}>
+                Dış Kaynak Üretim takipçilerini yönetin ve görevler atayın
+              </p>
+            </button>
 
             {/* Raporlar */}
-            <Link href="/fason/reports">
-              <div style={{...styles.menuCard, ...styles.reportsCard}}>
-                <div style={styles.menuIcon}>
-                  <Truck style={styles.menuIconSvg} />
-                </div>
-                <h3 style={styles.menuTitle}>Fason Raporları</h3>
-                <p style={styles.menuDescription}>
-                  Detaylı fason takip raporları ve analizler
-                </p>
+            <button
+              type="button"
+              onClick={() => void handleModuleClick("/fason/reports", "Dış Kaynak Üretim Raporları")}
+              style={{...styles.menuCard, ...styles.reportsCard}}
+            >
+              <div style={styles.menuIcon}>
+                <Truck style={styles.menuIconSvg} />
               </div>
-            </Link>
+              <h3 style={styles.menuTitle}>Dış Kaynak Üretim Raporları</h3>
+              <p style={styles.menuDescription}>
+                Detaylı dış kaynak üretim takip raporları ve analizler
+              </p>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => void handleModuleClick("/reports/order-cutting", "Siparis Kesim Raporu")}
+              style={{...styles.menuCard, ...styles.orderCuttingReportCard}}
+            >
+              <div style={styles.menuIcon}>
+                <BarChart3 style={styles.menuIconSvg} />
+              </div>
+              <h3 style={styles.menuTitle}>Siparis Kesim Raporu</h3>
+              <p style={styles.menuDescription}>
+                Musteri siparis adedi, kesime atanan ve kesilen adetlerin karsilastirmali raporu
+              </p>
+            </button>
           </div>
 
           {/* Süreç Bilgileri */}
           <div style={styles.processSection}>
-            <h3 style={styles.processTitle}>Fason Takip Süreci</h3>
+            <h3 style={styles.processTitle}>Dış Kaynak Üretim Takip Süreci</h3>
             <div style={styles.processGrid}>
               <div style={styles.processStep}>
                 <div style={styles.processIcon}>
@@ -257,11 +365,17 @@ const styles = {
   orderCard: {
     borderLeftColor: '#f59e0b',
   },
+  cuttingCard: {
+    borderLeftColor: '#06b6d4',
+  },
   trackerCard: {
     borderLeftColor: '#ec4899',
   },
   reportsCard: {
     borderLeftColor: '#ef4444',
+  },
+  orderCuttingReportCard: {
+    borderLeftColor: '#14b8a6',
   },
   menuIcon: {
     backgroundColor: '#eff6ff',
@@ -356,3 +470,5 @@ const styles = {
     color: '#64748b',
   },
 } as const;
+
+

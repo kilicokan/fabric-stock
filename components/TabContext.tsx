@@ -30,9 +30,10 @@ export const useTabs = () => {
 
 interface TabProviderProps {
   children: ReactNode;
+  initialTab?: Omit<Tab, 'id'>;
 }
 
-export const TabProvider: React.FC<TabProviderProps> = ({ children }) => {
+export const TabProvider: React.FC<TabProviderProps> = ({ children, initialTab }) => {
   const [tabs, setTabs] = useState<Tab[]>([]);
   const [activeTab, setActiveTabState] = useState<string | null>(null);
 
@@ -46,10 +47,22 @@ export const TabProvider: React.FC<TabProviderProps> = ({ children }) => {
         component: React.lazy(() => import('../pages/home')),
         closable: false,
       };
+
+      if (initialTab && initialTab.path !== '/' && initialTab.path !== '/home') {
+        const bootTab: Tab = {
+          ...initialTab,
+          id: 'boot',
+          closable: initialTab.closable ?? true,
+        };
+        setTabs([homeTab, bootTab]);
+        setActiveTabState('boot');
+        return;
+      }
+
       setTabs([homeTab]);
       setActiveTabState('home');
     }
-  }, []);
+  }, [initialTab, tabs.length]);
 
   const addTab = (newTab: Omit<Tab, 'id'>) => {
     const tabId = `tab-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;

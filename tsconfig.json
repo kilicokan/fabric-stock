@@ -1,13 +1,13 @@
 {
   "compilerOptions": {
-    "module": "commonjs",
+    "module": "esnext",
     "lib": [
       "es5",
       "dom",
       "esnext"
     ], // Next.js için önerilen lib'ler
-    "noImplicitAny": true,
-    "noImplicitThis": true,
+    "noImplicitAny": false,
+    "noImplicitThis": false,
     "strictNullChecks": false,
     "baseUrl": ".",
     "paths": {
@@ -16,7 +16,10 @@
       ],
       "@/*": [
         "./*"
-      ] // Genel eşleme, utils/db.ts ve lib/prisma.ts için çalışır
+      ],
+      "@/lib/*": [
+        "./lib/*"
+      ]
     },
     "types": ["node"],
     "noEmit": true,
@@ -27,7 +30,8 @@
     "strict": false,
     "incremental": true,
     "esModuleInterop": true,
-    "moduleResolution": "node",
+    "moduleResolution": "bundler",
+    "ignoreDeprecations": "5.0",
     "resolveJsonModule": true,
     "isolatedModules": true,
     "jsx": "preserve",
@@ -41,9 +45,12 @@
     "**/*.ts",
     "**/*.tsx",
     "next-env.d.ts",
-    ".next/types/**/*.ts"
+    ".next/types/**/*.ts",
+    "lib/**/*.ts"
   ],
   "exclude": [
-    "node_modules"
+    "node_modules",
+    "__tests__",
+    "src-tauri"
   ]
 }

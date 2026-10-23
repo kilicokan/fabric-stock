@@ -1,5 +1,5 @@
 // pages/user-management.tsx
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import axios from "axios";
 import { Send, X } from "lucide-react";
 
@@ -15,8 +15,16 @@ type User = {
   name?: string;
 };
 
+const normalizeRole = (role?: string | null): "admin" | "user" => {
+  const normalizedRole = String(role || "").trim().toLowerCase();
+  return normalizedRole === "admin" || normalizedRole === "administrator" || normalizedRole === "adminstrator"
+    ? "admin"
+    : "user";
+};
+
 export default function UserManagement() {
   const [users, setUsers] = useState<User[]>([]);
+  const usersFetchVersion = useRef(0);
   const [editingUser, setEditingUser] = useState<User | null>(null);
   const [formData, setFormData] = useState({
     username: "",
@@ -41,15 +49,44 @@ export default function UserManagement() {
     fetchUsers();
   }, []);
 
+  const getAuthHeaders = () => {
+    const token = localStorage.getItem("token") || localStorage.getItem("authToken");
+    return token ? { Authorization: `Bearer ${token}` } : undefined;
+  };
+
   const fetchUsers = async () => {
+    const fetchVersion = ++usersFetchVersion.current;
     setLoading(true);
     try {
-      const res = await axios.get("/api/users");
-      setUsers(res.data);
-    } catch (err) {
-      setMessage("Kullanıcılar yüklenirken hata oluştu.");
+      const headers = getAuthHeaders();
+      if (!headers) {
+        setUsers([]);
+        setMessage("Oturum bilgisi bulunamadi. Lutfen tekrar giris yapin.");
+        return;
+      }
+
+      const res = await axios.get("/api/users", {
+        headers: { ...headers, "Cache-Control": "no-cache" },
+        params: { _fresh: Date.now() },
+      });
+      if (fetchVersion !== usersFetchVersion.current) return;
+      const rawUsers = Array.isArray(res.data) ? res.data : Array.isArray(res.data?.data) ? res.data.data : [];
+      const normalizedUsers = rawUsers.map((user: any) => ({
+        ...user,
+        username: user.username || user.name || "",
+        role: normalizeRole(user.role),
+        stockAccess: user.stockAccess ?? false,
+        fasonAccess: user.fasonAccess ?? false,
+        mobileAccess: user.mobileAccess ?? false,
+      }));
+      setUsers(normalizedUsers);
+    } catch (err: any) {
+      if (fetchVersion !== usersFetchVersion.current) return;
+      const errorMessage =
+        err?.response?.data?.error || err?.response?.data?.message || "Kullanicilar yuklenirken hata olustu.";
+      setMessage(errorMessage);
     } finally {
-      setLoading(false);
+      if (fetchVersion === usersFetchVersion.current) setLoading(false);
     }
   };
 
@@ -66,19 +103,41 @@ export default function UserManagement() {
     e.preventDefault();
     setMessage("");
     try {
+      const headers = getAuthHeaders();
+      if (!headers) {
+        setMessage("Oturum bilgisi bulunamadi. Lutfen tekrar giris yapin.");
+        return;
+      }
+
       const payload = {
         ...formData,
-        // Düzenleme modunda ve şifre boşsa şifreyi gönderme
-        ...(editingUser && !formData.password && { password: undefined })
+        role: formData.role === "admin" ? "ADMIN" : "OPERATOR",
+        ...(editingUser && !formData.password && { password: undefined }),
       };
 
       if (editingUser) {
-        await axios.put(`/api/users/${editingUser.id}`, payload);
-        setMessage("Kullanıcı başarıyla güncellendi.");
+        const response = await axios.put<{ user?: User }>(`/api/users/${editingUser.id}`, payload, { headers });
+        const savedUser = response.data.user;
+        if (savedUser) {
+          setUsers((current) => current.map((user) =>
+            user.id === editingUser.id
+              ? {
+                  ...user,
+                  ...savedUser,
+                  username: savedUser.username || user.username,
+                  role: normalizeRole(savedUser.role || user.role),
+                }
+              : user
+          ));
+        }
+        await fetchUsers();
+        setMessage("Kullanici basariyla guncellendi.");
       } else {
-        await axios.post("/api/users", payload);
-        setMessage("Kullanıcı başarıyla eklendi.");
+        await axios.post("/api/users", payload, { headers });
+        setMessage("Kullanici basariyla eklendi.");
+        await fetchUsers();
       }
+
       setFormData({
         username: "",
         password: "",
@@ -86,10 +145,10 @@ export default function UserManagement() {
         role: "user",
         stockAccess: false,
         fasonAccess: false,
-        mobileAccess: false
+        mobileAccess: false,
       });
       setEditingUser(null);
-      fetchUsers();
+      if (!editingUser) void fetchUsers();
     } catch (err: any) {
       setMessage("Hata: " + (err.response?.data?.error || err.message));
     }
@@ -101,21 +160,27 @@ export default function UserManagement() {
       username: user.username,
       password: "",
       email: user.email,
-      role: user.role,
-      stockAccess: user.stockAccess,
-      fasonAccess: user.fasonAccess,
-      mobileAccess: user.mobileAccess,
+      role: normalizeRole(user.role),
+      stockAccess: user.stockAccess ?? false,
+      fasonAccess: user.fasonAccess ?? false,
+      mobileAccess: user.mobileAccess ?? false,
     });
   };
 
   const handleDelete = async (id: number) => {
-    if (!window.confirm("Bu kullanıcıyı silmek istediğinizden emin misiniz?")) return;
+    if (!window.confirm("Bu kullaniciyi silmek istediginizden emin misiniz?")) return;
     try {
-      await axios.delete(`/api/users/${id}`);
-      setMessage("Kullanıcı başarıyla silindi.");
+      const headers = getAuthHeaders();
+      if (!headers) {
+        setMessage("Oturum bilgisi bulunamadi. Lutfen tekrar giris yapin.");
+        return;
+      }
+
+      await axios.delete(`/api/users/${id}`, { headers });
+      setMessage("Kullanici basariyla silindi.");
       fetchUsers();
     } catch (err: any) {
-      setMessage("Silme hatası: " + (err.response?.data?.error || err.message));
+      setMessage("Silme hatasi: " + (err.response?.data?.error || err.message));
     }
   };
 
@@ -163,7 +228,7 @@ export default function UserManagement() {
 
   return (
     <main className="p-6 bg-gray-100 min-h-screen">
-      <div className="max-w-6xl mx-auto">
+      <div className="w-full">
         <h1 className="text-3xl font-bold text-[#0f3460] mb-6">👤 Kullanıcı Yönetimi</h1>
 
         {message && (
@@ -240,14 +305,17 @@ export default function UserManagement() {
                   onChange={handleInputChange}
                   className="w-4 h-4 text-blue-600 rounded"
                 />
-                <span>Fason Erişimi</span>
+                <span>Dış Kaynak Üretim Erişimi</span>
               </label>
               <label className="flex items-center space-x-2">
                 <input
                   type="checkbox"
                   name="mobileAccess"
                   checked={formData.mobileAccess}
-                  onChange={handleInputChange}
+                  onChange={(event) => {
+                    const mobileAccess = event.currentTarget.checked;
+                    setFormData((current) => ({ ...current, mobileAccess }));
+                  }}
                   className="w-4 h-4 text-blue-600 rounded"
                 />
                 <span>Mobil Erişimi</span>
@@ -284,7 +352,7 @@ export default function UserManagement() {
                 <th className="px-4 py-2 text-left text-sm font-medium text-gray-700">E-posta</th>
                 <th className="px-4 py-2 text-left text-sm font-medium text-gray-700">Rol</th>
                 <th className="px-4 py-2 text-left text-sm font-medium text-gray-700">Stok Erişimi</th>
-                <th className="px-4 py-2 text-left text-sm font-medium text-gray-700">Fason Erişimi</th>
+                <th className="px-4 py-2 text-left text-sm font-medium text-gray-700">Dış Kaynak Üretim Erişimi</th>
                 <th className="px-4 py-2 text-left text-sm font-medium text-gray-700">Mobil Erişimi</th>
                 <th className="px-4 py-2 text-left text-sm font-medium text-gray-700">Oluşturulma</th>
                 <th className="px-4 py-2 text-left text-sm font-medium text-gray-700">İşlemler</th>

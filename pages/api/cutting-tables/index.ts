@@ -1,23 +1,28 @@
 // pages/api/cutting-tables/index.ts
 import type { NextApiRequest, NextApiResponse } from 'next';
-import { PrismaClient } from '@prisma/client';
+import { Prisma } from '@prisma/client';
+import prisma from "@/lib/prisma";
 
-const prisma = new PrismaClient();
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method === 'GET') {
     try {
-      const cuttingTables = await prisma.cuttingTable.findMany();
+      const cuttingTables = await prisma.cuttingTable.findMany({
+        include: {
+          assignedUser: {
+            select: { id: true, name: true, email: true },
+          },
+        },
+        orderBy: { name: 'asc' },
+      });
       res.status(200).json({
         success: true,
         data: cuttingTables,
         message: 'Veriler başarıyla alındı.'
       });
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('Veritabanı hatası:', {
-        query: error.query || 'Sorgu mevcut değil',
-        message: error.message,
-        stack: error.stack
+        message: error instanceof Error ? error.message : 'Unknown error',
       });
       res.status(500).json({
         success: false,
@@ -45,11 +50,16 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         data: newCuttingTable,
         message: 'Kesim masası başarıyla eklendi.'
       });
-    } catch (error: any) {
+    } catch (error: unknown) {
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+        return res.status(409).json({
+          success: false,
+          error: 'Bu kesim masası adı zaten kullanılıyor.',
+        });
+      }
+
       console.error('Veritabanı hatası:', {
-        query: error.query || 'Sorgu mevcut değil',
-        message: error.message,
-        stack: error.stack
+        message: error instanceof Error ? error.message : 'Unknown error',
       });
       res.status(500).json({
         success: false,

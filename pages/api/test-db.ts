@@ -1,7 +1,10 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import { PrismaClient } from '@prisma/client';
+import { ensureDebugEndpointEnabled } from "@/lib/runtime-config";
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
+  if (!ensureDebugEndpointEnabled(res)) return;
+
   try {
     console.log('🔍 Veritabanı bağlantı testi başlıyor...');
     

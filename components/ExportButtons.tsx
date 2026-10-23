@@ -9,7 +9,7 @@ type ExportButtonsProps = {
   disabled?: boolean;
   className?: string;
   // Fallback internal export using data
-  data?: any[];
+  data?: Array<Record<string, unknown>>;
   filename?: string;
 };
 
@@ -31,7 +31,8 @@ const ExportButtons: React.FC<ExportButtonsProps> = ({
       return;
     }
     const { jsPDF } = await import('jspdf');
-    const autoTable = (await import('jspdf-autotable')).default as (doc: any, options: any) => void;
+    type AutoTableFn = (doc: InstanceType<typeof jsPDF>, options: Record<string, unknown>) => void;
+    const autoTable = (await import('jspdf-autotable')).default as AutoTableFn;
     const doc = new jsPDF();
     const headers = Object.keys(data[0] ?? {});
     const rows = data.map(row => Object.values(row));
@@ -86,13 +87,13 @@ const ExportButtons: React.FC<ExportButtonsProps> = ({
   return (
     <div className={`export-buttons ${className || ''}`}>
       <button onClick={exportToPDF} disabled={disabled} className="btn btn-primary">
-        PDF'e Aktar
+        PDF&apos;e Aktar
       </button>
       <button onClick={exportToExcel} disabled={disabled} className="btn btn-secondary">
-        Excel'e Aktar
+        Excel&apos;e Aktar
       </button>
       <button onClick={exportToCSV} disabled={disabled} className="btn">
-        CSV'e Aktar
+        CSV&apos;e Aktar
       </button>
     </div>
   );

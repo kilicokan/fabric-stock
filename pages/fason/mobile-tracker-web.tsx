@@ -4,11 +4,18 @@ import { Truck, RefreshCw, AlertCircle, CheckCircle, Clock, Package } from 'luci
 interface WorkOrder {
   id: number;
   orderNo: string;
+  assignedToMobile: boolean;
   productCode: string;
   productName: string;
   quantity: number;
   customerName: string;
   status: string;
+  workOrderStatus: string;
+  centralWarehouseReceived: boolean;
+  centralWarehouseStainedQuantity: number;
+  centralWarehouseDefectiveQuantity: number;
+  centralWarehouseRepairQuantity: number;
+  centralWarehouseLostQuantity: number;
   priority: string;
   dueDate: string;
   unit: string;
@@ -24,12 +31,19 @@ const MobileTrackerWeb: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [lastUpdate, setLastUpdate] = useState<Date | null>(null);
   const [filteredStatus, setFilteredStatus] = useState('all');
+  const [receiptOrderId, setReceiptOrderId] = useState<number | null>(null);
+  const [receiptCounts, setReceiptCounts] = useState({ stained: 0, defective: 0, repair: 0, lost: 0 });
+  const [savingReceipt, setSavingReceipt] = useState(false);
 
   const fetchWorkOrders = async () => {
     try {
       setLoading(true);
       setError(null);
-      const response = await fetch('/api/fason/work-orders/mobile');
+      const token = localStorage.getItem('token');
+      if (!token) throw new Error('Mobil iş emirlerini görmek için tekrar giriş yapın.');
+      const response = await fetch('/api/fason/work-orders/mobile?page=1&limit=50', {
+        headers: { Authorization: `Bearer ${token}` },
+      });
       
       if (!response.ok) {
         throw new Error(`API Error: ${response.status}`);
@@ -46,10 +60,56 @@ const MobileTrackerWeb: React.FC = () => {
     }
   };
 
+  const saveWarehouseReceipt = async (order: WorkOrder) => {
+    const values = Object.values(receiptCounts);
+    if (values.some(value => !Number.isInteger(value) || value < 0)) {
+      setError('Lekeli, defolu, tamir ve kayıp adetleri 0 veya daha büyük tam sayı olmalıdır.');
+      return;
+    }
+    if (values.reduce((total, value) => total + value, 0) > order.quantity) {
+      setError(`Kontrol edilen toplam adet iş emri miktarını (${order.quantity}) aşamaz.`);
+      return;
+    }
+
+    try {
+      setSavingReceipt(true);
+      setError(null);
+      const token = localStorage.getItem('token');
+      if (!token) throw new Error('Oturum bulunamadı. Lütfen tekrar giriş yapın.');
+      const response = await fetch(`/api/fason/work-orders/${order.id}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `******`,
+        },
+        body: JSON.stringify({
+          status: 'TESLIM_EDILDI',
+          centralWarehouseReceived: true,
+          centralWarehouseStainedQuantity: receiptCounts.stained,
+          centralWarehouseDefectiveQuantity: receiptCounts.defective,
+          centralWarehouseRepairQuantity: receiptCounts.repair,
+          centralWarehouseLostQuantity: receiptCounts.lost,
+        }),
+      });
+      const result = await response.json();
+      if (!response.ok) {
+        throw new Error(result.error || 'Merkez Depo teslimi kaydedilemedi.');
+      }
+
+      setReceiptOrderId(null);
+      setReceiptCounts({ stained: 0, defective: 0, repair: 0, lost: 0 });
+      await fetchWorkOrders();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Merkez Depo teslimi kaydedilemedi.');
+    } finally {
+      setSavingReceipt(false);
+    }
+  };
+
   useEffect(() => {
     fetchWorkOrders();
-    // Auto-refresh every 10 seconds
-    const interval = setInterval(fetchWorkOrders, 10000);
+    // Auto-refresh every 30 seconds (increased from 10 to reduce server load)
+    const interval = setInterval(fetchWorkOrders, 30000);
     return () => clearInterval(interval);
   }, []);
 
@@ -254,6 +314,82 @@ const MobileTrackerWeb: React.FC = () => {
                     }>
                       {order.remainingDays < 0 ? `${Math.abs(order.remainingDays)} gün geç` : `${order.remainingDays} gün`}
                     </span>
+                  </div>
+                )}
+
+                {order.workOrderStatus === 'HAZIR' && !order.centralWarehouseReceived && (
+                  <div className="mt-4 border-t border-white/10 pt-4">
+                    {receiptOrderId !== order.id ? (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setReceiptOrderId(order.id);
+                          setReceiptCounts({ stained: 0, defective: 0, repair: 0, lost: 0 });
+                          setError(null);
+                        }}
+                        className="w-full rounded-lg bg-amber-500 px-4 py-3 font-semibold text-white hover:bg-amber-600"
+                      >
+                        Merkez Depo teslim al
+                      </button>
+                    ) : (
+                      <form
+                        onSubmit={event => {
+                          event.preventDefault();
+                          void saveWarehouseReceipt(order);
+                        }}
+                        className="space-y-3"
+                      >
+                        <p className="text-sm font-semibold text-white">Merkez Depo kalite kontrolü</p>
+                        <p className="text-xs text-gray-300">
+                          Yalnızca kayıp adedi ütü atölyesi bakiyesinden düşülür.
+                        </p>
+                        <div className="grid grid-cols-2 gap-3">
+                          {([
+                            ['stained', 'Lekeli adet'],
+                            ['defective', 'Defolu adet'],
+                            ['repair', 'Tamir adet'],
+                            ['lost', 'Kayıp adet'],
+                          ] as const).map(([key, label]) => (
+                            <label key={key} className="text-xs font-medium text-gray-200">
+                              {label}
+                              <input
+                                type="number"
+                                min="0"
+                                step="1"
+                                value={receiptCounts[key]}
+                                onChange={event => setReceiptCounts({
+                                  ...receiptCounts,
+                                  [key]: event.target.value === '' ? 0 : Number(event.target.value),
+                                })}
+                                className="mt-1 w-full rounded-lg border border-white/20 bg-slate-800 px-3 py-3 text-base text-white"
+                              />
+                            </label>
+                          ))}
+                        </div>
+                        <div className="flex gap-2">
+                          <button
+                            type="button"
+                            onClick={() => setReceiptOrderId(null)}
+                            disabled={savingReceipt}
+                            className="flex-1 rounded-lg bg-white/10 px-3 py-3 font-semibold text-white disabled:opacity-50"
+                          >
+                            Vazgeç
+                          </button>
+                          <button
+                            type="submit"
+                            disabled={savingReceipt}
+                            className="flex-1 rounded-lg bg-emerald-600 px-3 py-3 font-semibold text-white disabled:opacity-50"
+                          >
+                            {savingReceipt ? 'Kaydediliyor...' : 'Teslimi kaydet'}
+                          </button>
+                        </div>
+                      </form>
+                    )}
+                  </div>
+                )}
+                {order.centralWarehouseReceived && (
+                  <div className="mt-4 border-t border-white/10 pt-3 text-xs text-gray-300">
+                    Depo kontrolü: Lekeli {order.centralWarehouseStainedQuantity} · Defolu {order.centralWarehouseDefectiveQuantity} · Tamir {order.centralWarehouseRepairQuantity} · Kayıp {order.centralWarehouseLostQuantity}
                   </div>
                 )}
               </div>

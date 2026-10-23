@@ -4,6 +4,16 @@ import prisma from './prisma';
 import bcrypt from 'bcryptjs';
 import { Prisma, Role } from '@prisma/client';
 
+const normalizeRoleValue = (role?: string): Role | undefined => {
+  const normalized = (role || '').trim().toUpperCase();
+  if (!normalized) return undefined;
+
+  if (normalized === 'ADMIN') return Role.ADMIN;
+  if (normalized === 'USER' || normalized === 'OPERATOR') return Role.OPERATOR;
+
+  return undefined;
+};
+
 interface UserData {
   username: string;
   email: string;
@@ -12,6 +22,7 @@ interface UserData {
   stockAccess?: boolean;
   fasonAccess?: boolean;
   mobileAccess?: boolean;
+  isActive?: boolean;
 }
 
 interface UpdateData {
@@ -22,6 +33,7 @@ interface UpdateData {
   stockAccess?: boolean;
   fasonAccess?: boolean;
   mobileAccess?: boolean;
+  isActive?: boolean;
 }
 
 async function getUsers() {
@@ -37,6 +49,7 @@ async function getUsers() {
         stockAccess: true,
         fasonAccess: true,
         mobileAccess: true,
+        isActive: true,
         createdAt: true,
         updatedAt: true
       }
@@ -67,6 +80,7 @@ async function getUserById(id: string) {
         stockAccess: true,
         fasonAccess: true,
         mobileAccess: true,
+        isActive: true,
         createdAt: true,
         updatedAt: true
       }
@@ -80,7 +94,7 @@ async function getUserById(id: string) {
 
 async function addUser(userData: UserData) {
   try {
-    const { username, email, password, role, stockAccess, fasonAccess, mobileAccess } = userData;
+    const { username, email, password, role, stockAccess, fasonAccess, mobileAccess, isActive } = userData;
 
     // Validate required fields
     if (!username || !email || !password) {
@@ -117,12 +131,11 @@ async function addUser(userData: UserData) {
 
     // Map role to enum values with proper validation
     let mappedRole: Role = Role.OPERATOR; // default
-    if (role) {
-      const upperRole = role.toUpperCase();
-      if (upperRole in Role) {
-        mappedRole = upperRole as Role;
+    if (role !== undefined) {
+      const normalizedRole = normalizeRoleValue(role);
+      if (normalizedRole) {
+        mappedRole = normalizedRole;
       } else {
-        // Geçersiz rol için varsayılan ata
         mappedRole = Role.OPERATOR;
         console.warn(`Geçersiz rol: ${role}, varsayılan OPERATOR atandı`);
       }
@@ -136,7 +149,8 @@ async function addUser(userData: UserData) {
         name: username,
         stockAccess: stockAccess || false,
         fasonAccess: fasonAccess || false,
-        mobileAccess: mobileAccess || false
+        mobileAccess: mobileAccess || false,
+        isActive: isActive !== undefined ? isActive : true,
       },
       select: {
         id: true,
@@ -167,7 +181,7 @@ async function updateUser(id: string, userData: UpdateData) {
       throw new Error('Geçersiz kullanıcı ID');
     }
 
-    const { username, email, password, role, stockAccess, fasonAccess, mobileAccess } = userData;
+    const { username, email, password, role, stockAccess, fasonAccess, mobileAccess, isActive } = userData;
 
     // Check if user exists
     const existingUser = await prisma.user.findUnique({
@@ -223,19 +237,19 @@ async function updateUser(id: string, userData: UpdateData) {
       updateData.password = await bcrypt.hash(password, 12);
     }
     
-    if (role) {
-      const upperRole = role.toUpperCase();
-      if (upperRole in Role) {
-        updateData.role = upperRole as Role;
+    if (role !== undefined) {
+      const normalizedRole = normalizeRoleValue(role);
+      if (normalizedRole) {
+        updateData.role = normalizedRole;
       } else {
         console.warn(`Geçersiz rol: ${role}, rol değiştirilmedi`);
-        // Rol geçersizse, mevcut rolü koru
       }
     }
     
     if (stockAccess !== undefined) updateData.stockAccess = stockAccess;
     if (fasonAccess !== undefined) updateData.fasonAccess = fasonAccess;
     if (mobileAccess !== undefined) updateData.mobileAccess = mobileAccess;
+    if (isActive !== undefined) updateData.isActive = isActive;
 
     const updatedUser = await prisma.user.update({
       where: { id: userId },
@@ -249,6 +263,7 @@ async function updateUser(id: string, userData: UpdateData) {
         stockAccess: true,
         fasonAccess: true,
         mobileAccess: true,
+        isActive: true,
         createdAt: true,
         updatedAt: true
         // Password'ü response'tan çıkardık

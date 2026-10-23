@@ -1,7 +1,44 @@
 import { useState, useEffect, CSSProperties } from "react";
-import axios from "axios";
+/* eslint-disable @next/next/no-img-element */
+import axios, { type InternalAxiosRequestConfig } from "axios";
 import ExportButtons from "../../components/ExportButtons";
+import SewingInstruction from "../../components/sewing-instruction";
 import * as XLSX from "xlsx";
+
+const apiClient = axios.create();
+
+apiClient.interceptors.request.use((config: InternalAxiosRequestConfig) => {
+  if (typeof window !== "undefined") {
+    const token = localStorage.getItem("token");
+    if (token) {
+      config.headers = { ...(config.headers as Record<string, string>), Authorization: `Bearer ${token}` } as any;
+    }
+  }
+  return config;
+});
+
+apiClient.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    if (typeof window !== "undefined" && error?.response?.status === 401) {
+      localStorage.removeItem("token");
+      if (!window.location.pathname.startsWith("/login")) {
+        window.location.href = "/login";
+      }
+    }
+    return Promise.reject(error);
+  }
+);
+
+async function getArrayOrEmpty<T>(url: string, label: string): Promise<T[]> {
+  try {
+    const response = await apiClient.get(url);
+    return Array.isArray(response.data) ? (response.data as T[]) : [];
+  } catch (error) {
+    console.error(`${label} yuklenemedi:`, error);
+    return [];
+  }
+}
 
 interface MaterialType {
   id: number;
@@ -23,27 +60,68 @@ interface TaxRate {
   name: string;
 }
 
+interface WarehouseOption {
+  id: number;
+  code: string;
+  name: string;
+  isActive?: boolean;
+}
+
+interface Accessory {
+  id: number;
+  code?: string;
+  name: string;
+  unit: string;
+  stockQuantity: number;
+  warehouseId?: number | null;
+  warehouse?: WarehouseOption | null;
+}
+
+interface ProductRecipe {
+  id?: number;
+  resourceType: "FABRIC" | "ACCESSORY";
+  fabricId?: number | "";
+  accessoryId?: number | "";
+  quantityPerUnit: number;
+  unit: "m" | "kg";
+  fabric?: Fabric;
+  accessory?: Accessory;
+}
+
 interface Product {
   id: number;
   modelNo: string;
   name: string;
   image?: string;
+  backImage?: string | null;
+  frontImages?: string[] | null;
+  backImages?: string[] | null;
   description?: string;
   materialType?: MaterialType;
   fabric?: Fabric;
   group?: Group;
   taxRate?: TaxRate;
+  warehouse?: WarehouseOption | null;
+  recipes?: ProductRecipe[];
+  sewingNotes?: string;
   fabricType?: string; // For backward compatibility
+  averageGrammage?: number | null;
 }
 
 interface ProductForm {
   modelNo: string;
   name: string;
   image?: string;
+  frontImages: string[];
+  backImages: string[];
   materialTypeId: string;
   fabricId: string;
   groupId: string;
   taxRateId: string;
+  warehouseId: string;
+  recipes: ProductRecipe[];
+  sewingNotes?: string;
+  averageGrammage: string;
 }
 
 interface ProductListProps {
@@ -58,21 +136,36 @@ interface ProductAddProps {
   setActiveTab: React.Dispatch<React.SetStateAction<string>>;
 }
 
+interface ProductionPlanningRow {
+  resourceType: "FABRIC" | "ACCESSORY";
+  resourceId: number;
+  resourceName: string;
+  unit: string;
+  requiredQuantity: number;
+  stockQuantity: number;
+  netQuantity: number;
+  purchaseQuantity: number;
+  orders: string[];
+}
+
 interface ProductEditProps {
   product: Product;
   onSave: (updatedProduct: Product) => void;
   onCancel: () => void;
 }
 
+type CsvRow = Record<string, string>;
+type GenericRow = Record<string, unknown>;
+
 // CSV parsing utility
-function parseCSV(csvText: string): any[] {
+function parseCSV(csvText: string): CsvRow[] {
   const lines = csvText.split('\n').filter(line => line.trim());
   if (lines.length === 0) return [];
 
   const headers = lines[0].split(',').map(h => h.trim().replace(/"/g, ''));
-  const rows = lines.slice(1).map(line => {
+  const rows: CsvRow[] = lines.slice(1).map(line => {
     const values = line.split(',').map(v => v.trim().replace(/"/g, ''));
-    const obj: any = {};
+    const obj: CsvRow = {};
     headers.forEach((header, index) => {
       obj[header] = values[index] || '';
     });
@@ -82,9 +175,236 @@ function parseCSV(csvText: string): any[] {
   return rows;
 }
 
+function pickFirstValue(row: GenericRow, keys: string[]): string {
+  for (const key of keys) {
+    const value = row[key];
+    if (value === undefined || value === null) continue;
+    const normalized = String(value).trim();
+    if (normalized.length > 0) return normalized;
+  }
+  return "";
+}
+
+function createEmptyRecipe(): ProductRecipe {
+  return {
+    resourceType: "FABRIC",
+    fabricId: "",
+    accessoryId: "",
+    quantityPerUnit: 0,
+    unit: "m",
+  };
+}
+
+function readImageFiles(files: File[]): Promise<string[]> {
+  return Promise.all(files.map((file) => new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      if (typeof reader.result === "string") resolve(reader.result);
+      else reject(new Error("Fotoğraf okunamadı."));
+    };
+    reader.onerror = () => reject(reader.error || new Error("Fotoğraf okunamadı."));
+    reader.readAsDataURL(file);
+  })));
+}
+
+function ProductImageGallery({
+  label,
+  images,
+  onAdd,
+  onRemove,
+}: {
+  label: string;
+  images: string[];
+  onAdd: (files: FileList) => void;
+  onRemove: (index: number) => void;
+}) {
+  return (
+    <div style={styles.inputGroup}>
+      <label style={styles.label}>{label} ({images.length}/5)</label>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem', alignItems: 'flex-start' }}>
+        {images.map((image, index) => (
+          <div
+            key={`${index}-${image.slice(0, 40)}`}
+            style={{ position: 'relative', width: '100px', height: '112px' }}
+          >
+            <img
+              src={image}
+              alt={`${label} ${index + 1}`}
+              style={{ width: '100%', height: '90px', objectFit: 'cover', borderRadius: '6px', border: '1px solid #ddd' }}
+            />
+            <button
+              type="button"
+              aria-label={`${label} ${index + 1} görselini kaldır`}
+              onClick={() => onRemove(index)}
+              style={{ ...styles.smallButton, backgroundColor: '#dc3545', width: '100%', padding: '0.25rem' }}
+            >
+              Kaldır
+            </button>
+          </div>
+        ))}
+        {images.length < 5 && (
+          <label
+            style={{
+              width: '100px',
+              height: '90px',
+              border: '1px dashed #9aa6a0',
+              borderRadius: '6px',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              textAlign: 'center',
+              padding: '0.5rem',
+              cursor: 'pointer',
+              color: '#53645a',
+              fontSize: '0.8rem',
+            }}
+          >
+            Fotoğraf ekle
+            <input
+              type="file"
+              accept="image/*"
+              multiple
+              onChange={(event) => {
+                if (event.target.files?.length) onAdd(event.target.files);
+                event.target.value = '';
+              }}
+              style={{ display: 'none' }}
+            />
+          </label>
+        )}
+      </div>
+      <div style={{ color: '#6c757d', fontSize: '0.8rem', marginTop: '0.35rem' }}>
+        Birden fazla fotoğraf seçebilirsiniz; her yüz için en fazla 5 fotoğraf.
+      </div>
+    </div>
+  );
+}
+
+function ProductRecipeEditor({
+  recipes,
+  fabrics,
+  accessories,
+  onChange,
+}: {
+  recipes: ProductRecipe[];
+  fabrics: Fabric[];
+  accessories: Accessory[];
+  onChange: (recipes: ProductRecipe[]) => void;
+}) {
+  const updateRecipe = (
+    index: number,
+    field: keyof ProductRecipe,
+    value: string | number
+  ) => {
+    const updated = [...recipes];
+    updated[index] = {
+      ...updated[index],
+      ...(field === "resourceType"
+        ? {
+            resourceType: value as "FABRIC" | "ACCESSORY",
+            fabricId: value === "FABRIC" ? updated[index].fabricId || "" : "",
+            accessoryId: value === "ACCESSORY" ? updated[index].accessoryId || "" : "",
+            unit: value === "FABRIC" ? "m" : updated[index].unit,
+          }
+        : {}),
+      [field]: field === "quantityPerUnit" ? Number(value) || 0 : value,
+    };
+    onChange(updated);
+  };
+
+  const removeRecipe = (index: number) => {
+    onChange(recipes.filter((_, recipeIndex) => recipeIndex !== index));
+  };
+
+  return (
+    <div style={styles.recipeWrapper}>
+      <div style={styles.recipeHeader}>
+        <label style={styles.label}>Ürün Reçetesi</label>
+        <button
+          type="button"
+          style={styles.smallActionButton}
+          onClick={() => onChange([...recipes, createEmptyRecipe()])}
+        >
+          Satır Ekle
+        </button>
+      </div>
+
+      {recipes.length === 0 ? (
+        <div style={styles.recipeEmpty}>
+          Bu ürüne bağlı hammadde yok. Reçete ekleyerek siparişten metre/kg ihtiyacı hesaplanabilir.
+        </div>
+      ) : (
+        recipes.map((recipe, index) => (
+          <div key={`recipe-${index}`} style={styles.recipeRow}>
+            <select
+              value={recipe.resourceType}
+              onChange={(e) => updateRecipe(index, "resourceType", e.target.value)}
+              style={{ ...styles.select, flex: 1 }}
+            >
+              <option value="FABRIC">Kumaş</option>
+              <option value="ACCESSORY">Aksesuar</option>
+            </select>
+            {recipe.resourceType === "FABRIC" ? (
+              <select
+                value={recipe.fabricId || ""}
+                onChange={(e) => updateRecipe(index, "fabricId", e.target.value)}
+                style={{ ...styles.select, flex: 2 }}
+              >
+                <option value="">Kumaş seçiniz</option>
+                {fabrics.map((fabric) => (
+                  <option key={fabric.id} value={fabric.id}>
+                    {fabric.name}
+                  </option>
+                ))}
+              </select>
+            ) : (
+              <select
+                value={recipe.accessoryId || ""}
+                onChange={(e) => updateRecipe(index, "accessoryId", e.target.value)}
+                style={{ ...styles.select, flex: 2 }}
+              >
+                <option value="">Aksesuar seçiniz</option>
+                {accessories.map((accessory) => (
+                  <option key={accessory.id} value={accessory.id}>
+                    {accessory.name}
+                  </option>
+                ))}
+              </select>
+            )}
+            <input
+              type="number"
+              min="0"
+              step="0.001"
+              value={recipe.quantityPerUnit}
+              onChange={(e) => updateRecipe(index, "quantityPerUnit", e.target.value)}
+              style={{ ...styles.input, flex: 1 }}
+              placeholder="Miktar"
+            />
+            <select
+              value={recipe.unit}
+              onChange={(e) => updateRecipe(index, "unit", e.target.value as "m" | "kg")}
+              style={{ ...styles.select, flex: 1 }}
+            >
+              <option value="m">Metre</option>
+              <option value="kg">KG</option>
+            </select>
+            <button
+              type="button"
+              style={{ ...styles.smallButton, backgroundColor: "#dc3545" }}
+              onClick={() => removeRecipe(index)}
+            >
+              Sil
+            </button>
+          </div>
+        ))
+      )}
+    </div>
+  );
+}
+
 // Ana Ürünler Bileşeni
 export default function ProductsPage() {
-  const [activeTab, setActiveTab] = useState("list"); // "list" veya "add"
+  const [activeTab, setActiveTab] = useState("list");
   const [products, setProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -95,7 +415,7 @@ export default function ProductsPage() {
   const fetchProducts = async () => {
     try {
       setLoading(true);
-      const response = await axios.get('/api/products');
+      const response = await apiClient.get('/api/products');
       setProducts(response.data as Product[]);
     } catch (error) {
       console.error('Ürünler yüklenirken hata:', error);
@@ -123,14 +443,36 @@ export default function ProductsPage() {
         >
           Ürün Ekle
         </button>
+        <button 
+          style={activeTab === "accessories" ? {...styles.tabButton, ...styles.activeTab} : styles.tabButton}
+          onClick={() => setActiveTab("accessories")}
+        >
+          Aksesuarlar
+        </button>
+        <button 
+          style={activeTab === "planning" ? {...styles.tabButton, ...styles.activeTab} : styles.tabButton}
+          onClick={() => setActiveTab("planning")}
+        >
+          Üretim Planlama
+        </button>
       </div>
       
       {/* İçerik Alanı */}
       <div style={styles.content}>
-        {activeTab === "list" ?
-          <ProductList products={products} setProducts={setProducts} fetchProducts={fetchProducts} /> :
-          <ProductAdd products={products} setProducts={setProducts} setActiveTab={setActiveTab} />
-        }
+        {loading ? (
+          <div style={styles.recipeEmpty}>Ürünler yükleniyor...</div>
+        ) : (
+          <>
+            {activeTab === "list" && (
+              <ProductList products={products} setProducts={setProducts} fetchProducts={fetchProducts} />
+            )}
+            {activeTab === "add" && (
+              <ProductAdd products={products} setProducts={setProducts} setActiveTab={setActiveTab} />
+            )}
+            {activeTab === "accessories" && <AccessoryManagement />}
+            {activeTab === "planning" && <ProductionPlanning />}
+          </>
+        )}
       </div>
     </div>
   );
@@ -140,6 +482,7 @@ export default function ProductsPage() {
 function ProductList({ products, setProducts, fetchProducts }: ProductListProps) {
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
   const [importing, setImporting] = useState(false);
+  const [viewMode, setViewMode] = useState<"list" | "card">("list");
 
   const handleEdit = (product: Product) => {
     setEditingProduct(product);
@@ -147,7 +490,7 @@ function ProductList({ products, setProducts, fetchProducts }: ProductListProps)
 
   const handleUpdate = async (updatedProduct: Product) => {
     try {
-      const response = await axios.put('/api/products', {
+      const response = await apiClient.put('/api/products', {
         id: updatedProduct.id,
         modelNo: updatedProduct.modelNo,
         name: updatedProduct.name,
@@ -155,8 +498,15 @@ function ProductList({ products, setProducts, fetchProducts }: ProductListProps)
         fabricId: updatedProduct.fabric?.id || null,
         groupId: updatedProduct.group?.id || null,
         taxRateId: updatedProduct.taxRate?.id || null,
+        warehouseId: updatedProduct.warehouse?.id || null,
         description: updatedProduct.description,
-        image: updatedProduct.image
+        image: updatedProduct.image,
+        frontImages: updatedProduct.frontImages || [],
+        backImages: updatedProduct.backImages || [],
+        backImage: updatedProduct.backImage || null,
+        recipes: updatedProduct.recipes || [],
+        sewingNotes: updatedProduct.sewingNotes || null,
+        averageGrammage: updatedProduct.averageGrammage ?? null,
       });
 
       if (response.status === 200) {
@@ -173,8 +523,12 @@ function ProductList({ products, setProducts, fetchProducts }: ProductListProps)
 
   const handleDelete = (id: number) => {
     if (window.confirm("Bu ürünü silmek istediğinize emin misiniz?")) {
-      setProducts(products.filter((p: Product) => p.id !== id));
-      alert("Ürün başarıyla silindi!");
+      apiClient.delete(`/api/products?id=${id}`).then(() => {
+        setProducts(products.filter((p: Product) => p.id !== id));
+        alert("Ürün başarıyla silindi!");
+      }).catch(() => {
+        alert("Ürün silinirken hata oluştu");
+      });
     }
   };
 
@@ -186,7 +540,7 @@ function ProductList({ products, setProducts, fetchProducts }: ProductListProps)
     try {
       const fileExtension = file.name.split('.').pop()?.toLowerCase();
 
-      let parsedData: any[] = [];
+      let parsedData: GenericRow[] = [];
 
       if (fileExtension === 'csv') {
         const text = await file.text();
@@ -209,17 +563,17 @@ function ProductList({ products, setProducts, fetchProducts }: ProductListProps)
 
       // Transform data to match API expectations
       const productsToImport = parsedData.map(row => ({
-        modelNo: row['Model No'] || row['modelNo'] || row['ModelNo'],
-        name: row['Ürün Adı'] || row['name'] || row['Name'],
-        materialTypeId: row['Malzeme Türü ID'] || row['materialTypeId'] || row['MaterialTypeId'],
-        fabricId: row['Kumaş Türü ID'] || row['fabricId'] || row['FabricId'],
-        groupId: row['Grup ID'] || row['groupId'] || row['GroupId'],
-        taxRateId: row['KDV Oranı ID'] || row['taxRateId'] || row['TaxRateId'],
-        description: row['Açıklama'] || row['description'] || row['Description'],
-        image: row['Görsel'] || row['image'] || row['Image']
+        modelNo: pickFirstValue(row, ['Model No', 'modelNo', 'ModelNo', 'MODEL NO']),
+        name: pickFirstValue(row, ['Ürün Adı', 'Urun Adi', 'Urun Adı', 'Ürün Adı', 'name', 'Name']),
+        materialTypeId: pickFirstValue(row, ['Malzeme Türü ID', 'Malzeme Turu ID', 'Malzeme Türü ID', 'materialTypeId', 'MaterialTypeId']),
+        fabricId: pickFirstValue(row, ['Kumaş Türü ID', 'Kumas Turu ID', 'Kumaş Türü ID', 'fabricId', 'FabricId']),
+        groupId: pickFirstValue(row, ['Grup ID', 'groupId', 'GroupId']),
+        taxRateId: pickFirstValue(row, ['KDV Oranı ID', 'KDV Orani ID', 'KDV Oranı ID', 'taxRateId', 'TaxRateId']),
+        description: pickFirstValue(row, ['Açıklama', 'Aciklama', 'Açıklama', 'description', 'Description']),
+        image: pickFirstValue(row, ['Görsel', 'Gorsel', 'Görsel', 'image', 'Image'])
       }));
 
-      const response = await axios.post('/api/products/import', { products: productsToImport });
+      const response = await apiClient.post('/api/products/import', { products: productsToImport });
 
       if (response.data.success > 0) {
         alert(response.data.message);
@@ -229,9 +583,14 @@ function ProductList({ products, setProducts, fetchProducts }: ProductListProps)
         alert(`İçe aktarma başarısız: ${response.data.importErrors.join(', ')}`);
       }
 
-    } catch (error) {
+    } catch (error: unknown) {
       console.error('Import error:', error);
-      alert('İçe aktarma sırasında hata oluştu.');
+      const message =
+        typeof error === 'object' && error !== null && 'response' in error
+          ? ((error as { response?: { data?: { message?: string; error?: string } } }).response?.data?.message ||
+            (error as { response?: { data?: { message?: string; error?: string } } }).response?.data?.error)
+          : undefined;
+      alert(`İçe aktarma sırasında hata oluştu: ${message || 'Bilinmeyen hata'}`);
     } finally {
       setImporting(false);
       // Reset file input
@@ -244,8 +603,10 @@ function ProductList({ products, setProducts, fetchProducts }: ProductListProps)
     'Ürün Adı': product.name,
     'Malzeme Türü': product.materialType?.name || '',
     'Kumaş Türü': product.fabric?.name || '',
+    'Depo': product.warehouse ? `${product.warehouse.code} - ${product.warehouse.name}` : '',
     'Grup': product.group?.name || '',
     'KDV Oranı': product.taxRate?.name || '',
+    'Reçete Satırı': product.recipes?.length || 0,
     'Açıklama': product.description || '',
     'Görsel': product.image || ''
   }));
@@ -280,55 +641,144 @@ function ProductList({ products, setProducts, fetchProducts }: ProductListProps)
             />
           </div>
 
-          <div style={styles.tableContainer}>
-            <table style={styles.table}>
-              <thead>
-                <tr>
-                  <th style={styles.th}>Model No</th>
-                  <th style={styles.th}>Ürün Adı</th>
-                  <th style={styles.th}>Malzeme Türü</th>
-                  <th style={styles.th}>Kumaş Türü</th>
-                  <th style={styles.th}>Grup</th>
-                  <th style={styles.th}>KDV Oranı</th>
-                  <th style={styles.th}>İşlemler</th>
-                </tr>
-              </thead>
-              <tbody>
-                {products.length > 0 ? (
-                  products.map(product => (
-                    <tr key={product.id}>
-                      <td style={styles.td}>{product.modelNo}</td>
-                      <td style={styles.td}>{product.name}</td>
-                      <td style={styles.td}>{product.materialType?.name}</td>
-                      <td style={styles.td}>{product.fabric?.name}</td>
-                      <td style={styles.td}>{product.group?.name}</td>
-                      <td style={styles.td}>{product.taxRate?.name}</td>
-                      <td style={styles.td}>
-                        <button
-                          style={{...styles.smallButton, marginRight: '0.5rem'}}
-                          onClick={() => handleEdit(product)}
-                        >
-                          Düzenle
-                        </button>
-                        <button
-                          style={{...styles.smallButton, backgroundColor: '#dc3545'}}
-                          onClick={() => handleDelete(product.id)}
-                        >
-                          Sil
-                        </button>
+          <div style={styles.viewModeRow}>
+            <button
+              type="button"
+              style={{
+                ...styles.viewModeButton,
+                ...(viewMode === "list" ? styles.viewModeButtonActive : {}),
+              }}
+              onClick={() => setViewMode("list")}
+            >
+              Liste Görünümü
+            </button>
+            <button
+              type="button"
+              style={{
+                ...styles.viewModeButton,
+                ...(viewMode === "card" ? styles.viewModeButtonActive : {}),
+              }}
+              onClick={() => setViewMode("card")}
+            >
+              Kart Görünümü
+            </button>
+          </div>
+
+          {viewMode === "list" ? (
+            <div style={styles.tableContainer}>
+              <table style={styles.table}>
+                <thead>
+                  <tr>
+                    <th style={styles.th}>Model No</th>
+                    <th style={styles.th}>Ürün Adı</th>
+                    <th style={styles.th}>Malzeme Türü</th>
+                    <th style={styles.th}>Kumaş Türü</th>
+                    <th style={styles.th}>Depo</th>
+                    <th style={styles.th}>Grup</th>
+                    <th style={styles.th}>KDV Oranı</th>
+                    <th style={styles.th}>Reçete</th>
+                    <th style={styles.th}>İşlemler</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {products.length > 0 ? (
+                    products.map(product => (
+                      <tr key={product.id}>
+                        <td style={styles.td}>{product.modelNo}</td>
+                        <td style={styles.td}>{product.name}</td>
+                        <td style={styles.td}>{product.materialType?.name}</td>
+                        <td style={styles.td}>{product.fabric?.name}</td>
+                        <td style={styles.td}>
+                          {product.warehouse ? `${product.warehouse.code} - ${product.warehouse.name}` : "-"}
+                        </td>
+                        <td style={styles.td}>{product.group?.name}</td>
+                        <td style={styles.td}>{product.taxRate?.name}</td>
+                        <td style={styles.td}>
+                          {product.recipes?.length
+                            ? `${product.recipes.length} satır`
+                            : "Tanımsız"}
+                        </td>
+                        <td style={styles.td}>
+                          <button
+                            style={{...styles.smallButton, marginRight: '0.5rem'}}
+                            onClick={() => handleEdit(product)}
+                          >
+                            Düzenle
+                          </button>
+                          <button
+                            style={{...styles.smallButton, backgroundColor: '#dc3545'}}
+                            onClick={() => handleDelete(product.id)}
+                          >
+                            Sil
+                          </button>
+                        </td>
+                      </tr>
+                    ))
+                  ) : (
+                    <tr>
+                      <td colSpan={9} style={{...styles.td, textAlign: 'center'}}>
+                        Henüz hiç ürün eklenmemiş.
                       </td>
                     </tr>
-                  ))
-                ) : (
-                  <tr>
-                    <td colSpan={7} style={{...styles.td, textAlign: 'center'}}>
-                      Henüz hiç ürün eklenmemiş.
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <div style={styles.cardGrid}>
+              {products.length > 0 ? (
+                products.map((product) => (
+                  <div key={product.id} style={styles.productCard}>
+                    <div style={styles.productImageContainer}>
+                      {product.image ? (
+                        <img
+                          src={product.image}
+                          alt={product.name || "Ürün"}
+                          style={styles.productImage}
+                        />
+                      ) : (
+                        <div style={styles.productImagePlaceholder}>Görsel yok</div>
+                      )}
+                    </div>
+
+                    <div style={styles.productCardBody}>
+                      <div style={styles.productCardTitle}>{product.name || "-"}</div>
+                      <div style={styles.productCardCode}>{product.modelNo || "-"}</div>
+                      <div style={styles.productMetaText}>Malzeme: {product.materialType?.name || "-"}</div>
+                      <div style={styles.productMetaText}>Kumaş: {product.fabric?.name || "-"}</div>
+                      <div style={styles.productMetaText}>
+                        Depo: {product.warehouse ? `${product.warehouse.code} - ${product.warehouse.name}` : "-"}
+                      </div>
+                      <div style={styles.productMetaText}>Grup: {product.group?.name || "-"}</div>
+                      <div style={styles.productMetaText}>KDV: {product.taxRate?.name || "-"}</div>
+                      <div style={styles.productMetaText}>
+                        Reçete: {product.recipes?.length ? `${product.recipes.length} satır` : "Tanımsız"}
+                      </div>
+                    </div>
+
+                    <div style={styles.cardActions}>
+                      <button
+                        type="button"
+                        style={{...styles.smallButton, flex: 1}}
+                        onClick={() => handleEdit(product)}
+                      >
+                        Düzenle
+                      </button>
+                      <button
+                        type="button"
+                        style={{...styles.smallButton, backgroundColor: '#dc3545', flex: 1}}
+                        onClick={() => handleDelete(product.id)}
+                      >
+                        Sil
+                      </button>
+                    </div>
+                  </div>
+                ))
+              ) : (
+                <div style={styles.emptyCardState}>Henüz hiç ürün eklenmemiş.</div>
+              )}
+            </div>
+          )}
 
           <div style={{marginTop: '1rem', textAlign: 'center', color: '#6c757d'}}>
             Toplam {products.length} ürün listeleniyor.
@@ -344,19 +794,24 @@ function ProductAdd({ products, setProducts, setActiveTab }: ProductAddProps) {
   const [form, setForm] = useState<ProductForm>({
     modelNo: "",
     image: "",
+    frontImages: [],
+    backImages: [],
     name: "",
     materialTypeId: "",
     fabricId: "",
     groupId: "",
-    taxRateId: ""
+    taxRateId: "",
+    warehouseId: "",
+    recipes: [],
+    averageGrammage: "",
   });
-
   const [isManualCode, setIsManualCode] = useState(false);
-  const [imagePreview, setImagePreview] = useState("");
   const [materialTypes, setMaterialTypes] = useState<MaterialType[]>([]);
   const [fabrics, setFabrics] = useState<Fabric[]>([]);
   const [groups, setGroups] = useState<Group[]>([]);
   const [taxRates, setTaxRates] = useState<TaxRate[]>([]);
+  const [warehouses, setWarehouses] = useState<WarehouseOption[]>([]);
+  const [accessories, setAccessories] = useState<Accessory[]>([]);
 
   useEffect(() => {
     fetchOptions();
@@ -364,18 +819,22 @@ function ProductAdd({ products, setProducts, setActiveTab }: ProductAddProps) {
 
   const fetchOptions = async () => {
     try {
-      const [mtRes, ftRes, gRes, trRes] = await Promise.all([
-        axios.get('/api/material-types'),
-        axios.get('/api/fabrics'),
-        axios.get('/api/groups'),
-        axios.get('/api/tax-rates')
+      const [materialTypeData, fabricData, groupData, taxRateData, warehouseData, accessoryData] = await Promise.all([
+        getArrayOrEmpty<MaterialType>("/api/material-types", "Materyal tipleri"),
+        getArrayOrEmpty<Fabric>("/api/fabrics", "Kumaslar"),
+        getArrayOrEmpty<Group>("/api/groups", "Gruplar"),
+        getArrayOrEmpty<TaxRate>("/api/tax-rates", "KDV oranlari"),
+        getArrayOrEmpty<WarehouseOption>("/api/warehouses?withSummary=false", "Depolar"),
+        getArrayOrEmpty<Accessory>("/api/accessories", "Aksesuarlar"),
       ]);
-      setMaterialTypes(mtRes.data);
-      setFabrics(ftRes.data);
-      setGroups(gRes.data);
-      setTaxRates(trRes.data);
+      setMaterialTypes(materialTypeData);
+      setFabrics(fabricData);
+      setGroups(groupData);
+      setTaxRates(taxRateData);
+      setWarehouses(warehouseData.filter((warehouse) => warehouse.isActive !== false));
+      setAccessories(accessoryData);
     } catch (error) {
-      console.error('Seçenekler yüklenirken hata:', error);
+      console.error("Secenekler yuklenirken beklenmeyen hata:", error);
     }
   };
 
@@ -383,14 +842,20 @@ function ProductAdd({ products, setProducts, setActiveTab }: ProductAddProps) {
     e.preventDefault();
 
     try {
-      const response = await axios.post('/api/products', {
+      const response = await apiClient.post('/api/products', {
         modelNo: form.modelNo,
         name: form.name,
         materialTypeId: form.materialTypeId,
         fabricId: form.fabricId,
         groupId: form.groupId,
         taxRateId: form.taxRateId,
-        image: form.image
+        warehouseId: form.warehouseId || null,
+        image: form.frontImages[0] || form.image,
+        frontImages: form.frontImages,
+        backImages: form.backImages,
+        backImage: form.backImages[0] || null,
+        recipes: form.recipes,
+        averageGrammage: form.averageGrammage ? parseFloat(form.averageGrammage) : null,
       });
 
       alert("Ürün başarıyla eklendi!");
@@ -400,13 +865,17 @@ function ProductAdd({ products, setProducts, setActiveTab }: ProductAddProps) {
       setForm({
         modelNo: "",
         image: "",
+        frontImages: [],
+        backImages: [],
         name: "",
         materialTypeId: "",
         fabricId: "",
         groupId: "",
-        taxRateId: ""
+        taxRateId: "",
+        warehouseId: "",
+        recipes: [],
+        averageGrammage: "",
       });
-      setImagePreview("");
       setIsManualCode(false);
 
       // Listeleme sekmesine geç
@@ -422,17 +891,40 @@ function ProductAdd({ products, setProducts, setActiveTab }: ProductAddProps) {
     setForm(prev => ({ ...prev, [name]: value }));
   };
 
-  const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        const result = reader.result as string;
-        setImagePreview(result);
-        setForm(prev => ({ ...prev, image: result }));
-      };
-      reader.readAsDataURL(file);
+  const handleImageFilesChange = async (side: "frontImages" | "backImages", files: FileList) => {
+    const existingImages = form[side];
+    const selectedFiles = Array.from(files);
+    const availableSlots = 5 - existingImages.length;
+    if (selectedFiles.length > availableSlots) {
+      alert(`Her yüz için en fazla 5 fotoğraf ekleyebilirsiniz. Bu seçimde ${availableSlots} fotoğraf eklenebilir.`);
     }
+
+    const filesToRead = selectedFiles.slice(0, availableSlots);
+    try {
+      const images = await readImageFiles(filesToRead);
+      setForm(prev => {
+        const updatedImages = [...prev[side], ...images].slice(0, 5);
+        return {
+          ...prev,
+          [side]: updatedImages,
+          ...(side === "frontImages" ? { image: updatedImages[0] || "" } : {}),
+        };
+      });
+    } catch (error) {
+      console.error("Ürün fotoğrafları okunamadı:", error);
+      alert("Seçilen fotoğraflar okunamadı.");
+    }
+  };
+
+  const removeImage = (side: "frontImages" | "backImages", index: number) => {
+    setForm(prev => {
+      const updatedImages = prev[side].filter((_, imageIndex) => imageIndex !== index);
+      return {
+        ...prev,
+        [side]: updatedImages,
+        ...(side === "frontImages" ? { image: updatedImages[0] || "" } : {}),
+      };
+    });
   };
 
   const generateProductCode = () => {
@@ -477,35 +969,18 @@ function ProductAdd({ products, setProducts, setActiveTab }: ProductAddProps) {
           </div>
         </div>
 
-        {/* Ürün Görseli Alanı */}
-        <div style={styles.inputGroup}>
-          <label style={styles.label}>Ürün Görseli</label>
-          <div style={{display: 'flex', gap: '1rem', alignItems: 'flex-start'}}>
-            <div style={{width: '100px', height: '100px', border: '1px dashed #ddd', 
-                        borderRadius: '6px', display: 'flex', alignItems: 'center', 
-                        justifyContent: 'center', overflow: 'hidden'}}>
-              {imagePreview ? (
-                <img 
-                  src={imagePreview} 
-                  alt="Ürün önizleme" 
-                  style={{width: '100%', height: '100%', objectFit: 'cover'}}
-                />
-              ) : (
-                <span style={{color: '#6c757d', fontSize: '0.8rem', textAlign: 'center'}}>
-                  Görsel yok
-                </span>
-              )}
-            </div>
-            <div style={{flex: 1}}>
-              <input
-                type="file"
-                accept="image/*"
-                onChange={handleImageChange}
-                style={{width: '100%', padding: '0.5rem'}}
-              />
-            </div>
-          </div>
-        </div>
+        <ProductImageGallery
+          label="Ön fotoğraflar"
+          images={form.frontImages}
+          onAdd={(files) => void handleImageFilesChange("frontImages", files)}
+          onRemove={(index) => removeImage("frontImages", index)}
+        />
+        <ProductImageGallery
+          label="Arka fotoğraflar"
+          images={form.backImages}
+          onAdd={(files) => void handleImageFilesChange("backImages", files)}
+          onRemove={(index) => removeImage("backImages", index)}
+        />
 
         {/* Ürün Adı Alanı */}
         <div style={styles.inputGroup}>
@@ -519,6 +994,27 @@ function ProductAdd({ products, setProducts, setActiveTab }: ProductAddProps) {
             placeholder="Ürün adını giriniz"
             required
           />
+        </div>
+        <div style={styles.inputGroup}>
+          <label style={styles.label}>Ürün Ortalama Gramajı (g/m²)</label>
+          <input type="number" name="averageGrammage" value={form.averageGrammage} onChange={handleChange} style={styles.input} step="0.01" min="0" />
+        </div>
+
+        <div style={styles.inputGroup}>
+          <label style={styles.label}>Depo</label>
+          <select
+            name="warehouseId"
+            value={form.warehouseId}
+            onChange={handleChange}
+            style={styles.select}
+          >
+            <option value="">Depo seciniz</option>
+            {warehouses.map((warehouse) => (
+              <option key={warehouse.id} value={warehouse.id}>
+                {warehouse.code} - {warehouse.name}
+              </option>
+            ))}
+          </select>
         </div>
 
         {/* Malzeme Türü Alanı */}
@@ -629,6 +1125,13 @@ function ProductAdd({ products, setProducts, setActiveTab }: ProductAddProps) {
           </div>
         </div>
 
+        <ProductRecipeEditor
+          recipes={form.recipes}
+          fabrics={fabrics}
+          accessories={accessories}
+          onChange={(recipes) => setForm((prev) => ({ ...prev, recipes }))}
+        />
+
         {/* Butonlar */}
         <div style={{display: 'flex', justifyContent: 'space-between', marginTop: '1.5rem'}}>
           <button
@@ -638,13 +1141,17 @@ function ProductAdd({ products, setProducts, setActiveTab }: ProductAddProps) {
               setForm({
                 modelNo: "",
                 image: "",
+                frontImages: [],
+                backImages: [],
                 name: "",
                 materialTypeId: "",
                 fabricId: "",
                 groupId: "",
-                taxRateId: ""
+                taxRateId: "",
+                warehouseId: "",
+                recipes: [],
+                averageGrammage: "",
               });
-              setImagePreview("");
               setIsManualCode(false);
             }}
           >
@@ -662,38 +1169,159 @@ function ProductAdd({ products, setProducts, setActiveTab }: ProductAddProps) {
   );
 }
 
+const ROUTE_STEP_OPTIONS: { key: string; label: string }[] = [
+  { key: "KESIM", label: "Kesim" },
+  { key: "DIKIM", label: "Dikim" },
+  { key: "BASKI", label: "Baskı" },
+  { key: "NAKIS", label: "Nakış" },
+  { key: "ILIK_DUGME", label: "İlik Düğme" },
+  { key: "UTU", label: "Ütü" },
+  { key: "MERKEZ_DEPO", label: "Merkez Depo" },
+];
+
+function ProductRouteEditor({ productId, initial }: { productId: number | string; initial: unknown }) {
+  const [steps, setSteps] = useState<string[]>(Array.isArray(initial) ? (initial as string[]) : []);
+  const [saving, setSaving] = useState(false);
+  const [message, setMessage] = useState("");
+
+  const labelOf = (key: string) =>
+    key.startsWith("OZEL:") ? key.slice(5) : ROUTE_STEP_OPTIONS.find((o) => o.key === key)?.label || key;
+  const [customName, setCustomName] = useState("");
+  const addCustom = () => {
+    const name = customName.trim().slice(0, 40);
+    if (!name) return;
+    const key = `OZEL:${name}`;
+    if (steps.includes(key)) {
+      setMessage("Bu adım zaten rotada var.");
+      return;
+    }
+    update([...steps, key]);
+    setCustomName("");
+  };
+  const normalize = (list: string[]) => {
+    const withoutDepot = list.filter((s) => s !== "MERKEZ_DEPO");
+    return list.includes("MERKEZ_DEPO") ? [...withoutDepot, "MERKEZ_DEPO"] : withoutDepot;
+  };
+  const update = (list: string[]) => {
+    setSteps(normalize(list));
+    setMessage("");
+  };
+  const move = (index: number, delta: number) => {
+    const target = index + delta;
+    if (target < 0 || target >= steps.length) return;
+    const next = [...steps];
+    [next[index], next[target]] = [next[target], next[index]];
+    update(next);
+  };
+
+  const save = async () => {
+    setSaving(true);
+    try {
+      await apiClient.patch(`/api/products/${productId}/route`, { routeSteps: steps });
+      setMessage("Rota kaydedildi.");
+    } catch (error: any) {
+      setMessage(error?.response?.data?.message || error?.response?.data?.error || "Rota kaydedilemedi.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div style={{ marginTop: "1.5rem" }}>
+      <h3 style={{ fontSize: "16px", fontWeight: 700, color: "#111827", marginBottom: "10px" }}>Ürün Rotası</h3>
+      <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
+        {steps.length === 0 && <span style={{ color: "#6b7280" }}>Rota tanımlı değil.</span>}
+        {steps.map((step, index) => (
+          <div key={step} style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+            <span style={{ minWidth: 24 }}>{index + 1}.</span>
+            <span style={{ flex: 1 }}>{labelOf(step)}</span>
+            <button type="button" onClick={() => move(index, -1)} disabled={index === 0}>↑</button>
+            <button type="button" onClick={() => move(index, 1)} disabled={index === steps.length - 1}>↓</button>
+            <button type="button" onClick={() => update(steps.filter((s) => s !== step))}>Sil</button>
+          </div>
+        ))}
+      </div>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: "6px", marginTop: "10px" }}>
+        {ROUTE_STEP_OPTIONS.filter((o) => !steps.includes(o.key)).map((o) => (
+          <button key={o.key} type="button" onClick={() => update([...steps, o.key])}>+ {o.label}</button>
+        ))}
+      </div>
+      <div style={{ display: "flex", gap: "6px", marginTop: "10px" }}>
+        <input
+          value={customName}
+          maxLength={40}
+          placeholder="Yeni adım adı (örn. Taşlama)"
+          onChange={(e) => setCustomName(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              addCustom();
+            }
+          }}
+        />
+        <button type="button" onClick={addCustom}>Özel adım ekle</button>
+      </div>
+      <div style={{ marginTop: "10px", display: "flex", alignItems: "center", gap: "10px" }}>
+        <button type="button" onClick={save} disabled={saving}>{saving ? "Kaydediliyor..." : "Rotayı kaydet"}</button>
+        {message && <span>{message}</span>}
+      </div>
+    </div>
+  );
+}
+
 // Ürün Düzenleme Bileşeni (Modal benzeri) - GÜNCELLENMİŞ
 function ProductEdit({ product, onSave, onCancel }: ProductEditProps) {
   const [form, setForm] = useState<ProductForm>({
     modelNo: product.modelNo,
     name: product.name,
     image: product.image || "",
+    frontImages: Array.isArray(product.frontImages) ? product.frontImages : product.image ? [product.image] : [],
+    backImages: Array.isArray(product.backImages) ? product.backImages : product.backImage ? [product.backImage] : [],
     materialTypeId: product.materialType?.id?.toString() || "",
     fabricId: product.fabric?.id?.toString() || "",
     groupId: product.group?.id?.toString() || "",
-    taxRateId: product.taxRate?.id?.toString() || ""
+    taxRateId: product.taxRate?.id?.toString() || "",
+    warehouseId: product.warehouse?.id?.toString() || "",
+    recipes: product.recipes?.map((recipe) => ({
+      id: recipe.id,
+      resourceType: recipe.resourceType,
+      fabricId: recipe.fabricId || "",
+      accessoryId: recipe.accessoryId || "",
+      quantityPerUnit: recipe.quantityPerUnit,
+      unit: recipe.unit,
+      fabric: recipe.fabric,
+      accessory: recipe.accessory,
+    })) || [],
+    sewingNotes: product.sewingNotes || "",
+    averageGrammage: product.averageGrammage?.toString() || "",
   });
 
   const [materialTypes, setMaterialTypes] = useState<MaterialType[]>([]);
   const [fabrics, setFabrics] = useState<Fabric[]>([]);
   const [groups, setGroups] = useState<Group[]>([]);
   const [taxRates, setTaxRates] = useState<TaxRate[]>([]);
+  const [warehouses, setWarehouses] = useState<WarehouseOption[]>([]);
+  const [accessories, setAccessories] = useState<Accessory[]>([]);
 
   useEffect(() => {
     const fetchOptions = async () => {
       try {
-        const [mtRes, ftRes, gRes, trRes] = await Promise.all([
-          axios.get('/api/material-types'),
-          axios.get('/api/fabrics'),
-          axios.get('/api/groups'),
-          axios.get('/api/tax-rates')
+        const [materialTypeData, fabricData, groupData, taxRateData, warehouseData, accessoryData] = await Promise.all([
+          getArrayOrEmpty<MaterialType>("/api/material-types", "Materyal tipleri"),
+          getArrayOrEmpty<Fabric>("/api/fabrics", "Kumaslar"),
+          getArrayOrEmpty<Group>("/api/groups", "Gruplar"),
+          getArrayOrEmpty<TaxRate>("/api/tax-rates", "KDV oranlari"),
+          getArrayOrEmpty<WarehouseOption>("/api/warehouses?withSummary=false", "Depolar"),
+          getArrayOrEmpty<Accessory>("/api/accessories", "Aksesuarlar"),
         ]);
-        setMaterialTypes(mtRes.data);
-        setFabrics(ftRes.data);
-        setGroups(gRes.data);
-        setTaxRates(trRes.data);
+        setMaterialTypes(materialTypeData);
+        setFabrics(fabricData);
+        setGroups(groupData);
+        setTaxRates(taxRateData);
+        setWarehouses(warehouseData.filter((warehouse) => warehouse.isActive !== false));
+        setAccessories(accessoryData);
       } catch (error) {
-        console.error('Seçenekler yüklenirken hata:', error);
+        console.error("Secenekler yuklenirken beklenmeyen hata:", error);
       }
     };
     fetchOptions();
@@ -705,11 +1333,18 @@ function ProductEdit({ product, onSave, onCancel }: ProductEditProps) {
       ...product,
       modelNo: form.modelNo,
       name: form.name,
-      image: form.image,
+      image: form.frontImages[0] || "",
+      frontImages: form.frontImages,
+      backImages: form.backImages,
+      backImage: form.backImages[0] || null,
       materialType: materialTypes.find(mt => mt.id === parseInt(form.materialTypeId)),
       fabric: fabrics.find((ft: Fabric) => ft.id === parseInt(form.fabricId)),
       group: groups.find(g => g.id === parseInt(form.groupId)),
-      taxRate: taxRates.find(tr => tr.id === parseInt(form.taxRateId))
+      taxRate: taxRates.find(tr => tr.id === parseInt(form.taxRateId)),
+      warehouse: warehouses.find((warehouse) => warehouse.id === parseInt(form.warehouseId)) || null,
+      recipes: form.recipes,
+      sewingNotes: form.sewingNotes,
+      averageGrammage: form.averageGrammage ? parseFloat(form.averageGrammage) : null,
     };
     onSave(updatedProduct);
   };
@@ -717,6 +1352,41 @@ function ProductEdit({ product, onSave, onCancel }: ProductEditProps) {
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     const { name, value } = e.target;
     setForm(prev => ({ ...prev, [name]: value }));
+  };
+
+  const handleImageFilesChange = async (side: "frontImages" | "backImages", files: FileList) => {
+    const existingImages = form[side];
+    const selectedFiles = Array.from(files);
+    const availableSlots = 5 - existingImages.length;
+    if (selectedFiles.length > availableSlots) {
+      alert(`Her yüz için en fazla 5 fotoğraf ekleyebilirsiniz. Bu seçimde ${availableSlots} fotoğraf eklenebilir.`);
+    }
+
+    try {
+      const images = await readImageFiles(selectedFiles.slice(0, availableSlots));
+      setForm(prev => {
+        const updatedImages = [...prev[side], ...images].slice(0, 5);
+        return {
+          ...prev,
+          [side]: updatedImages,
+          ...(side === "frontImages" ? { image: updatedImages[0] || "" } : {}),
+        };
+      });
+    } catch (error) {
+      console.error("Ürün fotoğrafları okunamadı:", error);
+      alert("Seçilen fotoğraflar okunamadı.");
+    }
+  };
+
+  const removeImage = (side: "frontImages" | "backImages", index: number) => {
+    setForm(prev => {
+      const updatedImages = prev[side].filter((_, imageIndex) => imageIndex !== index);
+      return {
+        ...prev,
+        [side]: updatedImages,
+        ...(side === "frontImages" ? { image: updatedImages[0] || "" } : {}),
+      };
+    });
   };
 
   return (
@@ -748,6 +1418,23 @@ function ProductEdit({ product, onSave, onCancel }: ProductEditProps) {
               required
             />
           </div>
+          <div style={styles.inputGroup}>
+            <label style={styles.label}>Ürün Ortalama Gramajı (g/m²)</label>
+            <input type="number" name="averageGrammage" value={form.averageGrammage} onChange={handleChange} style={styles.input} step="0.01" min="0" />
+          </div>
+
+          <ProductImageGallery
+            label="Ön fotoğraflar"
+            images={form.frontImages}
+            onAdd={(files) => void handleImageFilesChange("frontImages", files)}
+            onRemove={(index) => removeImage("frontImages", index)}
+          />
+          <ProductImageGallery
+            label="Arka fotoğraflar"
+            images={form.backImages}
+            onAdd={(files) => void handleImageFilesChange("backImages", files)}
+            onRemove={(index) => removeImage("backImages", index)}
+          />
 
           <div style={styles.inputGroup}>
             <label style={styles.label}>Malzeme Türü</label>
@@ -798,6 +1485,21 @@ function ProductEdit({ product, onSave, onCancel }: ProductEditProps) {
           </div>
 
           <div style={styles.inputGroup}>
+            <label style={styles.label}>Depo</label>
+            <select
+              name="warehouseId"
+              value={form.warehouseId}
+              onChange={handleChange}
+              style={styles.select}
+            >
+              <option value="">Depo seciniz</option>
+              {warehouses.map((warehouse) => (
+                <option key={warehouse.id} value={warehouse.id}>{warehouse.code} - {warehouse.name}</option>
+              ))}
+            </select>
+          </div>
+
+          <div style={styles.inputGroup}>
             <label style={styles.label}>KDV Vergi Oranı</label>
             <select
               name="taxRateId"
@@ -811,6 +1513,27 @@ function ProductEdit({ product, onSave, onCancel }: ProductEditProps) {
                 <option key={tr.id} value={tr.id}>{tr.name}</option>
               ))}
             </select>
+          </div>
+
+          <ProductRecipeEditor
+            recipes={form.recipes}
+            fabrics={fabrics}
+            accessories={accessories}
+            onChange={(recipes) => setForm((prev) => ({ ...prev, recipes }))}
+          />
+
+          <ProductRouteEditor productId={product.id} initial={(product as any).routeSteps} />
+
+          <div style={{ marginTop: '1.5rem' }}>
+            <h3 style={{ fontSize: '16px', fontWeight: 700, color: '#111827', marginBottom: '10px' }}>Dikim Talimatı</h3>
+            <SewingInstruction
+              value={form.sewingNotes ? JSON.parse(form.sewingNotes) : undefined}
+              onChange={(sewingData) => setForm((prev) => ({ ...prev, sewingNotes: JSON.stringify(sewingData) }))}
+              currentUser="admin"
+              productImage={product.image || undefined}
+              productCode={product.modelNo}
+              productName={product.name}
+            />
           </div>
 
           <div style={{display: 'flex', justifyContent: 'space-between', marginTop: '1.5rem'}}>
@@ -834,16 +1557,256 @@ function ProductEdit({ product, onSave, onCancel }: ProductEditProps) {
   );
 }
 
+function AccessoryManagement() {
+  const [accessories, setAccessories] = useState<Accessory[]>([]);
+  const [warehouses, setWarehouses] = useState<WarehouseOption[]>([]);
+  const [form, setForm] = useState({
+    id: "",
+    code: "",
+    name: "",
+    unit: "m",
+    warehouseId: "",
+    stockQuantity: "",
+  });
+
+  const loadAccessories = async () => {
+    const response = await apiClient.get("/api/accessories");
+    setAccessories(response.data);
+  };
+
+  const loadWarehouses = async () => {
+    const response = await apiClient.get("/api/warehouses?withSummary=false");
+    const list = Array.isArray(response.data) ? (response.data as WarehouseOption[]) : [];
+    setWarehouses(list.filter((warehouse) => warehouse.isActive !== false));
+  };
+
+  useEffect(() => {
+    loadAccessories();
+    loadWarehouses();
+  }, []);
+
+  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+
+    if (form.id) {
+      await apiClient.put("/api/accessories", {
+        ...form,
+        warehouseId: form.warehouseId ? Number(form.warehouseId) : null,
+      });
+    } else {
+      await apiClient.post("/api/accessories", {
+        ...form,
+        warehouseId: form.warehouseId ? Number(form.warehouseId) : null,
+      });
+    }
+
+    setForm({ id: "", code: "", name: "", unit: "m", warehouseId: "", stockQuantity: "" });
+    loadAccessories();
+  };
+
+  const handleEdit = (accessory: Accessory) => {
+    setForm({
+      id: String(accessory.id),
+      code: accessory.code || "",
+      name: accessory.name,
+      unit: accessory.unit,
+      warehouseId: accessory.warehouse?.id ? String(accessory.warehouse.id) : "",
+      stockQuantity: String(accessory.stockQuantity),
+    });
+  };
+
+  const handleDelete = async (id: number) => {
+    if (!window.confirm("Bu aksesuarı silmek istiyor musunuz?")) return;
+    await apiClient.delete("/api/accessories", { data: { id } });
+    loadAccessories();
+  };
+
+  return (
+    <div style={styles.sectionCard}>
+      <h3 style={styles.sectionTitle}>Aksesuar Kartları</h3>
+      <form onSubmit={handleSubmit} style={styles.form}>
+        <div style={styles.recipeRow}>
+          <input
+            type="text"
+            placeholder="Kod"
+            value={form.code}
+            onChange={(e) => setForm((prev) => ({ ...prev, code: e.target.value }))}
+            style={{ ...styles.input, flex: 1 }}
+          />
+          <input
+            type="text"
+            placeholder="Aksesuar adı"
+            value={form.name}
+            onChange={(e) => setForm((prev) => ({ ...prev, name: e.target.value }))}
+            style={{ ...styles.input, flex: 2 }}
+            required
+          />
+          <select
+            value={form.unit}
+            onChange={(e) => setForm((prev) => ({ ...prev, unit: e.target.value }))}
+            style={{ ...styles.select, flex: 1 }}
+          >
+            <option value="m">Metre</option>
+            <option value="kg">KG</option>
+          </select>
+          <select
+            value={form.warehouseId}
+            onChange={(e) => setForm((prev) => ({ ...prev, warehouseId: e.target.value }))}
+            style={{ ...styles.select, flex: 1.5 }}
+          >
+            <option value="">Depo seciniz</option>
+            {warehouses.map((warehouse) => (
+              <option key={warehouse.id} value={warehouse.id}>
+                {warehouse.code} - {warehouse.name}
+              </option>
+            ))}
+          </select>
+          <input
+            type="number"
+            step="0.001"
+            placeholder="Stok"
+            value={form.stockQuantity}
+            onChange={(e) => setForm((prev) => ({ ...prev, stockQuantity: e.target.value }))}
+            style={{ ...styles.input, flex: 1 }}
+          />
+          <button type="submit" style={styles.submitButton}>
+            {form.id ? "Güncelle" : "Kaydet"}
+          </button>
+        </div>
+      </form>
+
+      <div style={styles.tableContainer}>
+        <table style={styles.table}>
+          <thead>
+            <tr>
+              <th style={styles.th}>Kod</th>
+              <th style={styles.th}>Ad</th>
+              <th style={styles.th}>Birim</th>
+              <th style={styles.th}>Depo</th>
+              <th style={styles.th}>Stok</th>
+              <th style={styles.th}>İşlemler</th>
+            </tr>
+          </thead>
+          <tbody>
+            {accessories.map((accessory) => (
+              <tr key={accessory.id}>
+                <td style={styles.td}>{accessory.code || "-"}</td>
+                <td style={styles.td}>{accessory.name}</td>
+                <td style={styles.td}>{accessory.unit}</td>
+                <td style={styles.td}>
+                  {accessory.warehouse ? `${accessory.warehouse.code} - ${accessory.warehouse.name}` : "-"}
+                </td>
+                <td style={styles.td}>{accessory.stockQuantity}</td>
+                <td style={styles.td}>
+                  <button style={{ ...styles.smallButton, marginRight: 8 }} onClick={() => handleEdit(accessory)}>
+                    Düzenle
+                  </button>
+                  <button style={{ ...styles.smallButton, backgroundColor: "#dc3545" }} onClick={() => handleDelete(accessory.id)}>
+                    Sil
+                  </button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+function ProductionPlanning() {
+  const [rows, setRows] = useState<ProductionPlanningRow[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  const loadPlanning = async () => {
+    setLoading(true);
+    try {
+      const response = await apiClient.get("/api/production-planning");
+      setRows(response.data.rows || []);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadPlanning();
+  }, []);
+
+  return (
+    <div style={styles.sectionCard}>
+      <div style={styles.recipeHeader}>
+        <div>
+          <h3 style={styles.sectionTitle}>Üretim Planlama</h3>
+          <p style={styles.recipeEmpty}>
+            Sipariş reçetelerine göre toplam ihtiyaç, mevcut stok ve satın alma açığı burada hesaplanır.
+          </p>
+        </div>
+        <button type="button" style={styles.smallActionButton} onClick={loadPlanning}>
+          Yenile
+        </button>
+      </div>
+
+      {loading ? (
+        <div style={styles.recipeEmpty}>Planlama yükleniyor...</div>
+      ) : (
+        <div style={styles.tableContainer}>
+          <table style={styles.table}>
+            <thead>
+              <tr>
+                <th style={styles.th}>Kaynak</th>
+                <th style={styles.th}>Tip</th>
+                <th style={styles.th}>Gerekli</th>
+                <th style={styles.th}>Stok</th>
+                <th style={styles.th}>Net</th>
+                <th style={styles.th}>Satın Alma</th>
+                <th style={styles.th}>Siparişler</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.length > 0 ? (
+                rows.map((row) => (
+                  <tr key={`${row.resourceType}-${row.resourceId}`}>
+                    <td style={styles.td}>{row.resourceName}</td>
+                    <td style={styles.td}>{row.resourceType === "FABRIC" ? "Kumaş" : "Aksesuar"}</td>
+                    <td style={styles.td}>{row.requiredQuantity.toFixed(3)} {row.unit}</td>
+                    <td style={styles.td}>{row.stockQuantity.toFixed(3)} {row.unit}</td>
+                    <td style={{ ...styles.td, color: row.netQuantity < 0 ? "#dc2626" : "#15803d" }}>
+                      {row.netQuantity.toFixed(3)} {row.unit}
+                    </td>
+                    <td style={styles.td}>{row.purchaseQuantity.toFixed(3)} {row.unit}</td>
+                    <td style={styles.td}>{row.orders.join(", ")}</td>
+                  </tr>
+                ))
+              ) : (
+                <tr>
+                  <td style={styles.td} colSpan={7}>
+                    Hesaplanacak planlama verisi bulunamadı.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // Stiller aynı kalacak...
 const styles: Record<string, CSSProperties> = {
   container: {
-    maxWidth: "900px",
-    margin: "2rem auto",
+    width: "100%",
+    maxWidth: "100%",
+    minHeight: "100vh",
+    height: "100vh",
+    margin: "0",
     padding: "1.5rem",
     backgroundColor: "#fff",
-    borderRadius: "12px",
-    boxShadow: "0 4px 12px rgba(0, 0, 0, 0.1)",
-    fontFamily: "'Segoe UI', Tahoma, Geneva, Verdana, sans-serif"
+    borderRadius: "0",
+    boxShadow: "none",
+    boxSizing: "border-box",
+    fontFamily: "'Segoe UI', Tahoma, Geneva, Verdana, sans-serif",
+    overflowY: "auto"
   },
   mainTitle: {
     textAlign: "center",
@@ -859,7 +1822,12 @@ const styles: Record<string, CSSProperties> = {
   tabButton: {
     padding: "0.75rem 1.5rem",
     backgroundColor: "transparent",
-    border: "none",
+    borderTopWidth: "0",
+    borderRightWidth: "0",
+    borderLeftWidth: "0",
+    borderBottomWidth: "3px",
+    borderBottomStyle: "solid",
+    borderBottomColor: "transparent",
     cursor: "pointer",
     fontSize: "1rem",
     fontWeight: "500",
@@ -868,14 +1836,111 @@ const styles: Record<string, CSSProperties> = {
   },
   activeTab: {
     color: "#007bff",
-    borderBottom: "3px solid #007bff",
+    borderBottomColor: "#007bff",
     marginBottom: "-2px"
   },
   content: {
-    padding: "0 0.5rem"
+    padding: "0 0.5rem",
+    overflowY: "auto",
+    flex: 1
+  },
+  sectionCard: {
+    backgroundColor: "#ffffff",
+    border: "1px solid #e5e7eb",
+    borderRadius: "12px",
+    padding: "1rem"
+  },
+  sectionTitle: {
+    margin: "0 0 0.75rem 0",
+    color: "#1f2937"
   },
   tableContainer: {
     overflowX: "auto"
+  },
+  viewModeRow: {
+    display: "flex",
+    gap: "0.5rem",
+    marginBottom: "1rem"
+  },
+  viewModeButton: {
+    padding: "0.55rem 0.9rem",
+    backgroundColor: "#f1f5f9",
+    color: "#1f2937",
+    border: "1px solid #cbd5e1",
+    borderRadius: "6px",
+    cursor: "pointer",
+    fontSize: "0.9rem",
+    fontWeight: "600"
+  },
+  viewModeButtonActive: {
+    backgroundColor: "#2563eb",
+    color: "#ffffff",
+    borderColor: "#1d4ed8"
+  },
+  cardGrid: {
+    display: "grid",
+    gridTemplateColumns: "repeat(auto-fill, minmax(240px, 1fr))",
+    gap: "1rem"
+  },
+  productCard: {
+    border: "1px solid #e5e7eb",
+    borderRadius: "10px",
+    overflow: "hidden",
+    backgroundColor: "#ffffff",
+    display: "flex",
+    flexDirection: "column",
+    minHeight: "100%"
+  },
+  productImageContainer: {
+    height: "170px",
+    backgroundColor: "#f8fafc",
+    borderBottom: "1px solid #e5e7eb",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center"
+  },
+  productImage: {
+    width: "100%",
+    height: "100%",
+    objectFit: "cover"
+  },
+  productImagePlaceholder: {
+    color: "#6b7280",
+    fontSize: "0.9rem"
+  },
+  productCardBody: {
+    display: "flex",
+    flexDirection: "column",
+    gap: "0.35rem",
+    padding: "0.8rem",
+    flex: 1
+  },
+  productCardTitle: {
+    fontSize: "1rem",
+    fontWeight: "700",
+    color: "#111827"
+  },
+  productCardCode: {
+    color: "#4b5563",
+    fontSize: "0.88rem",
+    marginBottom: "0.25rem"
+  },
+  productMetaText: {
+    fontSize: "0.85rem",
+    color: "#374151",
+    lineHeight: 1.35
+  },
+  cardActions: {
+    display: "flex",
+    gap: "0.5rem",
+    padding: "0 0.8rem 0.8rem"
+  },
+  emptyCardState: {
+    border: "1px dashed #cbd5e1",
+    borderRadius: "10px",
+    padding: "1.2rem",
+    textAlign: "center",
+    color: "#6b7280"
   },
   table: {
     width: "100%",
@@ -896,7 +1961,33 @@ const styles: Record<string, CSSProperties> = {
   form: {
     display: "flex",
     flexDirection: "column",
-    gap: "1.2rem"
+    gap: "1.2rem",
+    width: "100%",
+    maxWidth: "100%"
+  },
+  recipeWrapper: {
+    border: "1px solid #dee2e6",
+    borderRadius: "10px",
+    padding: "1rem",
+    backgroundColor: "#f8fafc"
+  },
+  recipeHeader: {
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: "0.75rem"
+  },
+  recipeEmpty: {
+    fontSize: "0.9rem",
+    color: "#6c757d",
+    lineHeight: 1.5
+  },
+  recipeRow: {
+    display: "flex",
+    gap: "0.75rem",
+    alignItems: "center",
+    marginBottom: "0.75rem",
+    flexWrap: "wrap"
   },
   inputGroup: {
     display: "flex",
@@ -947,7 +2038,12 @@ const styles: Record<string, CSSProperties> = {
     padding: "0.5rem 0.8rem",
     backgroundColor: "#6c757d",
     color: "white",
-    border: "none",
+    borderTopWidth: "0",
+    borderRightWidth: "0",
+    borderLeftWidth: "0",
+    borderBottomWidth: "3px",
+    borderBottomStyle: "solid",
+    borderBottomColor: "transparent",
     borderRadius: "6px",
     cursor: "pointer",
     fontWeight: "bold",
@@ -959,7 +2055,12 @@ const styles: Record<string, CSSProperties> = {
     padding: "0.75rem 1rem",
     backgroundColor: "#17a2b8",
     color: "white",
-    border: "none",
+    borderTopWidth: "0",
+    borderRightWidth: "0",
+    borderLeftWidth: "0",
+    borderBottomWidth: "3px",
+    borderBottomStyle: "solid",
+    borderBottomColor: "transparent",
     borderRadius: "6px",
     cursor: "pointer",
     whiteSpace: "nowrap",
@@ -969,7 +2070,26 @@ const styles: Record<string, CSSProperties> = {
     padding: "0.5rem 0.8rem",
     backgroundColor: "#007bff",
     color: "white",
-    border: "none",
+    borderTopWidth: "0",
+    borderRightWidth: "0",
+    borderLeftWidth: "0",
+    borderBottomWidth: "3px",
+    borderBottomStyle: "solid",
+    borderBottomColor: "transparent",
+    borderRadius: "4px",
+    cursor: "pointer",
+    fontSize: "0.9rem"
+  },
+  smallActionButton: {
+    padding: "0.5rem 0.8rem",
+    backgroundColor: "#1d4ed8",
+    color: "white",
+    borderTopWidth: "0",
+    borderRightWidth: "0",
+    borderLeftWidth: "0",
+    borderBottomWidth: "3px",
+    borderBottomStyle: "solid",
+    borderBottomColor: "transparent",
     borderRadius: "4px",
     cursor: "pointer",
     fontSize: "0.9rem"
@@ -978,7 +2098,12 @@ const styles: Record<string, CSSProperties> = {
     padding: "0.9rem 1.5rem",
     backgroundColor: "#28a745",
     color: "white",
-    border: "none",
+    borderTopWidth: "0",
+    borderRightWidth: "0",
+    borderLeftWidth: "0",
+    borderBottomWidth: "3px",
+    borderBottomStyle: "solid",
+    borderBottomColor: "transparent",
     borderRadius: "6px",
     cursor: "pointer",
     fontSize: "1.1rem",
@@ -1001,8 +2126,8 @@ const styles: Record<string, CSSProperties> = {
     backgroundColor: "white",
     padding: "2rem",
     borderRadius: "8px",
-    width: "90%",
-    maxWidth: "500px",
+    width: "95%",
+    maxWidth: "1800px",
     maxHeight: "90vh",
     overflowY: "auto"
   }

@@ -3,21 +3,29 @@ import { cn } from "@/lib/utils"
 
 export interface BadgeProps
   extends React.HTMLAttributes<HTMLDivElement> {
-  variant?: "default" | "secondary" | "destructive" | "outline"
+  variant?: "default" | "secondary" | "success" | "warning" | "error" | "info" | "outline"
+  size?: "sm" | "md"
 }
 
 const Badge = React.forwardRef<HTMLDivElement, BadgeProps>(
-  ({ className, variant = "default", ...props }, ref) => {
+  ({ className, variant = "default", size = "md", ...props }, ref) => {
     return (
       <div
         ref={ref}
         className={cn(
-          "inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold transition-colors focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2",
+          "inline-flex items-center rounded-full font-semibold transition-colors",
           {
-            "border-transparent bg-slate-900 text-slate-50 hover:bg-slate-900/80": variant === "default",
-            "border-transparent bg-slate-100 text-slate-900 hover:bg-slate-100/80": variant === "secondary",
-            "border-transparent bg-red-500 text-slate-50 hover:bg-red-500/80": variant === "destructive",
-            "text-slate-950": variant === "outline",
+            "bg-primary-100 dark:bg-primary-900/30 text-primary-800 dark:text-primary-200": variant === "default",
+            "bg-secondary-100 dark:bg-secondary-800 text-secondary-800 dark:text-secondary-200": variant === "secondary",
+            "bg-success-100 dark:bg-success-900/30 text-success-800 dark:text-success-200": variant === "success",
+            "bg-warning-100 dark:bg-warning-900/30 text-warning-800 dark:text-warning-200": variant === "warning",
+            "bg-error-100 dark:bg-error-900/30 text-error-800 dark:text-error-200": variant === "error",
+            "bg-primary-50 dark:bg-primary-900/20 text-primary-700 dark:text-primary-300": variant === "info",
+            "border border-secondary-300 dark:border-secondary-600 text-secondary-700 dark:text-secondary-300": variant === "outline",
+          },
+          {
+            "px-2 py-0.5 text-xs": size === "sm",
+            "px-3 py-1 text-sm": size === "md",
           },
           className
         )}

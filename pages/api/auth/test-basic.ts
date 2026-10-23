@@ -1,6 +1,9 @@
 import type { NextApiRequest, NextApiResponse } from "next";
+import { ensureDebugEndpointEnabled } from "@/lib/runtime-config";
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
+  if (!ensureDebugEndpointEnabled(res)) return;
+
   try {
     console.log('🔍 Test API çalışıyor');
     
