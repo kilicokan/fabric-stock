@@ -1,1208 +1,949 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useRouter } from 'next/router';
 import {
-  Card,
-  CardContent,
-  TextField,
-  MenuItem,
-  Button,
-  IconButton,
-  Tooltip,
-  Chip,
-  Dialog,
-  DialogTitle,
-  DialogContent,
-  DialogActions
+    Box, Button, Chip, Dialog, DialogActions, DialogContent, DialogTitle, IconButton,
+    InputAdornment, LinearProgress, Menu, MenuItem, TextField, Tooltip, Collapse, Snackbar, Alert, Tabs, Tab
 } from '@mui/material';
-import { useAuth } from '../../components/AuthContext';
 import axios from 'axios';
+import * as XLSX from 'xlsx';
 import {
-  Plus,
-  Search,
-  Edit,
-  Trash2,
-  Filter,
-  Download,
-  Truck,
-  Package,
-  Calendar,
-  User,
-  CheckCircle,
-  AlertCircle,
-  Clock,
-  PlayCircle,
-  Building
+    Plus, Search, Download, Truck, Calendar, Building, PackageCheck, MoreVertical,
+    ChevronDown, ChevronRight, Pencil, Trash2, UserPlus, Smartphone, AlertTriangle, X, Wallet, PackageOpen
 } from 'lucide-react';
 
-interface WorkOrder {
-  id: number;
-  orderNo: string;
-  productCode: string;
-  productName: string;
-  quantity: number;
-  customerName: string;
-  status: string;
-  deliveryDate: string;
-  priority: 'LOW' | 'MEDIUM' | 'HIGH' | 'URGENT';
-  assignedToMobile: boolean;
-  assignedUserId?: number;
-  assignedUser?: {
-    id: number;
-    name: string;
-    email: string;
-  };
-  createdAt: string;
-  fasonTrackings?: FasonTracking[];
-}
+/* ───────── Types ───────── */
+type Priority = 'LOW' | 'MEDIUM' | 'HIGH' | 'URGENT';
+interface SizeRow { color: string; sizes: Record<string, number> }
+interface OrderNote { id: number; text: string; author?: string; createdAt: string }
 
 interface FasonTracking {
-  id: number;
-  workOrderId: number;
-  workshopId: number;
-  workshop?: {
-    id: number;
-    name: string;
-    specialization: string;
-  };
-  assignedQuantity: number;
-  unitPrice: number;
-  totalPrice: number;
-  processType: string;
-  status: string;
-  notes?: string;
-  createdAt: string;
+    id: number; workOrderId: number; workshopId: number;
+    workshop?: { id: number; name: string; specialization: string };
+    assignedQuantity: number; receivedQuantity?: number; defectQuantity?: number; paidAmount?: number; dueDate?: string; unitPrice: number; totalPrice: number;
+    processType: string; status: string; notes?: string; createdAt: string;
 }
+interface WorkOrder {
+    id: number; orderNo: string; productCode: string; productName: string; quantity: number;
+    customerName: string; status: string; deliveryDate: string; priority: Priority;
+    assignedToMobile: boolean; assignedUserId?: number | null;
+    assignedUser?: { id: number; name: string; email: string };
+    createdAt: string; centralWarehouseReceived?: boolean; fasonTrackings?: FasonTracking[];
+    centralWarehouseStainedQuantity?: number; centralWarehouseDefectiveQuantity?: number;
+    centralWarehouseRepairQuantity?: number; centralWarehouseLostQuantity?: number;
+    orderDate?: string; shippingAddress?: string; sizeMatrix?: SizeRow[];
+}
+interface Workshop { id: number; name: string; specialization: string; contactPerson: string; phone: string; balance: number; isActive: boolean }
+interface FasonTracker { id: number; name: string; email: string; phone?: string }
+type ApiErrorLike = { response?: { status?: number; data?: { error?: string; message?: string } } };
 
-interface Workshop {
-  id: number;
-  name: string;
-  specialization: string;
-  contactPerson: string;
-  phone: string;
-  balance: number;
-  isActive: boolean;
-}
+/* ───────── Design tokens ───────── */
+const C = {
+    bg: '#F4F6F7', surface: '#FFFFFF', line: '#E2E7EA', ink: '#17262E', muted: '#62737D',
+    accent: '#0B6E6E', accentSoft: '#E1F1F0', warn: '#B45309', warnSoft: '#FEF3C7',
+    danger: '#B42318', dangerSoft: '#FEE4E2', ok: '#17803D', okSoft: '#DCF5E4', info: '#1D4ED8', infoSoft: '#E3ECFF'
+};
+const FONT = '"IBM Plex Sans", "Segoe UI", system-ui, sans-serif';
 
-interface FasonTracker {
-  id: number;
-  name: string;
-  email: string;
-  phone?: string;
-}
+const STATUS: Record<string, { label: string; fg: string; bg: string }> = {
+    BEKLIYOR: { label: 'Bekliyor', fg: C.muted, bg: '#ECEFF1' },
+    ALINDI: { label: 'Alındı', fg: C.info, bg: C.infoSoft },
+    'ATÖLYEDE': { label: 'Atölyede', fg: C.warn, bg: C.warnSoft },
+    HAZIR: { label: 'Hazır', fg: C.accent, bg: C.accentSoft },
+    TESLIM_EDILDI: { label: 'Teslim edildi', fg: C.ok, bg: C.okSoft },
+    SORUN_VAR: { label: 'Sorun var', fg: C.danger, bg: C.dangerSoft }
+};
+const PRIORITY: Record<Priority, { label: string; color: string }> = {
+    LOW: { label: 'Düşük', color: '#8AA39B' }, MEDIUM: { label: 'Orta', color: '#D79A1E' },
+    HIGH: { label: 'Yüksek', color: '#E0661A' }, URGENT: { label: 'Acil', color: C.danger }
+};
+const PROCESS_LABEL: Record<string, string> = { KESIM: 'Kesim', DIKIM: 'Dikim', BASKI_NAKIS: 'Baskı/Nakış', UTU: 'Ütü' };
+const SIZES = ['XS', 'S', 'M', 'L', 'XL', 'XXL'];
+const rowTotal = (r: SizeRow) => SIZES.reduce((a, z) => a + (Number(r.sizes?.[z]) || 0), 0);
+const matrixTotal = (m?: SizeRow[]) => (m || []).reduce((s, r) => s + rowTotal(r), 0);
+const fmtDate = (d?: string) => (d ? new Date(d).toLocaleDateString('tr-TR') : '—');
+const money = (n: number) => `${(n || 0).toLocaleString('tr-TR')} ₺`;
+const STAGES = [{ key: 'KESIM', label: 'Kesim' }, { key: 'DIKIM', label: 'Dikim' }, { key: 'UTU', label: 'Ütü' }];
+const MOBILE_TRACKER_URL = process.env.NEXT_PUBLIC_MOBILE_TRACKER_URL || '';
+
+const fieldSx = { '& .MuiOutlinedInput-root': { borderRadius: '8px', backgroundColor: C.surface, fontFamily: FONT } };
 
 const FasonTrackers: React.FC = () => {
-  const { user } = useAuth();
-  const router = useRouter();
-  const [workOrders, setWorkOrders] = useState<WorkOrder[]>([]);
-  const [fasonTrackers, setFasonTrackers] = useState<FasonTracker[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [searchTerm, setSearchTerm] = useState('');
-  const [statusFilter, setStatusFilter] = useState('');
-  const [priorityFilter, setPriorityFilter] = useState('');
-  const [mobileFilter, setMobileFilter] = useState('');
-  const [openDialog, setOpenDialog] = useState(false);
-  const [editingOrder, setEditingOrder] = useState<WorkOrder | null>(null);
-  const [showUserDropdown, setShowUserDropdown] = useState<number | null>(null);
-  const [workshops, setWorkshops] = useState<Workshop[]>([]);
-  const [openAssignmentDialog, setOpenAssignmentDialog] = useState(false);
-  const [selectedOrder, setSelectedOrder] = useState<WorkOrder | null>(null);
+    const router = useRouter();
+    const [workOrders, setWorkOrders] = useState<WorkOrder[]>([]);
+    const [fasonTrackers, setFasonTrackers] = useState<FasonTracker[]>([]);
+    const [workshops, setWorkshops] = useState<Workshop[]>([]);
+    const [loading, setLoading] = useState(false);
+    const [error, setError] = useState('');
+    const [toast, setToast] = useState<{ msg: string; type: 'success' | 'error' } | null>(null);
 
-  // Form state
-  const [formData, setFormData] = useState({
-    orderNo: '',
-    productCode: '',
-    productName: '',
-    quantity: 1,
-    customerName: '',
-    status: 'BEKLIYOR',
-    deliveryDate: '',
-    priority: 'MEDIUM' as 'LOW' | 'MEDIUM' | 'HIGH' | 'URGENT'
-  });
+    const [search, setSearch] = useState('');
+    const [debouncedSearch, setDebouncedSearch] = useState('');
+    const [statusFilter, setStatusFilter] = useState('');
+    const [priorityFilter, setPriorityFilter] = useState('');
+    const [mobileFilter, setMobileFilter] = useState('');
+    const [quick, setQuick] = useState<'all' | 'active' | 'late' | 'warehouse' | 'done'>('all');
 
-  // Assignment form state
-  const [assignmentFormData, setAssignmentFormData] = useState({
-    workshopId: '',
-    assignedQuantity: 1,
-    unitPrice: 0,
-    processType: 'DIKIM',
-    notes: ''
-  });
+    const [expanded, setExpanded] = useState<number | null>(null);
+    const [menu, setMenu] = useState<{ el: HTMLElement; order: WorkOrder; mode: 'main' | 'user' } | null>(null);
 
-  // Inline CSS styles
-  const styles = {
-    primaryGradient: {
-      background: 'linear-gradient(135deg, #8B5CF6 0%, #3B82F6 50%, #06B6D4 100%)',
-    },
-    purpleGradient: {
-      background: 'linear-gradient(135deg, #8B5CF6 0%, #7C3AED 100%)',
-    },
-    blueGradient: {
-      background: 'linear-gradient(135deg, #3B82F6 0%, #1D4ED8 100%)',
-    },
-    greenGradient: {
-      background: 'linear-gradient(135deg, #10B981 0%, #059669 100%)',
-    },
-    redGradient: {
-      background: 'linear-gradient(135deg, #EF4444 0%, #DC2626 100%)',
-    },
-    yellowGradient: {
-      background: 'linear-gradient(135deg, #F59E0B 0%, #D97706 100%)',
-    },
-    statusColors: {
-      BEKLIYOR: 'linear-gradient(135deg, #6B7280 0%, #4B5563 100%)',
-      ALINDI: 'linear-gradient(135deg, #3B82F6 0%, #1D4ED8 100%)',
-      ATÖLYEDE: 'linear-gradient(135deg, #F59E0B 0%, #D97706 100%)',
-      HAZIR: 'linear-gradient(135deg, #10B981 0%, #059669 100%)',
-      TESLIM_EDILDI: 'linear-gradient(135deg, #059669 0%, #047857 100%)',
-      SORUN_VAR: 'linear-gradient(135deg, #EF4444 0%, #DC2626 100%)',
-    },
-    priorityColors: {
-      LOW: '#10B981',
-      MEDIUM: '#F59E0B',
-      HIGH: '#EF4444',
-      URGENT: '#DC2626'
-    }
-  };
+    const [openDialog, setOpenDialog] = useState(false);
+    const [editingOrder, setEditingOrder] = useState<WorkOrder | null>(null);
+    const [openAssign, setOpenAssign] = useState(false);
+    const [selectedOrder, setSelectedOrder] = useState<WorkOrder | null>(null);
+    const [tab, setTab] = useState<'workshops' | 'matrix' | 'notes'>('workshops');
+    const [notesByOrder, setNotesByOrder] = useState<Record<number, OrderNote[]>>({});
+    const [noteText, setNoteText] = useState('');
+    const [receiveDlg, setReceiveDlg] = useState<{ order: WorkOrder; t: FasonTracking } | null>(null);
+    const [receiveForm, setReceiveForm] = useState({ received: 0, defect: 0 });
+    const [warehouseReceiveOrder, setWarehouseReceiveOrder] = useState<WorkOrder | null>(null);
+    const [warehouseReceiveForm, setWarehouseReceiveForm] = useState({ stained: 0, defective: 0, repair: 0, lost: 0 });
+    const [payDlg, setPayDlg] = useState<{ order: WorkOrder; t: FasonTracking } | null>(null);
+    const [payForm, setPayForm] = useState({ amount: 0, note: '' });
 
-  useEffect(() => {
-    fetchWorkOrders();
-    fetchFasonTrackers();
-    fetchWorkshops();
-  }, [searchTerm, statusFilter, priorityFilter, mobileFilter]);
+    const emptyForm = { orderNo: '', productCode: '', productName: '', quantity: 1, customerName: '', status: 'BEKLIYOR', deliveryDate: '', priority: 'MEDIUM' as Priority,
+        orderDate: new Date().toISOString().slice(0, 10), shippingAddress: '', sizeMatrix: [] as SizeRow[] };
+    const [formData, setFormData] = useState(emptyForm);
+    const [assignForm, setAssignForm] = useState({ workshopId: '', assignedQuantity: 1, unitPrice: 0, processType: 'DIKIM', notes: '', dueDate: '' });
 
-  const fetchFasonTrackers = async () => {
-    try {
-      const token = localStorage.getItem('token');
-      const response = await axios.get('/api/users', {
-        headers: { Authorization: `Bearer ${token}` }
-      });
-      const usersWithFasonAccess = response.data.filter((user: any) => user.fasonAccess);
-      const mappedUsers = usersWithFasonAccess.map((user: any) => ({
-        id: user.id,
-        name: user.username,
-        email: user.email
-      }));
-      setFasonTrackers(mappedUsers);
-    } catch (error: any) {
-      console.error('Fason takipçileri yüklenirken hata:', error);
-      if (error.response?.status === 401) {
-        localStorage.removeItem('token');
-        router.push('/login');
-        return;
-      }
-      setFasonTrackers([]);
-    }
-  };
+    /* ───────── Helpers ───────── */
+    const errMsg = (e: unknown, fb: string) => {
+        const c = (typeof e === 'object' && e !== null ? (e as ApiErrorLike) : {}).response?.data;
+        return c?.error || c?.message || fb;
+    };
+    const errStatus = (e: unknown) => (typeof e === 'object' && e !== null ? (e as ApiErrorLike).response?.status : undefined);
+    const auth = () => ({ headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } });
+    const handle401 = (e: unknown) => {
+        if (errStatus(e) === 401) { localStorage.removeItem('token'); router.push('/login'); return true; }
+        return false;
+    };
+    const notify = (msg: string, type: 'success' | 'error' = 'success') => setToast({ msg, type });
 
-  const fetchWorkshops = async () => {
-    try {
-      const token = localStorage.getItem('token');
-      const response = await axios.get('/api/fason/workshops', {
-        headers: { Authorization: `Bearer ${token}` }
-      });
-      setWorkshops(response.data.filter((w: Workshop) => w.isActive));
-    } catch (error) {
-      console.error('Atölyeler yüklenirken hata:', error);
-      setWorkshops([]);
-    }
-  };
+    const isClosed = (o: WorkOrder) => o.status === 'TESLIM_EDILDI';
+    const doneQty = (o: WorkOrder, p: string) =>
+        (o.fasonTrackings || []).filter(t => t.processType === p && t.status === 'TESLIM_EDILDI')
+            .reduce((s, t) => s + (t.receivedQuantity ?? t.assignedQuantity ?? 0) + (t.defectQuantity || 0), 0);
+    const ironingDone = (o: WorkOrder) =>
+        (o.fasonTrackings || [])
+            .filter(t => t.processType === 'UTU' && t.status === 'TESLIM_EDILDI')
+            .reduce((total, t) => total + (t.assignedQuantity || 0), 0) >= o.quantity;
+    const stageDone = (o: WorkOrder, p: string) => p === 'UTU' ? ironingDone(o) : doneQty(o, p) >= o.quantity;
+    const stageStarted = (o: WorkOrder, p: string) => (o.fasonTrackings || []).some(t => t.processType === p);
+    const canClose = (o: WorkOrder) => ironingDone(o) && !!o.centralWarehouseReceived;
+    const assignedQty = (o: WorkOrder) => (o.fasonTrackings || []).reduce((s, t) => s + t.assignedQuantity, 0);
+    const costOf = (o: WorkOrder) => (o.fasonTrackings || []).reduce((s, t) => s + (t.totalPrice || 0), 0);
+    const paidOf = (o: WorkOrder) => (o.fasonTrackings || []).reduce((s, t) => s + (t.paidAmount || 0), 0);
+    const debtOf = (o: WorkOrder) => costOf(o) - paidOf(o);
+    const progress = (o: WorkOrder) => (isClosed(o) ? 100 : STAGES.filter(s => stageDone(o, s.key)).length * 25);
 
-  const fetchWorkOrders = async () => {
-    try {
-      setLoading(true);
-      const token = localStorage.getItem('token');
+    const daysLeft = (d: string) => {
+        if (!d) return null;
+        const diff = Math.ceil((new Date(d).setHours(0, 0, 0, 0) - new Date().setHours(0, 0, 0, 0)) / 86400000);
+        return Number.isNaN(diff) ? null : diff;
+    };
+    const isLate = (o: WorkOrder) => !isClosed(o) && (daysLeft(o.deliveryDate) ?? 1) < 0;
+    const needsWarehouse = (o: WorkOrder) => ironingDone(o) && !o.centralWarehouseReceived && !isClosed(o);
 
-      if (!token) {
-        console.error('No token found, redirecting to login');
-        router.push('/login');
-        return;
-      }
+    /* ───────── Data ───────── */
+    useEffect(() => { const t = setTimeout(() => setDebouncedSearch(search), 350); return () => clearTimeout(t); }, [search]);
 
-      console.log('Token found:', token.substring(0, 20) + '...');
+    const fetchWorkOrders = useCallback(async () => {
+        try {
+            setLoading(true); setError('');
+            if (!localStorage.getItem('token')) { router.push('/login'); return; }
+            const params = new URLSearchParams({ page: '1', limit: '50' });
+            if (debouncedSearch) params.append('search', debouncedSearch);
+            if (statusFilter) params.append('status', statusFilter);
+            const res = await axios.get(`/api/fason/work-orders?${params}`, { ...auth(), timeout: 15000 });
+            setWorkOrders(Array.isArray(res.data.data) ? res.data.data : []);
+        } catch (e) {
+            if (handle401(e)) return;
+            setError(errMsg(e, 'İş emirleri yüklenemedi.')); setWorkOrders([]);
+        } finally { setLoading(false); }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [debouncedSearch, statusFilter]);
 
-      const params = new URLSearchParams();
-      if (searchTerm) params.append('search', searchTerm);
-      if (statusFilter) params.append('status', statusFilter);
+    useEffect(() => { fetchWorkOrders(); }, [fetchWorkOrders]);
 
-      const response = await axios.get(`/api/fason/work-orders?${params.toString()}`, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
+    const fetchLookups = async () => {
+        const [trackersResult, workshopsResult] = await Promise.allSettled([
+            axios.get('/api/fason/users/fason-trackers', auth()),
+            axios.get('/api/fason/workshops', auth())
+        ]);
 
-      const workOrdersData = response.data.workOrders || [];
-      setWorkOrders(workOrdersData);
-    } catch (error: any) {
-      console.error('İş emirleri yüklenirken hata:', error);
-      console.error('Error response:', error.response);
-      if (error.response?.status === 401) {
-        console.log('401 error - clearing token and redirecting to login');
-        localStorage.removeItem('token');
-        router.push('/login');
-        return;
-      }
-      setWorkOrders([]);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleCreateOrder = () => {
-    setEditingOrder(null);
-    setFormData({
-      orderNo: '',
-      productCode: '',
-      productName: '',
-      quantity: 1,
-      customerName: '',
-      status: 'BEKLIYOR',
-      deliveryDate: '',
-      priority: 'MEDIUM'
-    });
-    setOpenDialog(true);
-  };
-
-  const handleEditOrder = (order: WorkOrder) => {
-    setEditingOrder(order);
-    setFormData({
-      orderNo: order.orderNo,
-      productCode: order.productCode,
-      productName: order.productName,
-      quantity: order.quantity,
-      customerName: order.customerName,
-      status: order.status,
-      deliveryDate: order.deliveryDate,
-      priority: order.priority
-    });
-    setOpenDialog(true);
-  };
-
-  const handleSaveOrder = async () => {
-    try {
-      const token = localStorage.getItem('token');
-
-      if (editingOrder) {
-        // Update existing order
-        await axios.put(`/api/fason/work-orders/${editingOrder.id}`, formData, {
-          headers: { Authorization: `Bearer ${token}` }
-        });
-      } else {
-        // Create new order
-        await axios.post('/api/fason/work-orders', formData, {
-          headers: { Authorization: `Bearer ${token}` }
-        });
-      }
-
-      // Refresh the list
-      fetchWorkOrders();
-      setOpenDialog(false);
-    } catch (error: any) {
-      console.error('İş emri kaydedilirken hata:', error);
-      if (error.response?.status === 401) {
-        localStorage.removeItem('token');
-        router.push('/login');
-        return;
-      }
-    }
-  };
-
-  const handleDeleteOrder = async (id: number) => {
-    if (window.confirm('Bu iş emrini silmek istediğinizden emin misiniz?')) {
-      try {
-        const token = localStorage.getItem('token');
-        await axios.delete(`/api/fason/work-orders/${id}`, {
-          headers: { Authorization: `Bearer ${token}` }
-        });
-        // Refresh the list
-        fetchWorkOrders();
-      } catch (error) {
-        console.error('İş emri silinirken hata:', error);
-      }
-    }
-  };
-
-  const notifyMobileTrackerServer = async (orderId: number, isAssigned: boolean) => {
-    try {
-      // Notify mobile tracker server (192.168.1.3:8081) about assignment change
-      const notificationData = {
-        orderId,
-        isAssigned,
-        timestamp: new Date().toISOString()
-      };
-
-      // Send notification to mobile tracker
-      await fetch('http://192.168.1.3:8081/api/assign', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify(notificationData)
-      }).catch(err => {
-        // Log error but don't fail - mobile tracker might not be available
-        console.log('Mobile tracker notification (non-critical):', err.message);
-      });
-    } catch (error) {
-      console.log('Mobile tracker notification error (non-critical):', error);
-    }
-  };
-
-  const toggleMobileAssignment = async (id: number) => {
-    try {
-      const token = localStorage.getItem('token');
-      const order = workOrders.find(o => o.id === id);
-
-      if (!order) {
-        throw new Error('İş emri bulunamadı');
-      }
-
-      const isAssigning = !order.assignedToMobile;
-
-      await axios.put(
-        `/api/fason/work-orders/${id}`,
-        {
-          assignedToMobile: isAssigning,
-          status: order.status
-        },
-        {
-          headers: {
-            Authorization: `Bearer ${token}`,
-            'Content-Type': 'application/json'
-          }
+        if (trackersResult.status === 'fulfilled' && Array.isArray(trackersResult.value.data?.data)) {
+            setFasonTrackers(trackersResult.value.data.data);
+        } else if (trackersResult.status === 'rejected') {
+            if (!handle401(trackersResult.reason)) {
+                notify(errMsg(trackersResult.reason, 'Takipçiler yüklenemedi.'), 'error');
+            }
+        } else {
+            notify('Takipçi listesi beklenen biçimde alınamadı.', 'error');
         }
-      );
 
-      // Notify mobile tracker server
-      await notifyMobileTrackerServer(id, isAssigning);
-
-      await fetchWorkOrders();
-    } catch (error: any) {
-      console.error('Mobile atama güncellenirken hata:', error);
-      if (error.response?.status === 401) {
-        localStorage.removeItem('token');
-        router.push('/login');
-        return;
-      }
-      alert('Mobile atama güncellenirken bir hata oluştu');
-    }
-  };
-
-  const assignUserToOrder = async (orderId: number, userId: number | null) => {
-    try {
-      const token = localStorage.getItem('token');
-      const order = workOrders.find(o => o.id === orderId);
-
-      if (!order) {
-        throw new Error('İş emri bulunamadı');
-      }
-
-      const response = await axios.put(
-        `/api/fason/work-orders/${orderId}`,
-        {
-          assignedUserId: userId,
-          status: order.status
-        },
-        {
-          headers: {
-            Authorization: `Bearer ${token}`,
-            'Content-Type': 'application/json'
-          }
+        if (workshopsResult.status === 'fulfilled' && Array.isArray(workshopsResult.value.data?.data)) {
+            setWorkshops(workshopsResult.value.data.data.filter((x: Workshop) => x.isActive));
+        } else if (workshopsResult.status === 'rejected' && !handle401(workshopsResult.reason)) {
+            notify(errMsg(workshopsResult.reason, 'Atölyeler yüklenemedi.'), 'error');
         }
-      );
-
-      if (response.status === 200) {
-        await fetchWorkOrders();
-        setShowUserDropdown(null);
-      }
-    } catch (error) {
-      console.error('Kullanıcı atama hatası:', error);
-      alert('Kullanıcı atanırken bir hata oluştu');
-    }
-  };
-
-  const getStatusStyle = (status: string) => {
-    const styleMap: { [key: string]: React.CSSProperties } = {
-      'BEKLIYOR': { background: styles.statusColors.BEKLIYOR, color: 'white' },
-      'ALINDI': { background: styles.statusColors.ALINDI, color: 'white' },
-      'ATÖLYEDE': { background: styles.statusColors.ATÖLYEDE, color: 'white' },
-      'HAZIR': { background: styles.statusColors.HAZIR, color: 'white' },
-      'TESLIM_EDILDI': { background: styles.statusColors.TESLIM_EDILDI, color: 'white' },
-      'SORUN_VAR': { background: styles.statusColors.SORUN_VAR, color: 'white' },
     };
-    return styleMap[status] || { backgroundColor: '#6B7280', color: 'white' };
-  };
+    useEffect(() => { void fetchLookups(); /* eslint-disable-next-line */ }, []);
 
-  const getStatusIcon = (status: string) => {
-    const icons: { [key: string]: React.ReactNode } = {
-      'BEKLIYOR': <Clock size={16} />,
-      'ALINDI': <Package size={16} />,
-      'ATÖLYEDE': <PlayCircle size={16} />,
-      'HAZIR': <CheckCircle size={16} />,
-      'TESLIM_EDILDI': <Truck size={16} />,
-      'SORUN_VAR': <AlertCircle size={16} />
-    };
-    return icons[status] || <Clock size={16} />;
-  };
+    /* ───────── Filtering ───────── */
+    const filtered = useMemo(() => {
+        const q = search.toLowerCase();
+        return workOrders.filter(o =>
+            (!q || [o.orderNo, o.productCode, o.productName, o.customerName].some(v => v?.toLowerCase().includes(q))) &&
+            (!priorityFilter || o.priority === priorityFilter) &&
+            (!mobileFilter || (mobileFilter === 'assigned' ? o.assignedToMobile : !o.assignedToMobile)) &&
+            (quick === 'all' ||
+                (quick === 'active' && !isClosed(o)) || (quick === 'late' && isLate(o)) ||
+                (quick === 'warehouse' && needsWarehouse(o)) || (quick === 'done' && isClosed(o)))
+        );
+    }, [workOrders, search, priorityFilter, mobileFilter, quick]);
 
-  const filteredOrders = workOrders.filter(order =>
-    (order.orderNo.toLowerCase().includes(searchTerm.toLowerCase()) ||
-     order.productCode.toLowerCase().includes(searchTerm.toLowerCase()) ||
-     order.productName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-     order.customerName.toLowerCase().includes(searchTerm.toLowerCase())) &&
-    (statusFilter === '' || order.status === statusFilter) &&
-    (priorityFilter === '' || order.priority === priorityFilter) &&
-    (mobileFilter === '' || 
-      (mobileFilter === 'assigned' && order.assignedToMobile) ||
-      (mobileFilter === 'not_assigned' && !order.assignedToMobile))
-  );
+    const counts = useMemo(() => ({
+        all: workOrders.length,
+        active: workOrders.filter(o => !isClosed(o)).length,
+        late: workOrders.filter(isLate).length,
+        warehouse: workOrders.filter(needsWarehouse).length,
+        done: workOrders.filter(isClosed).length
+    }), [workOrders]);
 
-  const handleAssignWorkshop = (order: WorkOrder) => {
-    setSelectedOrder(order);
-    setAssignmentFormData({
-      workshopId: '',
-      assignedQuantity: Math.max(1, order.quantity - (order.fasonTrackings?.reduce((sum, t) => sum + t.assignedQuantity, 0) || 0)),
-      unitPrice: 0,
-      processType: 'DIKIM',
-      notes: ''
-    });
-    setOpenAssignmentDialog(true);
-  };
+    /* ───────── Actions ───────── */
+    const putOrder = (id: number, body: object) => axios.put(`/api/fason/work-orders/${id}`, body, auth());
 
-  const handleSaveAssignment = async () => {
-    if (!selectedOrder) return;
-
-    // Client-side validation
-    if (!assignmentFormData.workshopId) {
-      alert('Lütfen bir atölye seçiniz.');
-      return;
-    }
-
-    if (assignmentFormData.assignedQuantity <= 0) {
-      alert('Atanacak miktar pozitif bir sayı olmalıdır.');
-      return;
-    }
-
-    if (assignmentFormData.unitPrice < 0) {
-      alert('Birim fiyat 0 veya pozitif bir sayı olmalıdır.');
-      return;
-    }
-
-    const existingAssigned = selectedOrder.fasonTrackings?.reduce((sum, t) => sum + t.assignedQuantity, 0) || 0;
-    const remaining = selectedOrder.quantity - existingAssigned;
-
-    if (assignmentFormData.assignedQuantity > remaining) {
-      alert(`Atanacak miktar kalan miktarı (${remaining} adet) aşamaz.`);
-      return;
-    }
-
-    try {
-      const token = localStorage.getItem('token');
-      await axios.post('/api/fason/assignments', {
-        workOrderId: selectedOrder.id,
-        workshopId: parseInt(assignmentFormData.workshopId),
-        assignedQuantity: assignmentFormData.assignedQuantity,
-        unitPrice: assignmentFormData.unitPrice,
-        processType: assignmentFormData.processType,
-        notes: assignmentFormData.notes
-      }, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
-
-      // Refresh work orders to show updated assignments
-      fetchWorkOrders();
-      fetchWorkshops(); // Refresh workshop balances
-      setOpenAssignmentDialog(false);
-    } catch (error: any) {
-      console.error('Atama kaydedilirken hata:', error);
-      if (error.response?.status === 401) {
-        localStorage.removeItem('token');
-        router.push('/login');
-        return;
-      }
-      alert(error.response?.data?.error || 'Atama kaydedilirken bir hata oluştu');
-    }
-  };
-
-  const stats = {
-    total: workOrders.length,
-    assigned: workOrders.filter(order => order.assignedToMobile).length,
-    notAssigned: workOrders.filter(order => !order.assignedToMobile).length,
-    completed: workOrders.filter(order => order.status === 'TESLIM_EDILDI').length
-  };
-
-  useEffect(() => {
-    const handleClickOutside = (event: MouseEvent) => {
-      if (showUserDropdown && !(event.target as Element).closest('.relative')) {
-        setShowUserDropdown(null);
-      }
+    const openCreate = () => { setEditingOrder(null); setFormData(emptyForm); setOpenDialog(true); };
+    const openEdit = (o: WorkOrder) => {
+        setEditingOrder(o);
+        setFormData({ orderNo: o.orderNo, productCode: o.productCode, productName: o.productName, quantity: o.quantity,
+            customerName: o.customerName, status: o.status, deliveryDate: o.deliveryDate?.slice(0, 10) || '', priority: o.priority,
+            orderDate: o.orderDate?.slice(0, 10) || '', shippingAddress: o.shippingAddress || '', sizeMatrix: o.sizeMatrix || [] });
+        setOpenDialog(true);
     };
 
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, [showUserDropdown]);
+    const saveOrder = async () => {
+        try {
+            if (editingOrder) {
+                if (formData.status === 'TESLIM_EDILDI' && !canClose(editingOrder)) {
+                    notify('İş emri, tüm süreçler bitip Merkez Depo\'ya teslim alındıktan sonra kapatılabilir.', 'error'); return;
+                }
+                await putOrder(editingOrder.id, { ...formData, quantity: matrixTotal(formData.sizeMatrix) || formData.quantity });
+            } else await axios.post('/api/fason/work-orders', { ...formData, quantity: matrixTotal(formData.sizeMatrix) || formData.quantity }, auth());
+            setOpenDialog(false); fetchWorkOrders(); notify('İş emri kaydedildi.');
+        } catch (e) { if (!handle401(e)) notify(errMsg(e, 'İş emri kaydedilemedi.'), 'error'); }
+    };
 
-  return (
-    <div style={{ 
-      background: 'linear-gradient(135deg, #F3F4F6 0%, #E5E7EB 100%)',
-      minHeight: '100vh'
-    }}>
-      {/* Header */}
-      <div style={styles.primaryGradient}>
-        <div style={{ padding: '24px 32px' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
-            <div>
-              <h1 style={{ fontSize: '32px', fontWeight: 'bold', color: 'white', margin: '0 0 8px 0' }}>
-                MIRA STOK
-              </h1>
-              <p style={{ color: 'rgba(255, 255, 255, 0.9)', fontSize: '16px', margin: 0 }}>
-                İş Emri Yönetimi
-              </p>
-            </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-              <button
-                onClick={() => {/* Export functionality */}}
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '8px',
-                  padding: '10px 20px',
-                  backgroundColor: 'rgba(255, 255, 255, 0.2)',
-                  color: 'white',
-                  border: 'none',
-                  borderRadius: '12px',
-                  fontWeight: '500',
-                  cursor: 'pointer',
-                  backdropFilter: 'blur(10px)'
-                }}
-              >
-                <Download size={20} />
-                Dışa Aktar
-              </button>
-              <button
-                onClick={() => router.push('/fason/create-work-order')}
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '8px',
-                  padding: '12px 24px',
-                  background: 'linear-gradient(135deg, #10B981 0%, #059669 100%)',
-                  color: 'white',
-                  border: 'none',
-                  borderRadius: '12px',
-                  fontWeight: '600',
-                  cursor: 'pointer',
-                  boxShadow: '0 4px 6px rgba(0, 0, 0, 0.1)'
-                }}
-              >
-                <Plus size={20} />
-                Yeni İş Emri
-              </button>
-            </div>
-          </div>
+    const deleteOrder = async (o: WorkOrder) => {
+        if (!window.confirm(`${o.orderNo} numaralı iş emri silinsin mi?`)) return;
+        try { await axios.delete(`/api/fason/work-orders/${o.id}`, auth()); fetchWorkOrders(); notify('İş emri silindi.'); }
+        catch (e) { if (!handle401(e)) notify(errMsg(e, 'İş emri silinemedi.'), 'error'); }
+    };
 
-          {/* Statistics */}
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '24px' }}>
-            <div style={{
-              backgroundColor: 'rgba(255, 255, 255, 0.2)',
-              backdropFilter: 'blur(10px)',
-              borderRadius: '16px',
-              padding: '20px',
-              textAlign: 'center',
-              border: '1px solid rgba(255, 255, 255, 0.3)',
-              color: 'white'
-            }}>
-              <div style={{ fontSize: '28px', fontWeight: 'bold', marginBottom: '8px' }}>{stats.total}</div>
-              <div style={{ fontSize: '14px', opacity: 0.9 }}>Toplam İş Emri</div>
-            </div>
-            <div style={{
-              backgroundColor: 'rgba(255, 255, 255, 0.2)',
-              backdropFilter: 'blur(10px)',
-              borderRadius: '16px',
-              padding: '20px',
-              textAlign: 'center',
-              border: '1px solid rgba(255, 255, 255, 0.3)',
-              color: 'white'
-            }}>
-              <div style={{ fontSize: '28px', fontWeight: 'bold', marginBottom: '8px' }}>{stats.assigned}</div>
-              <div style={{ fontSize: '14px', opacity: 0.9 }}>Mobile Atanmış</div>
-            </div>
-            <div style={{
-              backgroundColor: 'rgba(255, 255, 255, 0.2)',
-              backdropFilter: 'blur(10px)',
-              borderRadius: '16px',
-              padding: '20px',
-              textAlign: 'center',
-              border: '1px solid rgba(255, 255, 255, 0.3)',
-              color: 'white'
-            }}>
-              <div style={{ fontSize: '28px', fontWeight: 'bold', marginBottom: '8px' }}>{stats.notAssigned}</div>
-              <div style={{ fontSize: '14px', opacity: 0.9 }}>Atanmamış</div>
-            </div>
-            <div style={{
-              backgroundColor: 'rgba(255, 255, 255, 0.2)',
-              backdropFilter: 'blur(10px)',
-              borderRadius: '16px',
-              padding: '20px',
-              textAlign: 'center',
-              border: '1px solid rgba(255, 255, 255, 0.3)',
-              color: 'white'
-            }}>
-              <div style={{ fontSize: '28px', fontWeight: 'bold', marginBottom: '8px' }}>{stats.completed}</div>
-              <div style={{ fontSize: '14px', opacity: 0.9 }}>Tamamlanan</div>
-            </div>
-          </div>
-        </div>
-      </div>
+    const openWarehouseReceive = (o: WorkOrder) => {
+        setWarehouseReceiveOrder(o);
+        setWarehouseReceiveForm({ stained: 0, defective: 0, repair: 0, lost: 0 });
+    };
+    const receiveAtWarehouse = async () => {
+        if (!warehouseReceiveOrder) return;
+        const { stained, defective, repair, lost } = warehouseReceiveForm;
+        const quantities = [stained, defective, repair, lost];
+        if (quantities.some(quantity => !Number.isInteger(quantity) || quantity < 0)) {
+            return notify('Lekeli, defolu, tamir ve kayıp adetleri 0 veya daha büyük tam sayı olmalıdır.', 'error');
+        }
+        if (quantities.reduce((total, quantity) => total + quantity, 0) > warehouseReceiveOrder.quantity) {
+            return notify(`Kontrol edilen toplam adet iş emri miktarını (${warehouseReceiveOrder.quantity}) aşamaz.`, 'error');
+        }
+        try {
+            await putOrder(warehouseReceiveOrder.id, {
+                status: 'TESLIM_EDILDI',
+                centralWarehouseReceived: true,
+                centralWarehouseStainedQuantity: stained,
+                centralWarehouseDefectiveQuantity: defective,
+                centralWarehouseRepairQuantity: repair,
+                centralWarehouseLostQuantity: lost,
+            });
+            setWarehouseReceiveOrder(null);
+            await fetchWorkOrders();
+            notify('Merkez Depo teslimi ve kalite adetleri kaydedildi.');
+        } catch (e) { if (!handle401(e)) notify(errMsg(e, 'Depo teslimi kaydedilemedi.'), 'error'); }
+    };
 
-      {/* Main Content */}
-      <div style={{ padding: '24px 32px' }}>
-        {/* Filtreler */}
-        <Card style={{ 
-          borderRadius: '16px', 
-          boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)',
-          marginBottom: '24px'
-        }}>
-          <CardContent style={{ padding: '24px' }}>
-            <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr 1fr', gap: '16px' }}>
-              <TextField
-                placeholder="İş emri, ürün kodu, ürün adı veya müşteri ara..."
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                InputProps={{
-                  startAdornment: (
-                    <Search size={20} color="#6B7280" style={{ marginRight: '12px' }} />
-                  ),
-                  style: { borderRadius: '12px' }
-                }}
-                fullWidth
-                size="small"
-                style={{ backgroundColor: 'white' }}
-              />
+    const notifyMobile = async (orderId: number, isAssigned: boolean) => {
+        if (!MOBILE_TRACKER_URL) return;
+        try {
+            const response = await fetch(`${MOBILE_TRACKER_URL}/api/assign`, {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ orderId, isAssigned, timestamp: new Date().toISOString() })
+            });
+            if (!response.ok) {
+                console.error(`Mobil servis bildirimi başarısız: HTTP ${response.status}`);
+            }
+        } catch { /* mobil sunucu kapalı olabilir; kritik değil */ }
+    };
 
-              <TextField
-                select
-                value={statusFilter}
-                onChange={(e) => setStatusFilter(e.target.value)}
-                InputProps={{
-                  startAdornment: (
-                    <Filter size={20} color="#6B7280" style={{ marginRight: '12px' }} />
-                  ),
-                  style: { borderRadius: '12px' }
-                }}
-                SelectProps={{
-                  displayEmpty: true,
-                }}
-                fullWidth
-                size="small"
-                style={{ backgroundColor: 'white' }}
-              >
-                <MenuItem value="">Tüm Durumlar</MenuItem>
-                <MenuItem value="BEKLIYOR">Bekliyor</MenuItem>
-                <MenuItem value="ALINDI">Alındı</MenuItem>
-                <MenuItem value="ATÖLYEDE">Atölyede</MenuItem>
-                <MenuItem value="HAZIR">Hazır</MenuItem>
-                <MenuItem value="TESLIM_EDILDI">Teslim Edildi</MenuItem>
-                <MenuItem value="SORUN_VAR">Sorun Var</MenuItem>
-              </TextField>
+    const toggleMobile = async (o: WorkOrder) => {
+        if (isClosed(o)) { notify('Kapatılmış iş emrinde mobil atama değiştirilemez.', 'error'); return; }
+        if (!o.assignedToMobile && !o.assignedUserId) {
+            notify('Mobil atamadan önce Takipçi ata menüsünden bir kullanıcı seçin.', 'error');
+            return;
+        }
+        try {
+            const next = !o.assignedToMobile;
+            await putOrder(o.id, { assignedToMobile: next, status: o.status });
+            setWorkOrders(prev => prev.map(order => (
+                order.id === o.id ? { ...order, assignedToMobile: next } : order
+            )));
+            void notifyMobile(o.id, next);
+            await fetchWorkOrders();
+            notify(next ? 'Mobile atandı.' : 'Mobil atama kaldırıldı.');
+        } catch (e) { if (!handle401(e)) notify(errMsg(e, 'Mobil atama güncellenemedi.'), 'error'); }
+    };
 
-              <TextField
-                select
-                value={priorityFilter}
-                onChange={(e) => setPriorityFilter(e.target.value)}
-                fullWidth
-                size="small"
-                style={{ backgroundColor: 'white', borderRadius: '12px' }}
-              >
-                <MenuItem value="">Tüm Öncelikler</MenuItem>
-                <MenuItem value="LOW">Düşük</MenuItem>
-                <MenuItem value="MEDIUM">Orta</MenuItem>
-                <MenuItem value="HIGH">Yüksek</MenuItem>
-                <MenuItem value="URGENT">Acil</MenuItem>
-              </TextField>
+    const assignUser = async (o: WorkOrder, userId: number | null) => {
+        setMenu(null);
+        if (isClosed(o)) { notify('Kapatılmış iş emrinde kullanıcı atanamaz.', 'error'); return; }
+        try {
+            await putOrder(o.id, {
+                assignedUserId: userId,
+                assignedToMobile: userId !== null,
+                status: o.status,
+            });
+            const assignedUser = userId === null
+                ? null
+                : fasonTrackers.find(tracker => tracker.id === userId) || null;
+            setWorkOrders(prev => prev.map(order => (
+                order.id === o.id
+                    ? { ...order, assignedUserId: userId, assignedUser, assignedToMobile: userId !== null }
+                    : order
+            )));
+            await fetchWorkOrders();
+            notify(userId === null ? 'Takipçi ataması kaldırıldı.' : 'Takipçi ataması güncellendi.');
+        }
+        catch (e) { if (!handle401(e)) notify(errMsg(e, 'Kullanıcı atanamadı.'), 'error'); }
+    };
 
-              <TextField
-                select
-                value={mobileFilter}
-                onChange={(e) => setMobileFilter(e.target.value)}
-                fullWidth
-                size="small"
-                style={{ backgroundColor: 'white', borderRadius: '12px' }}
-              >
-                <MenuItem value="">Tüm Atamalar</MenuItem>
-                <MenuItem value="assigned">Atanmış</MenuItem>
-                <MenuItem value="not_assigned">Atanmamış</MenuItem>
-              </TextField>
-            </div>
-          </CardContent>
-        </Card>
+    const openAssignDialog = (o: WorkOrder) => {
+        setSelectedOrder(o);
+        setAssignForm({ workshopId: '', assignedQuantity: Math.max(1, o.quantity - assignedQty(o)), unitPrice: 0, processType: 'DIKIM', notes: '', dueDate: o.deliveryDate?.slice(0, 10) || '' });
+        setOpenAssign(true);
+    };
 
-        {/* İş Emirleri Listesi */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-          {filteredOrders.map((order) => (
-            <Card key={order.id} style={{ 
-              borderRadius: '16px',
-              boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)',
-              overflow: 'hidden'
-            }}>
-              <CardContent style={{ padding: '20px' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                  <div style={{ flex: 1 }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '12px' }}>
-                      <h3 style={{ fontSize: '18px', fontWeight: 'bold', color: '#1F2937', margin: 0 }}>
-                        {order.orderNo}
-                      </h3>
-                      <div style={{ 
-                        width: '8px', 
-                        height: '8px', 
-                        borderRadius: '50%',
-                        backgroundColor: styles.priorityColors[order.priority]
-                      }} />
-                      {order.assignedToMobile && (
-                        <Chip 
-                          label="Mobile Atanmış"
-                          size="small"
-                          style={{ 
-                            backgroundColor: '#10B981', 
-                            color: 'white',
-                            fontWeight: '500'
-                          }}
-                        />
-                      )}
-                    </div>
+    const saveAssignment = async () => {
+        if (!selectedOrder) return;
+        const remaining = selectedOrder.quantity - assignedQty(selectedOrder);
+        if (!assignForm.workshopId) return notify('Lütfen bir atölye seçin.', 'error');
+        if (!(assignForm.assignedQuantity > 0)) return notify('Adet 0\'dan büyük olmalı.', 'error');
+        if (!(assignForm.unitPrice >= 0)) return notify('Birim fiyat 0 veya daha büyük olmalı.', 'error');
+        if (assignForm.assignedQuantity > remaining) return notify(`Adet, kalan miktarı (${remaining}) aşamaz.`, 'error');
+        try {
+            await axios.post('/api/fason/assignments', { workOrderId: selectedOrder.id, ...assignForm, workshopId: parseInt(assignForm.workshopId) }, auth());
+            setOpenAssign(false); fetchWorkOrders(); fetchLookups(); notify('Atölye ataması kaydedildi.');
+        } catch (e) { if (!handle401(e)) notify(errMsg(e, 'Atama kaydedilemedi.'), 'error'); }
+    };
 
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '16px' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#6B7280' }}>
-                        <Package size={16} />
-                        <span>{order.productCode} - {order.productName}</span>
-                      </div>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#6B7280' }}>
-                        <User size={16} />
-                        <span>{order.customerName}</span>
-                      </div>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#6B7280' }}>
-                        <span>Miktar: {order.quantity} adet</span>
-                      </div>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#6B7280' }}>
-                        <Calendar size={16} />
-                        <span>Teslim: {new Date(order.deliveryDate).toLocaleDateString('tr-TR')}</span>
-                      </div>
-                    </div>
+    const toggleExpand = async (id: number) => {
+        if (expanded === id) { setExpanded(null); return; }
+        setExpanded(id); setTab('workshops'); setNoteText('');
+        try {
+            const res = await axios.get(`/api/fason/work-orders/${id}/notes`, auth());
+            setNotesByOrder(p => ({ ...p, [id]: Array.isArray(res.data.data) ? res.data.data : [] }));
+        } catch (e) { handle401(e); }
+    };
 
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                      <span style={{
-                        padding: '6px 16px',
-                        borderRadius: '20px',
-                        fontSize: '12px',
-                        fontWeight: '600',
-                        color: 'white',
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '6px',
-                        ...getStatusStyle(order.status)
-                      }}>
-                        {getStatusIcon(order.status)}
-                        {order.status.replace('_', ' ')}
-                      </span>
-                      <span style={{
-                        fontSize: '14px',
-                        color: '#6B7280',
-                        padding: '4px 12px',
-                        backgroundColor: order.priority === 'URGENT' ? '#FEE2E2' :
-                                        order.priority === 'HIGH' ? '#FEF3C7' :
-                                        order.priority === 'MEDIUM' ? '#DBEAFE' : '#D1FAE5',
-                        borderRadius: '12px',
-                        fontWeight: '500'
-                      }}>
-                        {order.priority === 'LOW' ? 'Düşük' :
-                         order.priority === 'MEDIUM' ? 'Orta' :
-                         order.priority === 'HIGH' ? 'Yüksek' : 'Acil'}
-                      </span>
-                    </div>
+    const addNote = async (o: WorkOrder) => {
+        const text = noteText.trim();
+        if (!text) return;
+        try {
+            const res = await axios.post(`/api/fason/work-orders/${o.id}/notes`, { text }, auth());
+            const created: OrderNote = res.data.data || { id: Date.now(), text, createdAt: new Date().toISOString() };
+            setNotesByOrder(p => ({ ...p, [o.id]: [created, ...(p[o.id] || [])] }));
+            setNoteText('');
+        } catch (e) { if (!handle401(e)) notify(errMsg(e, 'Not eklenemedi.'), 'error'); }
+    };
 
-                    {/* Assignment Summary */}
-                    {order.fasonTrackings && order.fasonTrackings.length > 0 && (
-                      <div style={{ marginTop: '12px', padding: '12px', backgroundColor: '#F8FAFC', borderRadius: '8px' }}>
-                        <div style={{ fontSize: '12px', color: '#6B7280', marginBottom: '8px' }}>
-                          Atamalar ({order.fasonTrackings.reduce((sum, t) => sum + t.assignedQuantity, 0)}/{order.quantity} adet):
-                        </div>
-                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
-                          {order.fasonTrackings.map((tracking) => (
-                            <Chip
-                              key={tracking.id}
-                              label={`${tracking.workshop?.name}: ${tracking.assignedQuantity} adet - ${(tracking.totalPrice || 0).toLocaleString('tr-TR')} ₺`}
-                              size="small"
-                              style={{
-                                backgroundColor: '#E0E7FF',
-                                color: '#3730A3',
-                                fontSize: '11px'
-                              }}
-                            />
-                          ))}
-                        </div>
-                      </div>
+    const remainOf = (t: FasonTracking) => t.assignedQuantity - (t.receivedQuantity || 0) - (t.defectQuantity || 0);
+
+    const openReceive = (order: WorkOrder, t: FasonTracking) => { setReceiveDlg({ order, t }); setReceiveForm({ received: remainOf(t), defect: 0 }); };
+    const saveReceive = async () => {
+        if (!receiveDlg) return;
+        const { t } = receiveDlg; const { received, defect } = receiveForm; const remain = remainOf(t);
+        if (received < 0 || defect < 0 || received + defect <= 0) return notify('Teslim alınan veya fire adedi girin.', 'error');
+        if (received + defect > remain) return notify(`Toplam, kalan miktarı (${remain}) aşamaz.`, 'error');
+        try {
+            await axios.put(`/api/fason/assignments/${t.id}/receive`, { receivedQuantity: received, defectQuantity: defect }, auth());
+            setReceiveDlg(null); fetchWorkOrders();
+            notify(received + defect < remain ? 'Kısmi teslim kaydedildi.' : 'Teslim alındı.');
+        } catch (e) { if (!handle401(e)) notify(errMsg(e, 'Teslim kaydedilemedi.'), 'error'); }
+    };
+
+    const openPay = (order: WorkOrder, t: FasonTracking) => { setPayDlg({ order, t }); setPayForm({ amount: (t.totalPrice || 0) - (t.paidAmount || 0), note: '' }); };
+    const savePay = async () => {
+        if (!payDlg) return;
+        const { t } = payDlg; const debt = (t.totalPrice || 0) - (t.paidAmount || 0);
+        if (!(payForm.amount > 0)) return notify('Ödeme tutarı 0\'dan büyük olmalı.', 'error');
+        if (payForm.amount > debt) return notify(`Ödeme, kalan borcu (${money(debt)}) aşamaz.`, 'error');
+        try {
+            await axios.post(`/api/fason/assignments/${t.id}/payments`, payForm, auth());
+            setPayDlg(null); fetchWorkOrders(); fetchLookups(); notify('Ödeme kaydedildi.');
+        } catch (e) { if (!handle401(e)) notify(errMsg(e, 'Ödeme kaydedilemedi.'), 'error'); }
+    };
+
+    const exportExcel = () => {
+        if (!filtered.length) return notify('Dışa aktarılacak kayıt yok.', 'error');
+        const fit = (ws: XLSX.WorkSheet, rows: Record<string, unknown>[]) => {
+            ws['!cols'] = Object.keys(rows[0]).map(k => ({ wch: Math.min(40, Math.max(k.length, ...rows.map(r => String(r[k] ?? '').length)) + 2) }));
+        };
+        const orders = filtered.map(o => ({
+            'İş Emri No': o.orderNo, 'Ürün Kodu': o.productCode, 'Ürün Adı': o.productName, 'Müşteri': o.customerName, 'Adet': o.quantity,
+            'Durum': STATUS[o.status]?.label || o.status, 'Öncelik': PRIORITY[o.priority].label, 'Sipariş Tarihi': fmtDate(o.orderDate),
+            'Teslim Tarihi': fmtDate(o.deliveryDate), 'Sevk Adresi': o.shippingAddress || '', 'Takipçi': o.assignedUser?.name || '',
+            'Mobile Atanmış': o.assignedToMobile ? 'Evet' : 'Hayır', 'Atölyeye Verilen': assignedQty(o), 'İlerleme %': progress(o),
+            'Toplam Maliyet (₺)': costOf(o), 'Ödenen (₺)': paidOf(o), 'Kalan Borç (₺)': debtOf(o)
+        }));
+        const assigns = filtered.flatMap(o => (o.fasonTrackings || []).map(t => ({
+            'İş Emri No': o.orderNo, 'Atölye': t.workshop?.name || '', 'İşlem': PROCESS_LABEL[t.processType] || t.processType,
+            'Termin': fmtDate(t.dueDate), 'Verilen': t.assignedQuantity, 'Teslim Alınan': t.receivedQuantity || 0, 'Fire': t.defectQuantity || 0,
+            'Kalan': remainOf(t), 'Birim Fiyat (₺)': t.unitPrice, 'Tutar (₺)': t.totalPrice || 0, 'Ödenen (₺)': t.paidAmount || 0,
+            'Kalan Borç (₺)': (t.totalPrice || 0) - (t.paidAmount || 0), 'Durum': STATUS[t.status]?.label || t.status
+        })));
+        const matrix = filtered.flatMap(o => (o.sizeMatrix || []).map(r => ({
+            'İş Emri No': o.orderNo, 'Ürün': o.productName, 'Renk': r.color,
+            ...Object.fromEntries(SIZES.map(z => [z, r.sizes?.[z] || 0])), 'Toplam': rowTotal(r)
+        })));
+        const wb = XLSX.utils.book_new();
+        ([['İş Emirleri', orders], ['Atölye Atamaları', assigns], ['Beden-Renk', matrix]] as [string, Record<string, unknown>[]][])
+            .forEach(([name, rows]) => { if (rows.length) { const ws = XLSX.utils.json_to_sheet(rows); fit(ws, rows); XLSX.utils.book_append_sheet(wb, ws, name); } });
+        XLSX.writeFile(wb, `is-emirleri-${new Date().toISOString().slice(0, 10)}.xlsx`);
+        notify(`${orders.length} iş emri Excel'e aktarıldı.`);
+    };
+
+    /* ───────── UI pieces ───────── */
+    const StageTrack = ({ o }: { o: WorkOrder }) => {
+        const steps = [
+            ...STAGES.map(s => ({ label: s.label, done: stageDone(o, s.key), active: stageStarted(o, s.key) })),
+            { label: 'Depo', done: !!o.centralWarehouseReceived, active: ironingDone(o) }
+        ];
+        return (
+            <Box sx={{ display: 'flex', gap: 0.5, alignItems: 'center' }}>
+                {steps.map((s) => (
+                    <Tooltip key={s.label} title={`${s.label}: ${s.done ? 'tamam' : s.active ? 'devam ediyor' : 'başlamadı'}`}>
+                        <Box sx={{ flex: 1, minWidth: 44 }}>
+                            <Box sx={{ height: 6, borderRadius: 3, bgcolor: s.done ? C.ok : s.active ? '#E3B341' : C.line }} />
+                            <Box sx={{ fontSize: 11, mt: 0.5, color: s.done ? C.ok : C.muted, fontWeight: s.done ? 600 : 400 }}>{s.label}</Box>
+                        </Box>
+                    </Tooltip>
+                ))}
+            </Box>
+        );
+    };
+
+    const DueDate = ({ o }: { o: WorkOrder }) => {
+        const d = daysLeft(o.deliveryDate);
+        const late = isLate(o);
+        return (
+            <Box>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, fontSize: 13, color: C.ink }}>
+                    <Calendar size={14} color={C.muted} />
+                    {o.deliveryDate ? new Date(o.deliveryDate).toLocaleDateString('tr-TR') : '—'}
+                </Box>
+                {d !== null && !isClosed(o) && (
+                    <Box sx={{ fontSize: 12, mt: 0.25, fontWeight: 600, color: late ? C.danger : d <= 3 ? C.warn : C.muted }}>
+                        {late ? `${-d} gün gecikti` : d === 0 ? 'Bugün' : `${d} gün kaldı`}
+                    </Box>
+                )}
+            </Box>
+        );
+    };
+
+    const th = { fontSize: 12, color: C.muted, fontWeight: 600 };
+    const WS_COLS = '1.4fr 0.9fr 1.2fr 0.9fr 1.2fr 150px';
+
+    const renderWorkshops = (o: WorkOrder) => {
+        const rows = o.fasonTrackings || [];
+        if (!rows.length) return <Box sx={{ fontSize: 13, color: C.muted, py: 1 }}>Bu iş emri henüz bir atölyeye verilmedi.</Box>;
+        return (
+            <Box sx={{ border: `1px solid ${C.line}`, borderRadius: '8px', overflow: 'hidden' }}>
+                <Box sx={{ display: { xs: 'none', md: 'grid' }, gridTemplateColumns: WS_COLS, gap: 1.5, px: 1.5, py: 1, bgcolor: '#F9FAFB', borderBottom: `1px solid ${C.line}`, ...th }}>
+                    <span>Atölye / işlem</span><span>Termin</span><span>Teslim alınan</span><span>Tutar</span><span>Ödeme</span><span />
+                </Box>
+                {rows.map(t => {
+                    const remain = remainOf(t), paid = t.paidAmount || 0, debt = (t.totalPrice || 0) - paid;
+                    const d = t.dueDate ? daysLeft(t.dueDate) : null;
+                    const late = remain > 0 && d !== null && d < 0;
+                    return (
+                        <Box key={t.id} sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr 1fr', md: WS_COLS }, gap: 1.5, px: 1.5, py: 1.25, fontSize: 13, alignItems: 'center', borderBottom: `1px solid ${C.line}`, '&:last-child': { borderBottom: 0 } }}>
+                            <Box><Box sx={{ fontWeight: 600 }}>{t.workshop?.name || 'Atölye'}</Box><Box sx={{ color: C.muted }}>{PROCESS_LABEL[t.processType] || t.processType}</Box></Box>
+                            <Box>
+                                {fmtDate(t.dueDate)}
+                                {remain > 0 && d !== null && <Box sx={{ fontSize: 12, fontWeight: 600, color: late ? C.danger : d <= 3 ? C.warn : C.muted }}>{late ? `${-d} gün gecikti` : d === 0 ? 'Bugün' : `${d} gün kaldı`}</Box>}
+                            </Box>
+                            <Box>
+                                <Box sx={{ fontWeight: 600 }}>{t.receivedQuantity || 0}/{t.assignedQuantity} adet</Box>
+                                <Box sx={{ fontSize: 12, color: (t.defectQuantity || 0) > 0 ? C.danger : C.muted }}>Fire: {t.defectQuantity || 0} · Kalan: {remain}</Box>
+                            </Box>
+                            <Box>{money(t.totalPrice)}</Box>
+                            <Box>
+                                <Box>{money(paid)} ödendi</Box>
+                                <Box sx={{ fontSize: 12, fontWeight: 600, color: debt > 0 ? C.warn : C.ok }}>{debt > 0 ? `Kalan ${money(debt)}` : 'Ödeme tamam'}</Box>
+                            </Box>
+                            <Box sx={{ display: 'flex', gap: 0.5, justifyContent: 'flex-end' }}>
+                                <Tooltip title="Teslim al / fire gir"><span><IconButton size="small" disabled={remain <= 0} onClick={() => openReceive(o, t)} sx={{ color: C.accent, bgcolor: C.accentSoft, borderRadius: '8px' }}><PackageOpen size={16} /></IconButton></span></Tooltip>
+                                <Tooltip title="Ödeme ekle"><span><IconButton size="small" disabled={debt <= 0} onClick={() => openPay(o, t)} sx={{ color: C.info, bgcolor: C.infoSoft, borderRadius: '8px' }}><Wallet size={16} /></IconButton></span></Tooltip>
+                            </Box>
+                        </Box>
+                    );
+                })}
+            </Box>
+        );
+    };
+
+    const renderMatrix = (o: WorkOrder) => {
+        const m = o.sizeMatrix || [];
+        if (!m.length) return <Box sx={{ fontSize: 13, color: C.muted, py: 1 }}>Beden/renk dağılımı girilmemiş. Satır menüsünden Düzenle'yi seçerek ekleyebilirsiniz.</Box>;
+        const cell = { p: '6px 12px', textAlign: 'center' as const, borderBottom: `1px solid ${C.line}` };
+        return (
+            <Box sx={{ overflowX: 'auto', border: `1px solid ${C.line}`, borderRadius: '8px' }}>
+                <Box component="table" sx={{ borderCollapse: 'collapse', width: '100%', fontSize: 13 }}>
+                    <thead><tr style={{ background: '#F9FAFB' }}><th style={{ ...cell, textAlign: 'left' }}>Renk</th>{SIZES.map(z => <th key={z} style={cell}>{z}</th>)}<th style={cell}>Toplam</th></tr></thead>
+                    <tbody>
+                        {m.map((r, i) => <tr key={i}><td style={{ ...cell, textAlign: 'left', fontWeight: 600 }}>{r.color || '—'}</td>{SIZES.map(z => <td key={z} style={{ ...cell, color: r.sizes?.[z] ? C.ink : C.line }}>{r.sizes?.[z] || 0}</td>)}<td style={{ ...cell, fontWeight: 700 }}>{rowTotal(r)}</td></tr>)}
+                        <tr style={{ background: '#F9FAFB' }}><td style={{ ...cell, textAlign: 'left', fontWeight: 700 }}>Toplam</td>{SIZES.map(z => <td key={z} style={{ ...cell, fontWeight: 700 }}>{m.reduce((a, r) => a + (r.sizes?.[z] || 0), 0)}</td>)}<td style={{ ...cell, fontWeight: 700 }}>{matrixTotal(m)}</td></tr>
+                    </tbody>
+                </Box>
+            </Box>
+        );
+    };
+
+    const renderNotes = (o: WorkOrder) => {
+        const list = notesByOrder[o.id] || [];
+        return (
+            <Box>
+                <Box sx={{ display: 'flex', gap: 1, mb: 1.5 }}>
+                    <TextField size="small" fullWidth sx={fieldSx} placeholder="Not veya yorum yazın" value={noteText} onChange={e => setNoteText(e.target.value)}
+                        onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); addNote(o); } }} />
+                    <Button variant="contained" disableElevation onClick={() => addNote(o)} disabled={!noteText.trim()} sx={{ textTransform: 'none', bgcolor: C.accent, whiteSpace: 'nowrap' }}>Not ekle</Button>
+                </Box>
+                {list.length === 0 && <Box sx={{ fontSize: 13, color: C.muted }}>Henüz not yok.</Box>}
+                {list.map(n => (
+                    <Box key={n.id} sx={{ py: 1, borderTop: `1px solid ${C.line}`, fontSize: 13 }}>
+                        <Box sx={{ color: C.muted, fontSize: 12 }}>{n.author || 'Kullanıcı'} · {new Date(n.createdAt).toLocaleString('tr-TR')}</Box>
+                        <Box sx={{ mt: 0.25, whiteSpace: 'pre-wrap' }}>{n.text}</Box>
+                    </Box>
+                ))}
+            </Box>
+        );
+    };
+
+    const renderMatrixEditor = () => {
+        const m = formData.sizeMatrix;
+        const setM = (next: SizeRow[]) => setFormData({ ...formData, sizeMatrix: next });
+        return (
+            <Box sx={{ mt: 2.5 }}>
+                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
+                    <Box sx={{ fontWeight: 600, fontSize: 14 }}>Beden / renk dağılımı</Box>
+                    <Button size="small" startIcon={<Plus size={14} />} onClick={() => setM([...m, { color: '', sizes: {} }])} sx={{ textTransform: 'none', color: C.accent }}>Renk ekle</Button>
+                </Box>
+                {m.length === 0 ? (
+                    <Box sx={{ fontSize: 13, color: C.muted }}>Renk ve beden bazında adet girerseniz toplam miktar otomatik hesaplanır.</Box>
+                ) : (
+                    <Box sx={{ overflowX: 'auto' }}>
+                        <Box component="table" sx={{ borderCollapse: 'collapse', width: '100%', fontSize: 13, '& td, & th': { p: 0.5 } }}>
+                            <thead><tr><th style={{ textAlign: 'left' }}>Renk</th>{SIZES.map(z => <th key={z}>{z}</th>)}<th>Toplam</th><th /></tr></thead>
+                            <tbody>
+                                {m.map((r, i) => (
+                                    <tr key={i}>
+                                        <td><TextField size="small" placeholder="Siyah" value={r.color} onChange={e => setM(m.map((x, j) => j === i ? { ...x, color: e.target.value } : x))} /></td>
+                                        {SIZES.map(z => (
+                                            <td key={z}><TextField size="small" type="number" sx={{ width: 64 }} inputProps={{ min: 0, style: { textAlign: 'center', padding: '8px 4px' } }}
+                                                value={r.sizes?.[z] || ''} onChange={e => setM(m.map((x, j) => j === i ? { ...x, sizes: { ...x.sizes, [z]: Math.max(0, parseInt(e.target.value) || 0) } } : x))} /></td>
+                                        ))}
+                                        <td style={{ textAlign: 'center', fontWeight: 700 }}>{rowTotal(r)}</td>
+                                        <td><IconButton size="small" onClick={() => setM(m.filter((_, j) => j !== i))} aria-label="Satırı sil"><Trash2 size={15} /></IconButton></td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </Box>
+                        <Box sx={{ textAlign: 'right', fontSize: 13, fontWeight: 600, mt: 1 }}>Toplam: {matrixTotal(m)} adet</Box>
+                    </Box>
+                )}
+            </Box>
+        );
+    };
+
+    const receiveRemain = receiveDlg ? remainOf(receiveDlg.t) : 0;
+    const payDebt = payDlg ? (payDlg.t.totalPrice || 0) - (payDlg.t.paidAmount || 0) : 0;
+
+    const quickTabs: { key: typeof quick; label: string; tone?: string }[] = [
+        { key: 'all', label: 'Tümü' }, { key: 'active', label: 'Devam eden' },
+        { key: 'late', label: 'Geciken', tone: C.danger }, { key: 'warehouse', label: 'Depo bekleyen', tone: C.warn },
+        { key: 'done', label: 'Tamamlanan' }
+    ];
+
+    /* ───────── Render ───────── */
+    return (
+        <Box sx={{ bgcolor: C.bg, minHeight: '100vh', fontFamily: FONT, color: C.ink }}>
+            {/* Top bar */}
+            <Box sx={{ bgcolor: C.surface, borderBottom: `1px solid ${C.line}`, px: { xs: 2, md: 4 }, py: 2.5 }}>
+                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 2 }}>
+                    <Box>
+                        <Box component="h1" sx={{ m: 0, fontSize: 24, fontWeight: 700, letterSpacing: '-0.01em' }}>İş emirleri</Box>
+                        <Box sx={{ color: C.muted, fontSize: 14, mt: 0.5 }}>Mira Stok · Dış kaynak üretim takibi</Box>
+                    </Box>
+                    <Box sx={{ display: 'flex', gap: 1.5 }}>
+                        <Button variant="outlined" onClick={exportExcel} startIcon={<Download size={16} />} sx={{ textTransform: 'none', borderColor: C.line, color: C.ink, borderRadius: '8px' }}>
+                            Excel'e aktar
+                        </Button>
+                        <Button variant="contained" disableElevation startIcon={<Plus size={16} />} onClick={() => router.push('/fason/create-work-order')}
+                            sx={{ textTransform: 'none', bgcolor: C.accent, borderRadius: '8px', '&:hover': { bgcolor: '#095858' } }}>
+                            Yeni iş emri
+                        </Button>
+                    </Box>
+                </Box>
+
+                {/* Quick filters double as summary */}
+                <Box sx={{ display: 'flex', gap: 1, mt: 2.5, flexWrap: 'wrap' }}>
+                    {quickTabs.map(t => {
+                        const on = quick === t.key;
+                        return (
+                            <Box key={t.key} component="button" onClick={() => setQuick(t.key)} sx={{
+                                display: 'flex', alignItems: 'center', gap: 1, px: 1.75, py: 0.9, borderRadius: '8px', cursor: 'pointer', fontFamily: FONT, fontSize: 14,
+                                border: `1px solid ${on ? C.accent : C.line}`, bgcolor: on ? C.accentSoft : C.surface, color: C.ink, fontWeight: on ? 600 : 500
+                            }}>
+                                {t.label}
+                                <Box component="span" sx={{ fontWeight: 700, color: counts[t.key] > 0 && t.tone ? t.tone : C.muted }}>{counts[t.key]}</Box>
+                            </Box>
+                        );
+                    })}
+                </Box>
+            </Box>
+
+            <Box sx={{ px: { xs: 2, md: 4 }, py: 3, maxWidth: 1400, mx: 'auto' }}>
+                {/* Filters */}
+                <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: '2fr 1fr 1fr 1fr auto' }, gap: 1.5, mb: 2.5 }}>
+                    <TextField size="small" sx={fieldSx} placeholder="İş emri no, ürün, müşteri ara" value={search} onChange={e => setSearch(e.target.value)}
+                        InputProps={{
+                            startAdornment: <InputAdornment position="start"><Search size={18} color={C.muted} /></InputAdornment>,
+                            endAdornment: search ? <IconButton size="small" onClick={() => setSearch('')}><X size={16} /></IconButton> : null
+                        }} />
+                    <TextField select size="small" sx={fieldSx} value={statusFilter} onChange={e => setStatusFilter(e.target.value)} SelectProps={{ displayEmpty: true }}>
+                        <MenuItem value="">Tüm durumlar</MenuItem>
+                        {Object.entries(STATUS).map(([k, v]) => <MenuItem key={k} value={k}>{v.label}</MenuItem>)}
+                    </TextField>
+                    <TextField select size="small" sx={fieldSx} value={priorityFilter} onChange={e => setPriorityFilter(e.target.value)} SelectProps={{ displayEmpty: true }}>
+                        <MenuItem value="">Tüm öncelikler</MenuItem>
+                        {(Object.keys(PRIORITY) as Priority[]).map(k => <MenuItem key={k} value={k}>{PRIORITY[k].label}</MenuItem>)}
+                    </TextField>
+                    <TextField select size="small" sx={fieldSx} value={mobileFilter} onChange={e => setMobileFilter(e.target.value)} SelectProps={{ displayEmpty: true }}>
+                        <MenuItem value="">Mobil: tümü</MenuItem>
+                        <MenuItem value="assigned">Mobile atanmış</MenuItem>
+                        <MenuItem value="not_assigned">Mobile atanmamış</MenuItem>
+                    </TextField>
+                    {(statusFilter || priorityFilter || mobileFilter || search || quick !== 'all') && (
+                        <Button onClick={() => { setStatusFilter(''); setPriorityFilter(''); setMobileFilter(''); setSearch(''); setQuick('all'); }}
+                            sx={{ textTransform: 'none', color: C.muted }}>Filtreleri temizle</Button>
                     )}
-                  </div>
+                </Box>
 
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    <Tooltip title={order.assignedToMobile ? "Mobile atamayı kaldır" : "Mobile ata"}>
-                      <IconButton
-                        onClick={() => toggleMobileAssignment(order.id)}
-                        style={{
-                          backgroundColor: order.assignedToMobile ? '#10B981' : '#E5E7EB',
-                          color: order.assignedToMobile ? 'white' : '#6B7280'
-                        }}
-                      >
-                        <Truck size={18} />
-                      </IconButton>
-                    </Tooltip>
-                    <Tooltip title="Atölye Ata">
-                      <IconButton
-                        onClick={() => handleAssignWorkshop(order)}
-                        style={{ backgroundColor: '#8B5CF6', color: 'white' }}
-                      >
-                        <Building size={18} />
-                      </IconButton>
-                    </Tooltip>
-                    <div className="relative">
-                      <button
-                        onClick={() => setShowUserDropdown(order.id)}
-                        className="px-3 py-1 text-sm bg-blue-500 text-white rounded-md hover:bg-blue-600"
-                      >
-                        {order.assignedUser ? order.assignedUser.name : 'Kullanıcı Ata'}
-                      </button>
-                      
-                      {showUserDropdown === order.id && (
-                        <div className="absolute z-10 mt-2 w-48 rounded-md shadow-lg bg-white ring-1 ring-black ring-opacity-5">
-                          <div className="py-1" role="menu">
-                            <button
-                              onClick={() => assignUserToOrder(order.id, null)}
-                              className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 w-full text-left"
-                            >
-                              Atamayı Kaldır
-                            </button>
-                            {fasonTrackers.map(user => (
-                              <button
-                                key={user.id}
-                                onClick={() => assignUserToOrder(order.id, user.id)}
-                                className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 w-full text-left"
-                              >
-                                {user.name}
-                              </button>
+                {error && <Alert severity="error" sx={{ mb: 2, borderRadius: '8px' }} action={<Button color="inherit" size="small" onClick={fetchWorkOrders}>Tekrar dene</Button>}>{error}</Alert>}
+
+                {/* List */}
+                <Box sx={{ bgcolor: C.surface, border: `1px solid ${C.line}`, borderRadius: '10px', overflow: 'hidden' }}>
+                    {loading && <LinearProgress sx={{ height: 2 }} />}
+
+                    <Box sx={{ display: { xs: 'none', lg: 'grid' }, gridTemplateColumns: '28px 1.1fr 1.6fr 1.5fr 130px 120px 96px', gap: 2, px: 2, py: 1.25,
+                        bgcolor: '#F9FAFB', borderBottom: `1px solid ${C.line}`, fontSize: 12, color: C.muted, fontWeight: 600 }}>
+                        <span /><span>İş emri</span><span>Ürün / müşteri</span><span>Üretim aşaması</span><span>Teslim</span><span>Durum</span><span />
+                    </Box>
+
+                    {filtered.map(o => {
+                        const st = STATUS[o.status] || STATUS.BEKLIYOR;
+                        const open = expanded === o.id;
+                        const q = assignedQty(o);
+                        return (
+                            <Box key={o.id} sx={{ borderBottom: `1px solid ${C.line}`, '&:last-child': { borderBottom: 0 } }}>
+                                <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '28px 1fr 40px', lg: '28px 1.1fr 1.6fr 1.5fr 130px 120px 96px' }, gap: 2, px: 2, py: 1.75, alignItems: 'center',
+                                    borderLeft: `4px solid ${PRIORITY[o.priority].color}`, '&:hover': { bgcolor: '#FAFBFB' } }}>
+                                    <IconButton size="small" onClick={() => toggleExpand(o.id)} aria-label="Ayrıntıları aç">
+                                        {open ? <ChevronDown size={18} /> : <ChevronRight size={18} />}
+                                    </IconButton>
+
+                                    <Box>
+                                        <Box sx={{ fontWeight: 700, fontSize: 15 }}>{o.orderNo}</Box>
+                                        <Box sx={{ display: 'flex', gap: 1, alignItems: 'center', mt: 0.5, flexWrap: 'wrap' }}>
+                                            <Box sx={{ fontSize: 12, color: PRIORITY[o.priority].color, fontWeight: 600 }}>{PRIORITY[o.priority].label} öncelik</Box>
+                                            {o.assignedToMobile && <Chip size="small" icon={<Smartphone size={12} />} label="Mobilde" sx={{ height: 20, fontSize: 11, bgcolor: C.accentSoft, color: C.accent }} />}
+                                        </Box>
+                                    </Box>
+
+                                    <Box sx={{ display: { xs: 'none', lg: 'block' } }}>
+                                        <Box sx={{ fontSize: 14 }}>{o.productName} <Box component="span" sx={{ color: C.muted }}>({o.productCode})</Box></Box>
+                                        <Box sx={{ fontSize: 13, color: C.muted, mt: 0.25 }}>{o.customerName} · {o.quantity} adet</Box>
+                                        <Box sx={{ fontSize: 12, color: C.muted, mt: 0.25 }}>
+                                            {o.assignedUser ? `Takipçi: ${o.assignedUser.name || o.assignedUser.email}` : 'Takipçi atanmadı'}
+                                        </Box>
+                                    </Box>
+
+                                    <Box sx={{ display: { xs: 'none', lg: 'block' } }}>
+                                        <StageTrack o={o} />
+                                        <Box sx={{ fontSize: 12, color: C.muted, mt: 0.75 }}>Atölyeye verilen: {q}/{o.quantity} adet{debtOf(o) > 0 && <Box component="span" sx={{ color: C.warn, fontWeight: 600 }}> · Kalan borç {money(debtOf(o))}</Box>}</Box>
+                                    </Box>
+
+                                    <Box sx={{ display: { xs: 'none', lg: 'block' } }}><DueDate o={o} /></Box>
+
+                                    <Box sx={{ display: { xs: 'none', lg: 'block' } }}>
+                                        <Box sx={{ display: 'inline-block', px: 1.25, py: 0.4, borderRadius: '6px', fontSize: 12, fontWeight: 600, color: st.fg, bgcolor: st.bg }}>{st.label}</Box>
+                                        <Box sx={{ fontSize: 12, color: C.muted, mt: 0.5 }}>%{progress(o)} tamamlandı</Box>
+                                    </Box>
+
+                                    <Box sx={{ display: 'flex', justifyContent: 'flex-end', gap: 0.5 }}>
+                                        <Tooltip title="Atölye ata">
+                                            <span><IconButton onClick={() => openAssignDialog(o)} disabled={isClosed(o) || q >= o.quantity}
+                                                sx={{ color: C.accent, bgcolor: C.accentSoft, borderRadius: '8px', '&:hover': { bgcolor: '#CBE6E4' } }}><Building size={17} /></IconButton></span>
+                                        </Tooltip>
+                                        <IconButton onClick={e => setMenu({ el: e.currentTarget, order: o, mode: 'main' })} aria-label="Diğer işlemler"><MoreVertical size={18} /></IconButton>
+                                    </Box>
+                                </Box>
+
+                                {/* Mobile-only summary */}
+                                <Box sx={{ display: { xs: 'block', lg: 'none' }, px: 2, pb: 1.5, ml: '44px' }}>
+                                    <Box sx={{ fontSize: 14 }}>{o.productName} · {o.customerName}</Box>
+                                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, flexWrap: 'wrap', mt: 0.5 }}>
+                                        <Box sx={{ fontSize: 12, color: C.muted }}>
+                                            {o.assignedUser ? `Takipçi: ${o.assignedUser.name || o.assignedUser.email}` : 'Takipçi atanmadı'}
+                                        </Box>
+                                        {o.assignedToMobile && (
+                                            <Chip
+                                                size="small"
+                                                icon={<Smartphone size={12} />}
+                                                label="Mobilde"
+                                                sx={{ height: 20, fontSize: 11, bgcolor: C.accentSoft, color: C.accent }}
+                                            />
+                                        )}
+                                    </Box>
+                                    <Box sx={{ mt: 1 }}><StageTrack o={o} /></Box>
+                                </Box>
+
+                                {needsWarehouse(o) && (
+                                    <Box sx={{ mx: 2, mb: 1.5, p: 1.25, bgcolor: C.warnSoft, borderRadius: '8px', display: 'flex', alignItems: 'center', gap: 1.25, flexWrap: 'wrap' }}>
+                                        <AlertTriangle size={16} color={C.warn} />
+                                        <Box sx={{ fontSize: 13, color: C.warn, fontWeight: 500, flex: 1 }}>Ütü tamamlandı. Ürünler Merkez Depo'ya teslim alınmayı bekliyor.</Box>
+                                        <Button type="button" size="small" variant="contained" disableElevation startIcon={<PackageCheck size={15} />}
+                                            onClick={event => { event.preventDefault(); event.stopPropagation(); openWarehouseReceive(o); }}
+                                            sx={{ textTransform: 'none', bgcolor: C.warn, '&:hover': { bgcolor: '#92400E' } }}>Depoya teslim al</Button>
+                                    </Box>
+                                )}
+
+                                <Collapse in={warehouseReceiveOrder?.id === o.id} unmountOnExit>
+                                    <Box sx={{ mx: 2, mb: 1.5, p: 2, border: `1px solid ${C.line}`, borderRadius: '8px', bgcolor: C.surface }}>
+                                        <Box sx={{ fontWeight: 700, mb: 0.5 }}>Merkez Depo teslimi · {o.orderNo}</Box>
+                                        <Box sx={{ color: C.muted, fontSize: 13, mb: 2 }}>
+                                            Lekeli, defolu, tamir ve kayıp adetlerini girin. Yalnızca kayıp ütü atölyesi bakiyesinden düşülür.
+                                        </Box>
+                                        <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr 1fr', sm: 'repeat(4, 1fr)' }, gap: 1.5 }}>
+                                            {([
+                                                ['stained', 'Lekeli'],
+                                                ['defective', 'Defolu'],
+                                                ['repair', 'Tamir'],
+                                                ['lost', 'Kayıp'],
+                                            ] as const).map(([key, label]) => (
+                                                <TextField
+                                                    key={key}
+                                                    label={`${label} adet`}
+                                                    type="number"
+                                                    inputProps={{ min: 0, step: 1 }}
+                                                    value={warehouseReceiveForm[key]}
+                                                    onChange={e => setWarehouseReceiveForm({
+                                                        ...warehouseReceiveForm,
+                                                        [key]: e.target.value === '' ? 0 : Number(e.target.value),
+                                                    })}
+                                                />
+                                            ))}
+                                        </Box>
+                                        <Box sx={{ display: 'flex', justifyContent: 'flex-end', gap: 1, mt: 2 }}>
+                                            <Button type="button" onClick={() => setWarehouseReceiveOrder(null)} sx={{ textTransform: 'none', color: C.muted }}>Vazgeç</Button>
+                                            <Button type="button" variant="contained" disableElevation onClick={receiveAtWarehouse}
+                                                sx={{ textTransform: 'none', bgcolor: C.warn }}>Teslimi kaydet</Button>
+                                        </Box>
+                                    </Box>
+                                </Collapse>
+
+                                <Collapse in={open} unmountOnExit>
+                                    <Box sx={{ px: 2, pb: 2, ml: '44px' }}>
+                                        <Box sx={{ display: 'flex', gap: 3, flexWrap: 'wrap', fontSize: 13, color: C.muted, mb: 1 }}>
+                                            <span>Sipariş tarihi: <b style={{ color: C.ink }}>{fmtDate(o.orderDate)}</b></span>
+                                            <span>Sevk adresi: <b style={{ color: C.ink }}>{o.shippingAddress || '—'}</b></span>
+                                            <span>Maliyet: <b style={{ color: C.ink }}>{money(costOf(o))}</b></span>
+                                            <span>Ödenen: <b style={{ color: C.ok }}>{money(paidOf(o))}</b></span>
+                                            <span>Kalan: <b style={{ color: debtOf(o) > 0 ? C.warn : C.ink }}>{money(debtOf(o))}</b></span>
+                                        </Box>
+                                        {o.centralWarehouseReceived && (
+                                            <Box sx={{ fontSize: 13, color: C.muted, mb: 1 }}>
+                                                Merkez Depo kontrolü: Lekeli {o.centralWarehouseStainedQuantity || 0} · Defolu {o.centralWarehouseDefectiveQuantity || 0} · Tamir {o.centralWarehouseRepairQuantity || 0} · Kayıp {o.centralWarehouseLostQuantity || 0}
+                                            </Box>
+                                        )}
+                                        <Tabs value={tab} onChange={(_, v) => setTab(v)} sx={{ minHeight: 36, mb: 1.5, '& .MuiTab-root': { textTransform: 'none', minHeight: 36 } }}>
+                                            <Tab value="workshops" label={`Atölyeler (${(o.fasonTrackings || []).length})`} />
+                                            <Tab value="matrix" label="Beden / renk" />
+                                            <Tab value="notes" label={`Notlar (${(notesByOrder[o.id] || []).length})`} />
+                                        </Tabs>
+                                        {tab === 'workshops' && renderWorkshops(o)}
+                                        {tab === 'matrix' && renderMatrix(o)}
+                                        {tab === 'notes' && renderNotes(o)}
+                                    </Box>
+                                </Collapse>
+                            </Box>
+                        );
+                    })}
+
+                    {!loading && filtered.length === 0 && (
+                        <Box sx={{ textAlign: 'center', py: 8, px: 2 }}>
+                            <Box sx={{ fontSize: 17, fontWeight: 600 }}>Eşleşen iş emri yok</Box>
+                            <Box sx={{ color: C.muted, mt: 0.75, mb: 2 }}>Filtreleri değiştirin ya da yeni bir iş emri oluşturun.</Box>
+                            <Button variant="contained" disableElevation onClick={() => router.push('/fason/create-work-order')} sx={{ textTransform: 'none', bgcolor: C.accent, borderRadius: '8px' }}>Yeni iş emri</Button>
+                        </Box>
+                    )}
+                </Box>
+            </Box>
+
+            {/* Row menu */}
+            <Menu anchorEl={menu?.el} open={!!menu} onClose={() => setMenu(null)}>
+                {menu?.mode === 'main' && menu && [
+                    <MenuItem key="m" disabled={isClosed(menu.order)} onClick={() => { toggleMobile(menu.order); setMenu(null); }}>
+                        <Truck size={16} style={{ marginRight: 10 }} />{menu.order.assignedToMobile ? 'Mobil atamayı kaldır' : 'Mobile ata'}
+                    </MenuItem>,
+                    <MenuItem key="u" disabled={isClosed(menu.order)} onClick={() => setMenu({ ...menu, mode: 'user' })}>
+                        <UserPlus size={16} style={{ marginRight: 10 }} />Takipçi ata
+                    </MenuItem>,
+                    <MenuItem key="e" onClick={() => { openEdit(menu.order); setMenu(null); }}><Pencil size={16} style={{ marginRight: 10 }} />Düzenle</MenuItem>,
+                    <MenuItem key="d" sx={{ color: C.danger }} onClick={() => { deleteOrder(menu.order); setMenu(null); }}><Trash2 size={16} style={{ marginRight: 10 }} />Sil</MenuItem>
+                ]}
+                {menu?.mode === 'user' && menu && [
+                    <MenuItem key="none" onClick={() => assignUser(menu.order, null)}>Atamayı kaldır</MenuItem>,
+                    ...(fasonTrackers.length > 0 ? fasonTrackers.map(u => (
+                        <MenuItem key={u.id} selected={menu.order.assignedUser?.id === u.id} onClick={() => assignUser(menu.order, u.id)}>{u.name || u.email}</MenuItem>
+                    )) : [
+                        <MenuItem key="empty" disabled>Mobil erişimi açık kullanıcı bulunamadı</MenuItem>
+                    ])
+                ]}
+            </Menu>
+
+            {/* Order dialog */}
+            <Dialog open={openDialog} onClose={() => setOpenDialog(false)} maxWidth="md" fullWidth>
+                <DialogTitle sx={{ fontWeight: 700 }}>{editingOrder ? `${editingOrder.orderNo} düzenle` : 'Yeni iş emri'}</DialogTitle>
+                <DialogContent>
+                    <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr' }, gap: 2, mt: 1 }}>
+                        <TextField label="İş emri no" required value={formData.orderNo} onChange={e => setFormData({ ...formData, orderNo: e.target.value })} />
+                        <TextField label="Ürün kodu" required value={formData.productCode} onChange={e => setFormData({ ...formData, productCode: e.target.value })} />
+                        <TextField label="Ürün adı" required value={formData.productName} onChange={e => setFormData({ ...formData, productName: e.target.value })} />
+                        <TextField label="Miktar" type="number" required inputProps={{ min: 1 }} value={matrixTotal(formData.sizeMatrix) || formData.quantity}
+                            disabled={matrixTotal(formData.sizeMatrix) > 0} helperText={matrixTotal(formData.sizeMatrix) > 0 ? 'Beden dağılımından hesaplandı' : ''}
+                            onChange={e => setFormData({ ...formData, quantity: parseInt(e.target.value) || 1 })} />
+                        <TextField label="Müşteri" required value={formData.customerName} onChange={e => setFormData({ ...formData, customerName: e.target.value })} />
+                        <TextField label="Sipariş tarihi" type="date" InputLabelProps={{ shrink: true }} value={formData.orderDate} onChange={e => setFormData({ ...formData, orderDate: e.target.value })} />
+                        <TextField label="Teslim tarihi" type="date" InputLabelProps={{ shrink: true }} value={formData.deliveryDate} onChange={e => setFormData({ ...formData, deliveryDate: e.target.value })} />
+                        <TextField select label="Durum" value={formData.status} onChange={e => setFormData({ ...formData, status: e.target.value })}>
+                            {Object.entries(STATUS).map(([k, v]) => (
+                                <MenuItem key={k} value={k} disabled={k === 'TESLIM_EDILDI' && !(editingOrder && canClose(editingOrder))}>
+                                    {v.label}{k === 'TESLIM_EDILDI' ? ' (depo teslimi gerekir)' : ''}
+                                </MenuItem>
                             ))}
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                    <Tooltip title="Düzenle">
-                      <IconButton
-                        onClick={() => handleEditOrder(order)}
-                        style={{ backgroundColor: '#3B82F6', color: 'white' }}
-                      >
-                        <Edit size={18} />
-                      </IconButton>
-                    </Tooltip>
-                    <Tooltip title="Sil">
-                      <IconButton
-                        onClick={() => handleDeleteOrder(order.id)}
-                        style={{ backgroundColor: '#EF4444', color: 'white' }}
-                      >
-                        <Trash2 size={18} />
-                      </IconButton>
-                    </Tooltip>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-          ))}
+                        </TextField>
+                        <TextField select label="Öncelik" value={formData.priority} onChange={e => setFormData({ ...formData, priority: e.target.value as Priority })}>
+                            {(Object.keys(PRIORITY) as Priority[]).map(k => <MenuItem key={k} value={k}>{PRIORITY[k].label}</MenuItem>)}
+                        </TextField>
+                    </Box>
+                    <TextField label="Sevk adresi" multiline rows={2} fullWidth sx={{ mt: 2 }} value={formData.shippingAddress} onChange={e => setFormData({ ...formData, shippingAddress: e.target.value })} />
+                    {renderMatrixEditor()}
+                </DialogContent>
+                <DialogActions sx={{ px: 3, pb: 2 }}>
+                    <Button onClick={() => setOpenDialog(false)} sx={{ textTransform: 'none', color: C.muted }}>Vazgeç</Button>
+                    <Button variant="contained" disableElevation onClick={saveOrder} sx={{ textTransform: 'none', bgcolor: C.accent }}>{editingOrder ? 'Değişiklikleri kaydet' : 'İş emri oluştur'}</Button>
+                </DialogActions>
+            </Dialog>
 
-          {filteredOrders.length === 0 && (
-            <Card style={{ 
-              textAlign: 'center', 
-              padding: '48px 24px',
-              borderRadius: '16px',
-              boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)'
-            }}>
-              <CardContent>
-                <div style={{ maxWidth: '400px', margin: '0 auto' }}>
-                  <div style={{ 
-                    backgroundColor: '#F3F4F6', 
-                    borderRadius: '50%', 
-                    width: '80px', 
-                    height: '80px', 
-                    display: 'flex', 
-                    alignItems: 'center', 
-                    justifyContent: 'center',
-                    margin: '0 auto 16px'
-                  }}>
-                    <Search size={32} color="#6B7280" />
-                  </div>
-                  <h3 style={{ fontSize: '20px', fontWeight: 'semibold', color: '#374151', margin: '0 0 8px 0' }}>
-                    İş emri bulunamadı
-                  </h3>
-                  <p style={{ color: '#6B7280', margin: '0 0 16px 0' }}>
-                    Filtrelerinizi kontrol edin veya yeni iş emri oluşturun.
-                  </p>
-                  <button
-                    onClick={() => router.push('/fason/create-work-order')}
-                    style={{
-                      backgroundColor: '#3B82F6',
-                      color: 'white',
-                      padding: '10px 20px',
-                      border: 'none',
-                      borderRadius: '8px',
-                      fontWeight: '500',
-                      cursor: 'pointer'
-                    }}
-                  >
-                    Yeni İş Emri Oluştur
-                  </button>
-                </div>
-              </CardContent>
-            </Card>
-          )}
-        </div>
-      </div>
+            {/* Workshop assignment dialog */}
+            <Dialog open={openAssign} onClose={() => setOpenAssign(false)} maxWidth="sm" fullWidth>
+                <DialogTitle sx={{ fontWeight: 700 }}>Atölyeye ver · {selectedOrder?.orderNo}</DialogTitle>
+                <DialogContent>
+                    {selectedOrder && (
+                        <Box sx={{ p: 1.5, mb: 2, mt: 0.5, bgcolor: C.bg, borderRadius: '8px', fontSize: 13 }}>
+                            <Box sx={{ fontWeight: 600 }}>{selectedOrder.productName} ({selectedOrder.productCode})</Box>
+                            <Box sx={{ color: C.muted, mt: 0.5 }}>
+                                {selectedOrder.customerName} · Toplam {selectedOrder.quantity} · Verilen {assignedQty(selectedOrder)} · Kalan {selectedOrder.quantity - assignedQty(selectedOrder)}
+                            </Box>
+                        </Box>
+                    )}
+                    <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr' }, gap: 2 }}>
+                        <TextField select label="Atölye" required value={assignForm.workshopId} onChange={e => setAssignForm({ ...assignForm, workshopId: e.target.value })}>
+                            {workshops.map(w => <MenuItem key={w.id} value={String(w.id)}>{w.name} ({w.specialization})</MenuItem>)}
+                        </TextField>
+                        <TextField select label="İşlem" value={assignForm.processType} onChange={e => setAssignForm({ ...assignForm, processType: e.target.value })}>
+                            {Object.entries(PROCESS_LABEL).map(([k, v]) => <MenuItem key={k} value={k}>{v}</MenuItem>)}
+                        </TextField>
+                        <TextField label="Adet" type="number" required inputProps={{ min: 1 }} value={assignForm.assignedQuantity}
+                            onChange={e => setAssignForm({ ...assignForm, assignedQuantity: parseInt(e.target.value) || 0 })} />
+                        <TextField label="Birim fiyat (₺)" type="number" required inputProps={{ min: 0, step: 0.01 }} value={assignForm.unitPrice}
+                            onChange={e => setAssignForm({ ...assignForm, unitPrice: parseFloat(e.target.value) || 0 })} />
+                        <TextField label="Termin tarihi" type="date" InputLabelProps={{ shrink: true }} value={assignForm.dueDate} onChange={e => setAssignForm({ ...assignForm, dueDate: e.target.value })} helperText="Atölyenin teslim edeceği tarih" />
+                        <TextField label="Not" multiline rows={2} sx={{ gridColumn: '1 / -1' }} value={assignForm.notes} onChange={e => setAssignForm({ ...assignForm, notes: e.target.value })} />
+                    </Box>
+                    <Box sx={{ mt: 2, p: 1.5, bgcolor: C.accentSoft, borderRadius: '8px', display: 'flex', justifyContent: 'space-between', fontWeight: 600 }}>
+                        <span>Toplam tutar</span>
+                        <span>{(assignForm.assignedQuantity * assignForm.unitPrice || 0).toLocaleString('tr-TR')} ₺</span>
+                    </Box>
+                </DialogContent>
+                <DialogActions sx={{ px: 3, pb: 2 }}>
+                    <Button onClick={() => setOpenAssign(false)} sx={{ textTransform: 'none', color: C.muted }}>Vazgeç</Button>
+                    <Button variant="contained" disableElevation onClick={saveAssignment} sx={{ textTransform: 'none', bgcolor: C.accent }}>Atölyeye ver</Button>
+                </DialogActions>
+            </Dialog>
 
-      {/* İş Emri Form Dialog */}
-      <Dialog 
-        open={openDialog} 
-        onClose={() => setOpenDialog(false)}
-        maxWidth="md"
-        fullWidth
-      >
-        <DialogTitle style={{ 
-          background: 'linear-gradient(135deg, #8B5CF6 0%, #3B82F6 100%)',
-          color: 'white',
-          fontWeight: 'bold'
-        }}>
-          {editingOrder ? 'İş Emri Düzenle' : 'Yeni İş Emri'}
-        </DialogTitle>
-        <DialogContent style={{ padding: '24px' }}>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginTop: '16px' }}>
-            <TextField
-              label="İş Emri No"
-              value={formData.orderNo}
-              onChange={(e) => setFormData({ ...formData, orderNo: e.target.value })}
-              fullWidth
-              required
-            />
-            <TextField
-              label="Ürün Kodu"
-              value={formData.productCode}
-              onChange={(e) => setFormData({ ...formData, productCode: e.target.value })}
-              fullWidth
-              required
-            />
-            <TextField
-              label="Ürün Adı"
-              value={formData.productName}
-              onChange={(e) => setFormData({ ...formData, productName: e.target.value })}
-              fullWidth
-              required
-            />
-            <TextField
-              label="Miktar"
-              type="number"
-              value={formData.quantity}
-              onChange={(e) => setFormData({ ...formData, quantity: parseInt(e.target.value) })}
-              fullWidth
-              required
-            />
-            <TextField
-              label="Müşteri Adı"
-              value={formData.customerName}
-              onChange={(e) => setFormData({ ...formData, customerName: e.target.value })}
-              fullWidth
-              required
-            />
-            <TextField
-              label="Teslim Tarihi"
-              type="date"
-              value={formData.deliveryDate}
-              onChange={(e) => setFormData({ ...formData, deliveryDate: e.target.value })}
-              fullWidth
-              InputLabelProps={{ shrink: true }}
-            />
-            <TextField
-              select
-              label="Durum"
-              value={formData.status}
-              onChange={(e) => setFormData({ ...formData, status: e.target.value })}
-              fullWidth
-            >
-              <MenuItem value="BEKLIYOR">Bekliyor</MenuItem>
-              <MenuItem value="ALINDI">Alındı</MenuItem>
-              <MenuItem value="ATÖLYEDE">Atölyede</MenuItem>
-              <MenuItem value="HAZIR">Hazır</MenuItem>
-              <MenuItem value="TESLIM_EDILDI">Teslim Edildi</MenuItem>
-              <MenuItem value="SORUN_VAR">Sorun Var</MenuItem>
-            </TextField>
-            <TextField
-              select
-              label="Öncelik"
-              value={formData.priority}
-              onChange={(e) => setFormData({ ...formData, priority: e.target.value as any })}
-              fullWidth
-            >
-              <MenuItem value="LOW">Düşük</MenuItem>
-              <MenuItem value="MEDIUM">Orta</MenuItem>
-              <MenuItem value="HIGH">Yüksek</MenuItem>
-              <MenuItem value="URGENT">Acil</MenuItem>
-            </TextField>
-          </div>
-        </DialogContent>
-        <DialogActions style={{ padding: '16px 24px', gap: '12px' }}>
-          <Button 
-            onClick={() => setOpenDialog(false)}
-            style={{ 
-              color: '#6B7280',
-              border: '1px solid #D1D5DB',
-              padding: '8px 16px',
-              borderRadius: '8px'
-            }}
-          >
-            İptal
-          </Button>
-          <Button 
-            onClick={handleSaveOrder}
-            style={{ 
-              background: 'linear-gradient(135deg, #10B981 0%, #059669 100%)',
-              color: 'white',
-              padding: '8px 24px',
-              borderRadius: '8px',
-              fontWeight: '500'
-            }}
-          >
-            {editingOrder ? 'Güncelle' : 'Oluştur'}
-          </Button>
-        </DialogActions>
-      </Dialog>
+            {/* Receive dialog */}
+            <Dialog open={!!receiveDlg} onClose={() => setReceiveDlg(null)} maxWidth="xs" fullWidth>
+                <DialogTitle sx={{ fontWeight: 700 }}>Teslim al · {receiveDlg?.t.workshop?.name}</DialogTitle>
+                <DialogContent>
+                    {receiveDlg && (
+                        <Box sx={{ p: 1.5, mb: 2, mt: 0.5, bgcolor: C.bg, borderRadius: '8px', fontSize: 13, color: C.muted }}>
+                            {PROCESS_LABEL[receiveDlg.t.processType]} · Verilen {receiveDlg.t.assignedQuantity} · Alınan {receiveDlg.t.receivedQuantity || 0} · Fire {receiveDlg.t.defectQuantity || 0} · <b style={{ color: C.ink }}>Kalan {receiveRemain}</b>
+                        </Box>
+                    )}
+                    <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 2 }}>
+                        <TextField label="Sağlam adet" type="number" inputProps={{ min: 0 }} value={receiveForm.received} onChange={e => setReceiveForm({ ...receiveForm, received: parseInt(e.target.value) || 0 })} />
+                        <TextField label="Fire / hatalı adet" type="number" inputProps={{ min: 0 }} value={receiveForm.defect} onChange={e => setReceiveForm({ ...receiveForm, defect: parseInt(e.target.value) || 0 })} />
+                    </Box>
+                    <Box sx={{ mt: 1.5, fontSize: 12, color: C.muted }}>Kalandan az girerseniz kısmi teslim olarak kaydedilir.</Box>
+                </DialogContent>
+                <DialogActions sx={{ px: 3, pb: 2 }}>
+                    <Button onClick={() => setReceiveDlg(null)} sx={{ textTransform: 'none', color: C.muted }}>Vazgeç</Button>
+                    <Button variant="contained" disableElevation onClick={saveReceive} sx={{ textTransform: 'none', bgcolor: C.accent }}>Teslimi kaydet</Button>
+                </DialogActions>
+            </Dialog>
 
-      {/* Workshop Assignment Dialog */}
-      <Dialog
-        open={openAssignmentDialog}
-        onClose={() => setOpenAssignmentDialog(false)}
-        maxWidth="md"
-        fullWidth
-      >
-        <DialogTitle style={{
-          background: 'linear-gradient(135deg, #8B5CF6 0%, #3B82F6 100%)',
-          color: 'white',
-          fontWeight: 'bold'
-        }}>
-          Atölye Ataması - {selectedOrder?.orderNo}
-        </DialogTitle>
-        <DialogContent style={{ padding: '24px' }}>
-          {selectedOrder && (
-            <div style={{ marginBottom: '24px', padding: '16px', backgroundColor: '#F8FAFC', borderRadius: '8px' }}>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
-                <div>
-                  <strong>Ürün:</strong> {selectedOrder.productCode} - {selectedOrder.productName}
-                </div>
-                <div>
-                  <strong>Müşteri:</strong> {selectedOrder.customerName}
-                </div>
-                <div>
-                  <strong>Toplam Miktar:</strong> {selectedOrder.quantity} adet
-                </div>
-                <div>
-                  <strong>Atanmış Miktar:</strong> {selectedOrder.fasonTrackings?.reduce((sum, t) => sum + t.assignedQuantity, 0) || 0} adet
-                </div>
-              </div>
-            </div>
-          )}
+            {/* Payment dialog */}
+            <Dialog open={!!payDlg} onClose={() => setPayDlg(null)} maxWidth="xs" fullWidth>
+                <DialogTitle sx={{ fontWeight: 700 }}>Ödeme ekle · {payDlg?.t.workshop?.name}</DialogTitle>
+                <DialogContent>
+                    {payDlg && (
+                        <Box sx={{ p: 1.5, mb: 2, mt: 0.5, bgcolor: C.bg, borderRadius: '8px', fontSize: 13, color: C.muted }}>
+                            Tutar {money(payDlg.t.totalPrice)} · Ödenen {money(payDlg.t.paidAmount || 0)} · <b style={{ color: C.ink }}>Kalan {money(payDebt)}</b>
+                        </Box>
+                    )}
+                    <Box sx={{ display: 'grid', gap: 2 }}>
+                        <TextField label="Ödeme tutarı (₺)" type="number" inputProps={{ min: 0, step: 0.01 }} value={payForm.amount} onChange={e => setPayForm({ ...payForm, amount: parseFloat(e.target.value) || 0 })} />
+                        <TextField label="Açıklama" value={payForm.note} onChange={e => setPayForm({ ...payForm, note: e.target.value })} />
+                    </Box>
+                </DialogContent>
+                <DialogActions sx={{ px: 3, pb: 2 }}>
+                    <Button onClick={() => setPayDlg(null)} sx={{ textTransform: 'none', color: C.muted }}>Vazgeç</Button>
+                    <Button variant="contained" disableElevation onClick={savePay} sx={{ textTransform: 'none', bgcolor: C.accent }}>Ödemeyi kaydet</Button>
+                </DialogActions>
+            </Dialog>
 
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
-            <TextField
-              select
-              label="Atölye Seçin"
-              value={assignmentFormData.workshopId}
-              onChange={(e) => setAssignmentFormData({ ...assignmentFormData, workshopId: e.target.value })}
-              fullWidth
-              required
-            >
-              {workshops.map((workshop) => (
-                <MenuItem key={workshop.id} value={workshop.id.toString()}>
-                  {workshop.name} ({workshop.specialization})
-                </MenuItem>
-              ))}
-            </TextField>
-
-            <TextField
-              label="Atanacak Miktar"
-              type="number"
-              value={assignmentFormData.assignedQuantity}
-              onChange={(e) => setAssignmentFormData({ ...assignmentFormData, assignedQuantity: parseInt(e.target.value) })}
-              fullWidth
-              required
-              inputProps={{ min: 1 }}
-            />
-
-            <TextField
-              label="Birim Fiyat (₺)"
-              type="number"
-              value={assignmentFormData.unitPrice}
-              onChange={(e) => setAssignmentFormData({ ...assignmentFormData, unitPrice: parseFloat(e.target.value) })}
-              fullWidth
-              required
-              inputProps={{ min: 0, step: 0.01 }}
-            />
-
-            <TextField
-              select
-              label="İşlem Tipi"
-              value={assignmentFormData.processType}
-              onChange={(e) => setAssignmentFormData({ ...assignmentFormData, processType: e.target.value })}
-              fullWidth
-            >
-              <MenuItem value="DIKIM">Dikim</MenuItem>
-              <MenuItem value="BASKI_NAKIS">Baskı/Nakış</MenuItem>
-              <MenuItem value="KESIM">Kesim</MenuItem>
-              <MenuItem value="UTU">Ütü</MenuItem>
-            </TextField>
-
-            <TextField
-              label="Notlar"
-              value={assignmentFormData.notes}
-              onChange={(e) => setAssignmentFormData({ ...assignmentFormData, notes: e.target.value })}
-              fullWidth
-              multiline
-              rows={3}
-              style={{ gridColumn: '1 / -1' }}
-            />
-          </div>
-
-          {assignmentFormData.assignedQuantity > 0 && assignmentFormData.unitPrice > 0 && (
-            <div style={{ marginTop: '16px', padding: '16px', backgroundColor: '#E0F2FE', borderRadius: '8px' }}>
-              <strong>Toplam Tutar: {(assignmentFormData.assignedQuantity * assignmentFormData.unitPrice).toLocaleString('tr-TR')} ₺</strong>
-            </div>
-          )}
-        </DialogContent>
-        <DialogActions style={{ padding: '16px 24px', gap: '12px' }}>
-          <Button
-            onClick={() => setOpenAssignmentDialog(false)}
-            style={{
-              color: '#6B7280',
-              border: '1px solid #D1D5DB',
-              padding: '8px 16px',
-              borderRadius: '8px'
-            }}
-          >
-            İptal
-          </Button>
-          <Button
-            onClick={handleSaveAssignment}
-            style={{
-              background: 'linear-gradient(135deg, #10B981 0%, #059669 100%)',
-              color: 'white',
-              padding: '8px 24px',
-              borderRadius: '8px',
-              fontWeight: '500'
-            }}
-          >
-            Ata
-          </Button>
-        </DialogActions>
-      </Dialog>
-    </div>
-  );
+            <Snackbar open={!!toast} autoHideDuration={4000} onClose={() => setToast(null)} anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}>
+                {toast ? <Alert severity={toast.type} onClose={() => setToast(null)} variant="filled">{toast.msg}</Alert> : undefined}
+            </Snackbar>
+        </Box>
+    );
 };
 
 export default FasonTrackers;

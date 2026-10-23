@@ -1,0 +1,719 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// 1. Product
+model Product {
+  id             Int      @id @default(autoincrement())
+  modelNo        String   @unique
+  name           String
+  materialTypeId Int?
+  fabricId       Int?
+  groupId        Int?
+  taxRateId      Int?
+  warehouseId    Int?
+  description    String?
+  image          String?
+  createdAt      DateTime @default(now())
+
+  fabric       Fabric?         @relation(fields: [fabricId], references: [id])
+  group        Group?          @relation(fields: [groupId], references: [id])
+  materialType MaterialType?   @relation(fields: [materialTypeId], references: [id])
+  recipes      ProductRecipe[]
+  taxRate      TaxRate?        @relation(fields: [taxRateId], references: [id])
+  warehouse    Warehouse?      @relation(fields: [warehouseId], references: [id], onDelete: SetNull)
+
+  @@index([warehouseId])
+}
+
+model ProductRecipe {
+  id              Int                @id @default(autoincrement())
+  productId       Int
+  resourceType    RecipeResourceType
+  fabricId        Int?
+  accessoryId     Int?
+  quantityPerUnit Float
+  unit            String
+  createdAt       DateTime           @default(now())
+  updatedAt       DateTime           @updatedAt
+
+  accessory Accessory? @relation(fields: [accessoryId], references: [id], onDelete: Cascade)
+  fabric    Fabric?    @relation(fields: [fabricId], references: [id], onDelete: Cascade)
+  product   Product    @relation(fields: [productId], references: [id], onDelete: Cascade)
+}
+
+// 2. MaterialType
+model MaterialType {
+  id        Int       @id @default(autoincrement())
+  name      String    @unique
+  createdAt DateTime  @default(now())
+  products  Product[]
+}
+
+// 3. Group
+model Group {
+  id        Int       @id @default(autoincrement())
+  name      String    @unique
+  createdAt DateTime  @default(now())
+  products  Product[]
+}
+
+// 4. TaxRate
+model TaxRate {
+  id        Int       @id @default(autoincrement())
+  name      String    @unique
+  rate      Float     @default(0.18) // KDV oranı (örn: 0.18 = %18)
+  createdAt DateTime  @default(now())
+  products  Product[]
+}
+
+// 5. FabricType (sadece isim, başka ilişki yok)
+model FabricType {
+  id        Int      @id @default(autoincrement())
+  name      String   @unique
+  createdAt DateTime @default(now())
+}
+
+// 6. Color
+model Color {
+  id                 Int                 @id @default(autoincrement())
+  code               String?             @unique
+  name               String              @unique
+  description        String?
+  createdAt          DateTime            @default(now())
+  entries            FabricEntry[]
+  fabricOrders       FabricOrder[]
+  accessoryOrders    AccessoryOrder[]
+  fabricDocuments    FabricDocument[]
+  accessoryDocuments AccessoryDocument[]
+}
+
+// 7. CuttingTable
+model CuttingTable {
+  id        Int          @id @default(autoincrement())
+  name      String       @unique
+  createdAt DateTime     @default(now())
+  exits     FabricExit[]
+}
+
+model Warehouse {
+  id          Int      @id @default(autoincrement())
+  code        String   @unique
+  name        String
+  description String?
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  products    Product[]
+  fabrics     Fabric[]
+  accessories Accessory[]
+}
+
+// 8. FabricEntry (kumaş girişi)
+model FabricEntry {
+  id          Int      @id @default(autoincrement())
+  fabricId    Int
+  colorId     Int
+  quantityKg  Float
+  lengthMeter Float?
+  entryDate   DateTime @default(now())
+  createdAt   DateTime @default(now())
+
+  color       Color        @relation(fields: [colorId], references: [id])
+  fabric      Fabric       @relation(fields: [fabricId], references: [id])
+  fabricExits FabricExit[] @relation("FabricEntryToFabricExit")
+
+  @@map("fabric_entries")
+}
+
+// 9. FabricExit (kumaş çıkışı)
+model FabricExit {
+  id                 Int      @id @default(autoincrement())
+  modelNo            String
+  modelName          String?
+  orderNo            String
+  customerId         String
+  layerCount         Int      @default(1)
+  productWeightKg    Float    @default(0)
+  productLengthMeter Float    @default(0)
+  grammage           Float    @default(0)
+  externalProductId  String?
+  unitType           String
+  fabricType         String?
+  color              String?
+  cuttingTableId     Int
+  reportNumber       String?
+  plannedLayers      String? // JSON string for customer-based planned layers
+  actualLayers       String? // JSON string for customer-based actual layers
+  createdAt          DateTime @default(now())
+  fabricEntryId      Int?
+
+  // İLİŞKİLER
+  cuttingTable CuttingTable @relation(fields: [cuttingTableId], references: [id])
+  fabricEntry  FabricEntry? @relation("FabricEntryToFabricExit", fields: [fabricEntryId], references: [id])
+
+  @@map("fabric_exits")
+}
+
+// 10. User
+model User {
+  id            Int      @id @default(autoincrement())
+  email         String   @unique
+  password      String
+  role          Role     @default(OPERATOR)
+  name          String?
+  phone         String?
+  stockAccess   Boolean  @default(false)
+  fasonAccess   Boolean  @default(false)
+  mobileAccess  Boolean  @default(false)
+  expoPushToken String? // Expo push notification token for mobile
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  fasonTrackings     FasonTracking[]
+  assignedWorkOrders WorkOrder[]
+  sentMessages       Message[]       @relation("MessageSent")
+  receivedMessages   Message[]       @relation("MessageReceived")
+  assignedVehicles   Vehicle[]
+  createdFinancialTransactions FinancialTransaction[] @relation("UserCreatedFinancialTransactions")
+}
+
+// 11. Customer
+model Customer {
+  id        Int             @id @default(autoincrement())
+  name      String
+  phone     String?
+  email     String?
+  balance   Float           @default(0)
+  createdAt DateTime        @default(now())
+  orders    CustomerOrder[]
+  financialTransactions FinancialTransaction[] @relation("CustomerFinancialTransactions")
+}
+
+// 12. CustomerOrder
+model CustomerOrder {
+  id              Int                 @id @default(autoincrement())
+  orderNo         String // no
+  customerId      Int
+  documentType    SalesDocumentType   @default(INVOICE)
+  documentDate    DateTime?
+  documentNo      String?
+  dispatchDate    DateTime?
+  dispatchNo      String?
+  inWarehouseCode String?
+  outWarehouseCode String?
+  currencyCode    String?
+  currencyRate    Float?
+  note            String?
+  approved        Boolean             @default(false)
+  approvedAt      DateTime?
+  customer        Customer            @relation(fields: [customerId], references: [id])
+  items           CustomerOrderItem[]
+  createdAt       DateTime            @default(now())
+  updatedAt       DateTime            @updatedAt
+
+  @@index([documentType, documentDate])
+}
+
+// 13. CustomerOrderItem
+model CustomerOrderItem {
+  id                Int           @id @default(autoincrement())
+  orderId           Int
+  order             CustomerOrder @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  productCode       String // kod
+  color             String // varyant
+  description       String? // açıklama
+  notes             String? // not
+  quantity          Float // miktar
+  unit              String? // birim
+  deliveryDate      DateTime? // teslim zamanı
+  unitPrice         Float // birim fiyat
+  totalPrice        Float // toplam fiyat
+  virtualTryOnImage String? // Sanal deneme sonucu fotoğraf URL
+  personImage       String? // Kişinin orijinal fotoğrafı
+  garmentType       String? // Elbise tipi (dress, shirt, pants, jacket)
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
+}
+
+// 12. Supplier
+model Supplier {
+  id              Int              @id @default(autoincrement())
+  name            String
+  phone           String?
+  email           String?
+  createdAt       DateTime         @default(now())
+  fabricOrders    FabricOrder[]
+  accessoryOrders AccessoryOrder[]
+  financialTransactions FinancialTransaction[] @relation("SupplierFinancialTransactions")
+}
+
+// 13. Fabric (kumaş tanımı)
+model Fabric {
+  id            Int      @id @default(autoincrement())
+  code          String?  @unique
+  name          String
+  property      String?
+  width         Float?
+  length        Float?
+  depot         String?
+  warehouseId   Int?
+  unit          String?
+  stockQuantity Float    @default(0)
+  createdAt     DateTime @default(now())
+
+  entries         FabricEntry[]
+  products        Product[]
+  recipes         ProductRecipe[]
+  fabricOrders    FabricOrder[]
+  fabricDocuments FabricDocument[]
+  warehouse       Warehouse?      @relation(fields: [warehouseId], references: [id], onDelete: SetNull)
+
+  @@index([warehouseId])
+}
+
+model FabricPattern {
+  id        Int      @id @default(autoincrement())
+  name      String   @unique
+  createdAt DateTime @default(now())
+
+  fabricOrders    FabricOrder[]
+  accessoryOrders AccessoryOrder[]
+}
+
+model FabricOrder {
+  id           Int        @id @default(autoincrement())
+  orderNumber  Int        @unique
+  orderDate    DateTime   @default(now())
+  supplierId   Int
+  fabricId     Int
+  colorId      Int
+  patternId    Int?       // Made nullable to allow optional pattern selection
+  quantity     Float
+  unitType     String
+  arrivalDate  DateTime?
+  status       String     @default("Beklemede")
+  notes        String?
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+
+  supplier         Supplier         @relation(fields: [supplierId], references: [id])
+  fabric           Fabric           @relation(fields: [fabricId], references: [id])
+  color            Color            @relation(fields: [colorId], references: [id])
+  pattern          FabricPattern?   @relation(fields: [patternId], references: [id])
+  fabricDocuments FabricDocument[]
+
+  @@index([supplierId])
+  @@index([fabricId])
+  @@index([colorId])
+  @@index([patternId])
+}
+
+model Accessory {
+  id            Int      @id @default(autoincrement())
+  code          String?  @unique
+  name          String   @unique
+  warehouseId   Int?
+  unit          String
+  stockQuantity Float    @default(0)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  recipes            ProductRecipe[]
+  accessoryOrders    AccessoryOrder[]
+  accessoryDocuments AccessoryDocument[]
+  warehouse          Warehouse?          @relation(fields: [warehouseId], references: [id], onDelete: SetNull)
+
+  @@index([warehouseId])
+}
+
+model AccessoryOrder {
+  id          Int       @id @default(autoincrement())
+  orderNumber Int       @unique
+  orderDate   DateTime  @default(now())
+  supplierId  Int
+  accessoryId Int
+  colorId     Int
+  patternId   Int
+  quantity    Float
+  unitType    String
+  arrivalDate DateTime?
+  status      String    @default("Beklemede")
+  notes       String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  supplier           Supplier            @relation(fields: [supplierId], references: [id])
+  accessory          Accessory           @relation(fields: [accessoryId], references: [id])
+  color              Color               @relation(fields: [colorId], references: [id])
+  pattern            FabricPattern       @relation(fields: [patternId], references: [id])
+  accessoryDocuments AccessoryDocument[]
+
+  @@index([supplierId])
+  @@index([accessoryId])
+  @@index([colorId])
+  @@index([patternId])
+}
+
+model AccessoryDocument {
+  id                 Int      @id @default(autoincrement())
+  type               String
+  number             String   @unique
+  date               DateTime
+  customer           String
+  warehouse          String
+  total              Float
+  fgType             String?
+  fgNumber           String?
+  orderNo            String?
+  supplierCode       String?
+  supplierName       String?
+  entryWarehouseCode String?
+  exitWarehouseCode  String?
+  accessoryOrderId   Int?
+  accessoryId        Int?
+  colorId            Int?
+  quantity           Float    @default(0)
+  unitType           String?
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  accessoryOrder AccessoryOrder? @relation(fields: [accessoryOrderId], references: [id])
+  accessory      Accessory?      @relation(fields: [accessoryId], references: [id])
+  color          Color?          @relation(fields: [colorId], references: [id])
+
+  @@index([orderNo])
+  @@index([accessoryOrderId])
+  @@index([accessoryId])
+  @@index([colorId])
+}
+
+// 14. FabricDocument (kumaş irsaliye/fatura)
+model FabricDocument {
+  id                 Int      @id @default(autoincrement())
+  type               String // İrsaliye, Fatura
+  number             String   @unique
+  date               DateTime
+  customer           String
+  warehouse          String
+  total              Float
+  fgType             String?
+  fgNumber           String?
+  orderNo            String?
+  supplierCode       String?
+  supplierName       String?
+  entryWarehouseCode String?
+  exitWarehouseCode  String?
+  fabricOrderId      Int?
+  fabricId           Int?
+  colorId            Int?
+  quantity           Float    @default(0)
+  unitType           String?
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  fabricOrder FabricOrder? @relation(fields: [fabricOrderId], references: [id])
+  fabric      Fabric?      @relation(fields: [fabricId], references: [id])
+  color       Color?       @relation(fields: [colorId], references: [id])
+
+  @@index([orderNo])
+  @@index([fabricOrderId])
+  @@index([fabricId])
+  @@index([colorId])
+}
+
+// 14. FasonWorkshop
+model FasonWorkshop {
+  id             Int          @id @default(autoincrement())
+  name           String       @unique
+  contactPerson  String?
+  phone          String?
+  address        String?
+  specialization WorkshopType
+  isActive       Boolean      @default(true)
+  balance        Float        @default(0)
+  totalEarnings  Float        @default(0)
+  totalPayments  Float        @default(0)
+  maxCapacity    Float        @default(500000) // Atölyenin maksimum kapasite tutarı (₺)
+  capacity       Float? // Kapasite miktarı (tutar veya adet)
+  capacityType   String       @default("TL") // TL (tutar) veya ADET (adet)
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  fasonTrackings FasonTracking[]
+}
+
+// 15. WorkOrder
+model WorkOrder {
+  id                   Int         @id @default(autoincrement())
+  orderNo              String      @unique
+  productCode          String
+  productName          String?
+  quantity             Int
+  customerName         String?
+  deliveryDate         DateTime?
+  notes                String?
+  status               OrderStatus @default(BEKLIYOR)
+  priority             Priority    @default(MEDIUM)
+  assignedToMobile     Boolean     @default(false)
+  mobileAssignmentDate DateTime?   @map("mobile_assignment_date")
+  assignedUserId       Int?
+  externalErpId        String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  assignedUser   User?           @relation(fields: [assignedUserId], references: [id])
+  fasonTrackings FasonTracking[]
+}
+
+// 16. FasonTracking
+model FasonTracking {
+  id               Int           @id @default(autoincrement())
+  workOrderId      Int
+  workshopId       Int?
+  userId           Int
+  processType      ProcessType
+  status           ProcessStatus
+  assignedQuantity Int?
+  receivedQuantity Int? // Teslim alınan miktar
+  unitPrice        Float?
+  totalPrice       Float?
+  startDate        DateTime?
+  endDate          DateTime?
+  pickupDate       DateTime?
+  deliveryDate     DateTime?
+  notes            String?
+  problemNotes     String?
+  latitude         Float?
+  longitude        Float?
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
+
+  user      User           @relation(fields: [userId], references: [id])
+  workOrder WorkOrder      @relation(fields: [workOrderId], references: [id])
+  workshop  FasonWorkshop? @relation(fields: [workshopId], references: [id])
+}
+
+// 17. Vehicle (Araç/Taşıma)
+model Vehicle {
+  id             Int      @id @default(autoincrement())
+  licensePlate   String   @unique // "35 XXX XXX"
+  model          String? // "Mercedes Sprinter"
+  color          String?
+  capacity       Float? // Kapasite (kg, m³ vs)
+  assignedUserId Int?
+  isActive       Boolean  @default(true)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  assignedUser User?             @relation(fields: [assignedUserId], references: [id])
+  locations    VehicleLocation[]
+
+  @@map("vehicles")
+}
+
+// 18. VehicleLocation (Araç Konum Geçmişi)
+model VehicleLocation {
+  id        Int      @id @default(autoincrement())
+  vehicleId Int
+  latitude  Float
+  longitude Float
+  address   String?
+  timestamp DateTime @default(now())
+
+  vehicle Vehicle @relation(fields: [vehicleId], references: [id], onDelete: Cascade)
+
+  @@index([vehicleId, timestamp])
+  @@map("vehicle_locations")
+}
+
+// 19. Message (Web-Mobile Messaging)
+model Message {
+  id          Int       @id @default(autoincrement())
+  senderId    Int
+  recipientId Int
+  content     String
+  isRead      Boolean   @default(false)
+  readAt      DateTime?
+  createdAt   DateTime  @default(now())
+
+  sender    User @relation("MessageSent", fields: [senderId], references: [id], onDelete: Cascade)
+  recipient User @relation("MessageReceived", fields: [recipientId], references: [id], onDelete: Cascade)
+
+  @@index([senderId])
+  @@index([recipientId])
+  @@index([createdAt])
+}
+
+model FinancialTransaction {
+  id            Int                  @id @default(autoincrement())
+  partyType     PartyType
+  customerId    Int?
+  supplierId    Int?
+  direction     TransactionDirection
+  source        TransactionSource    @default(MANUAL)
+  documentType  String?
+  referenceNo   String?
+  referenceId   String?
+  transactionDate DateTime           @default(now())
+  dueDate       DateTime?
+  amount        Float
+  currency      String               @default("TRY")
+  description   String?
+  createdBy     Int?
+  createdAt     DateTime             @default(now())
+  updatedAt     DateTime             @updatedAt
+
+  customer      Customer? @relation("CustomerFinancialTransactions", fields: [customerId], references: [id], onDelete: SetNull)
+  supplier      Supplier? @relation("SupplierFinancialTransactions", fields: [supplierId], references: [id], onDelete: SetNull)
+  createdByUser User?     @relation("UserCreatedFinancialTransactions", fields: [createdBy], references: [id], onDelete: SetNull)
+
+  @@index([partyType, transactionDate])
+  @@index([customerId, transactionDate])
+  @@index([supplierId, transactionDate])
+  @@index([source, documentType])
+}
+
+model License {
+  id              Int             @id @default(autoincrement())
+  key             String          @unique
+  plan            String?
+  status          LicenseStatus   @default(TRIAL)
+  expiresAt       DateTime?
+  graceUntil      DateTime?
+  maxUsers        Int?
+  features        Json?
+  lastValidatedAt DateTime?
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+
+  activations LicenseActivation[]
+  events      LicenseEvent[]
+}
+
+model LicenseActivation {
+  id         Int      @id @default(autoincrement())
+  licenseId  Int
+  deviceId   String?
+  deviceName String?
+  isActive   Boolean  @default(true)
+  metadata   Json?
+  installedAt DateTime @default(now())
+  lastSeenAt DateTime @default(now())
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  license License @relation(fields: [licenseId], references: [id], onDelete: Cascade)
+
+  @@index([licenseId])
+  @@index([deviceId])
+}
+
+model LicenseEvent {
+  id        Int      @id @default(autoincrement())
+  licenseId Int?
+  eventType String
+  message   String?
+  payload   Json?
+  createdBy Int?
+  createdAt DateTime @default(now())
+
+  license License? @relation(fields: [licenseId], references: [id], onDelete: SetNull)
+
+  @@index([licenseId, createdAt])
+}
+
+// ======================
+// ENUMS
+// ======================
+
+enum Role {
+  ADMIN
+  OPERATOR
+  STOCK_MANAGER
+  FASON_TRACKER
+}
+
+enum LicenseStatus {
+  TRIAL
+  ACTIVE
+  GRACE
+  EXPIRED
+  SUSPENDED
+  REVOKED
+}
+
+enum WorkshopType {
+  DIKIM
+  BASKI_NAKIS
+  KESIM
+  UTU
+  TUM
+}
+
+enum OrderStatus {
+  BEKLIYOR
+  ALINDI
+  ATÖLYEDE
+  HAZIR
+  TESLIM_EDILDI
+  SORUN_VAR
+}
+
+enum RecipeResourceType {
+  FABRIC
+  ACCESSORY
+}
+
+enum SalesDocumentType {
+  INVOICE
+  DISPATCH
+}
+
+enum PartyType {
+  CUSTOMER
+  SUPPLIER
+}
+
+enum TransactionDirection {
+  DEBIT
+  CREDIT
+}
+
+enum TransactionSource {
+  MANUAL
+  PAYMENT
+  DOCUMENT
+  ADJUSTMENT
+}
+
+enum Priority {
+  LOW
+  MEDIUM
+  HIGH
+  URGENT
+}
+
+enum ProcessType {
+  KESIM
+  DIKIM
+  BASKI_NAKIS
+  UTU
+}
+
+enum ProcessStatus {
+  BEKLIYOR
+  ALINDI
+  ATÖLYEDE
+  HAZIR
+  TESLIM_EDILDI
+  SORUN_VAR
+  IPTAL_EDILDI
+}

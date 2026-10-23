@@ -1,12 +1,23 @@
-'use client';
+﻿'use client';
 
 import { useState, useEffect } from "react";
 import axios from "axios";
+import { notifySuccess, notifyError } from "../../hooks/useToast";
+
+interface NamedOption {
+  name: string;
+}
+
+const getAuthHeaders = (): { Authorization: string } | undefined => {
+  if (typeof window === "undefined") return undefined;
+  const token = localStorage.getItem("token") || localStorage.getItem("authToken");
+  return token ? { Authorization: `Bearer ${token}` } : undefined;
+};
 
 export default function FabricEntry() {
   const [formData, setFormData] = useState({
     materialCode: "KUM.001.00000004",
-    materialName: "RAŞEL KUMAS DESENLI",
+    materialName: "RAŞEL KUMAŞ DESENLİ",
     materialType: "Pamuk",
     materialGroup: "KUM.001",
     fabricProperty: "Desenli kumaş",
@@ -45,21 +56,31 @@ export default function FabricEntry() {
   useEffect(() => {
     const fetchData = async () => {
       try {
-        const [fabricTypesRes, colorsRes] = await Promise.all([
+        const [fabricTypesRes, colorsRes, warehousesRes] = await Promise.all([
           axios.get('/api/fabric-types'),
-          axios.get('/api/colors')
+          axios.get('/api/colors'),
+          axios.get('/api/warehouses?withSummary=false', {
+            headers: getAuthHeaders(),
+          }),
         ]);
-        setFabricTypes(fabricTypesRes.data.map((t: any) => t.name));
-        setColors(colorsRes.data.map((c: any) => c.name));
+        setFabricTypes((fabricTypesRes.data as NamedOption[]).map((t) => t.name));
+        setColors((colorsRes.data as NamedOption[]).map((c) => c.name));
+        const warehouseCodes = Array.isArray(warehousesRes.data)
+          ? (warehousesRes.data as Array<{ code?: string }>).map((warehouse) => String(warehouse.code || "").trim()).filter(Boolean)
+          : [];
+        setWarehouses(warehouseCodes);
+        if (warehouseCodes.length > 0) {
+          setFormData((prev) => ({ ...prev, warehouse: warehouseCodes[0] }));
+        }
       } catch (error) {
         console.error('Error fetching data:', error);
         // Fallback to empty or default
         setFabricTypes([]);
         setColors([]);
+        setWarehouses([]);
       }
     };
     fetchData();
-    setWarehouses(["İstanbul", "Ankara", "İzmir"]); // Keep hardcoded for now
   }, []);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
@@ -70,14 +91,19 @@ export default function FabricEntry() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsSubmitting(true);
+    setError("");
 
     try {
       const payload = {
+        code: formData.materialCode,
         name: formData.materialName,
-        quantity: 0, // Default quantity
+        property: formData.fabricProperty,
+        unit: formData.unit,
+        depot: formData.warehouse || null,
+        stockQuantity: 0,
       };
       await axios.post("/api/fabrics", payload);
-      alert("Kumaş başarıyla kaydedildi!");
+      notifySuccess("Kumaş başarıyla kaydedildi!");
       // Reset form except for predefined values
       setFormData({
         ...formData,
@@ -97,7 +123,8 @@ export default function FabricEntry() {
       });
     } catch (err) {
       console.error(err);
-      alert("Kayıt sırasında hata oluştu!");
+      setError("Kayıt sırasında hata oluştu.");
+      notifyError("Kayıt sırasında hata oluştu!");
     } finally {
       setIsSubmitting(false);
     }
@@ -115,7 +142,7 @@ export default function FabricEntry() {
       setShowAddType(false);
     } catch (error) {
       console.error('Error adding fabric type:', error);
-      alert('Kumaş türü eklenemedi');
+      notifyError('Kumaş türü eklenemedi');
     }
   };
 
@@ -131,23 +158,39 @@ export default function FabricEntry() {
       setShowAddColor(false);
     } catch (error) {
       console.error('Error adding color:', error);
-      alert('Renk eklenemedi');
+      notifyError('Renk eklenemedi');
     }
   };
 
   // Add new warehouse
-  const handleAddWarehouse = (e: React.FormEvent) => {
+  const handleAddWarehouse = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newWarehouse.trim()) return;
-    setWarehouses((prev) => [...prev, newWarehouse]);
-    setFormData((prev) => ({ ...prev, warehouse: newWarehouse }));
-    setNewWarehouse("");
-    setShowAddWarehouse(false);
+    const normalizedCode = newWarehouse.trim().toUpperCase();
+    try {
+      await axios.post(
+        "/api/warehouses",
+        {
+          code: normalizedCode,
+          name: normalizedCode,
+        },
+        {
+          headers: getAuthHeaders(),
+        }
+      );
+      setWarehouses((prev) => (prev.includes(normalizedCode) ? prev : [...prev, normalizedCode]));
+      setFormData((prev) => ({ ...prev, warehouse: normalizedCode }));
+      setNewWarehouse("");
+      setShowAddWarehouse(false);
+    } catch (warehouseError) {
+      console.error("Error adding warehouse:", warehouseError);
+      notifyError("Depo eklenemedi");
+    }
   };
 
   return (
     <div style={styles.container}>
-      <h1 style={styles.title}>📥 Kumaş Tanımlama Sayfası</h1>
+      <h1 style={styles.title}>Kumaş Tanımlama Sayfası</h1>
       <span style={styles.codeBadge}>Kodu: {formData.materialCode}</span>
 
       {error && <div style={styles.error}>{error}</div>}
@@ -544,14 +587,17 @@ export default function FabricEntry() {
   );
 }
 
-const styles = {
+const styles: Record<string, React.CSSProperties> = {
   container: {
-    maxWidth: '1200px',
-    margin: '2rem auto',
+    width: '100%',
+    maxWidth: '100%',
+    minHeight: '100vh',
+    margin: '0',
     padding: '2rem',
     backgroundColor: '#f8f9fa',
-    borderRadius: '12px',
-    boxShadow: '0 4px 12px rgba(0, 0, 0, 0.1)',
+    borderRadius: '0',
+    boxShadow: 'none',
+    boxSizing: 'border-box',
     fontFamily: "'Segoe UI', Tahoma, Geneva, Verdana, sans-serif"
   },
   title: {
@@ -742,3 +788,4 @@ const styles = {
     cursor: 'not-allowed'
   }
 };
+

@@ -1,19 +1,46 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
-import { PrismaClient } from '@prisma/client';
+import prisma from "@/lib/prisma";
+import { Prisma } from '@prisma/client';
 
-const prisma = new PrismaClient();
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   try {
     if (req.method === 'GET') {
-      // Tüm çıkış kayıtlarını listele
+      const orderNo = typeof req.query.orderNo === 'string' ? req.query.orderNo.trim() : '';
+      const reportNumber = typeof req.query.reportNumber === 'string' ? req.query.reportNumber.trim() : '';
+      const aggregate = req.query.aggregate === 'true' || req.query.aggregate === '1';
+      const where: Prisma.FabricExitWhereInput = {
+        ...(orderNo ? { orderNo: { equals: orderNo, mode: 'insensitive' as const } } : {}),
+        ...(reportNumber ? { reportNumber: { equals: reportNumber, mode: 'insensitive' as const } } : {}),
+      };
       const exits = await prisma.fabricExit.findMany({
+        where: Object.keys(where).length > 0 ? where : undefined,
         include: {
           fabricEntry: { include: { fabric: true } },
           cuttingTable: true,
         },
         orderBy: { createdAt: 'desc' },
       });
+
+      if (aggregate) {
+        const totalKg = exits
+          .filter((row) => row.unitType === 'kg')
+          .reduce((sum, row) => sum + Number(row.productWeightKg || 0), 0);
+        const totalM = exits
+          .filter((row) => row.unitType === 'm')
+          .reduce((sum, row) => sum + Number(row.productLengthMeter || 0), 0);
+
+        return res.status(200).json({
+          orderNo,
+          reportNumber,
+          rows: exits,
+          totalKg,
+          totalM,
+          latestReportNumber: exits[0]?.reportNumber || null,
+          rowCount: exits.length,
+        });
+      }
+
       return res.status(200).json(exits);
     }
 
@@ -32,6 +59,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         cuttingTable,
         color,
         fabricType,
+        reportNumber,
+        plannedLayers,
+        actualLayers,
         createdAt
       } = req.body;
 
@@ -99,3 +129,4 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     return res.status(500).json({ error: 'Internal Server Error' });
   }
 }
+

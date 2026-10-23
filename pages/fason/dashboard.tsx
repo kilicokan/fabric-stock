@@ -1,59 +1,47 @@
-import React, { useState, useEffect } from 'react';
+﻿import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
+  Alert,
   Card,
   CardContent,
-  CardHeader,
-  LinearProgress,
-  TextField,
-  InputAdornment,
-  MenuItem,
-  Tooltip,
+  Chip,
   IconButton,
-  Chip
+  InputAdornment,
+  LinearProgress,
+  MenuItem,
+  TextField,
+  Tooltip,
 } from '@mui/material';
-import { useAuth } from '../../components/AuthContext';
 import axios from 'axios';
 import {
-  Search,
-  Filter,
-  Download,
-  MapPin,
-  Clock,
   AlertTriangle,
+  Calendar,
+  Download,
+  Factory,
+  Filter,
+  Loader2,
+  MapPin,
+  Package2,
   RefreshCw,
-  Grid3X3,
-  List,
-  TrendingUp,
-  CheckCircle,
-  AlertCircle,
-  PlayCircle,
-  Home,
-  BarChart3,
-  Settings,
-  Bell,
-  Truck,
-  Package,
-  Users,
-  Calendar
+  Search,
+  UserRound,
 } from 'lucide-react';
+import { useRouter } from 'next/router';
+import { useAuth } from '../../components/AuthContext';
 
-// Helper functions
-const getStatusColor = (status: string) => {
-  const colors: { [key: string]: string } = {
-    'KESIM': 'warning',
-    'DIKIM': 'primary',
-    'BASKI_NAKIS': 'secondary',
-    'UTU': 'info',
-    'TESLIM_EDILDI': 'success',
-    'SORUN_VAR': 'error',
-    'IPTAL': 'default',
-    'BEKLIYOR': 'warning',
-    'ALINDI': 'primary',
-    'ATÖLYEDE': 'secondary',
-    'HAZIR': 'info'
-  };
-  return colors[status] || 'default';
-};
+type MobileFilter = 'ALL' | 'MOBILE' | 'NON_MOBILE';
+type DateRangeFilter = 'ALL' | 'TODAY' | 'THIS_WEEK' | 'THIS_MONTH' | 'CUSTOM';
+type FocusFilter = 'NONE' | 'DELAYED' | 'URGENT';
+
+interface FasonTracking {
+  id: number;
+  processType: string;
+  status: string;
+  notes?: string;
+  problemNotes?: string;
+  createdAt?: string | null;
+  workshop?: { name?: string; specialization?: string } | null;
+  user?: { name?: string; email?: string } | null;
+}
 
 interface WorkOrder {
   id: number;
@@ -63,669 +51,752 @@ interface WorkOrder {
   quantity: number;
   customerName?: string;
   status: string;
-  deliveryDate?: string;
-  priority?: 'LOW' | 'MEDIUM' | 'HIGH' | 'URGENT';
+  priority?: string;
+  deliveryDate?: string | null;
+  createdAt?: string | null;
+  assignedToMobile?: boolean;
   fasonTrackings: FasonTracking[];
 }
 
-interface FasonTracking {
-  id: number;
-  processType: string;
-  status: string;
-  startDate?: string;
-  endDate?: string;
-  notes?: string;
-  problemNotes?: string;
-  workshop?: {
-    name: string;
-    specialization: string;
-  };
-  user: {
-    name?: string;
-    email: string;
-  };
-}
+const STATUS_LABELS: Record<string, string> = {
+  BEKLIYOR: 'Bekliyor',
+  ALINDI: 'Alindi',
+  ATOLYEDE: 'Atolyede',
+  HAZIR: 'Hazir',
+  TESLIM_EDILDI: 'Teslim Edildi',
+  SORUN_VAR: 'Sorun Var',
+  IPTAL_EDILDI: 'Iptal Edildi',
+};
 
-const FasonDashboard: React.FC = () => {
-  const { user } = useAuth();
-  const [workOrders, setWorkOrders] = useState<WorkOrder[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [searchTerm, setSearchTerm] = useState('');
-  const [statusFilter, setStatusFilter] = useState('');
-  const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
-  const [stats, setStats] = useState({
-    total: 0,
-    completed: 0,
-    inProgress: 0,
-    delayed: 0
-  });
+const STATUS_COLORS: Record<string, { solid: string; soft: string }> = {
+  BEKLIYOR: { solid: '#64748b', soft: '#f1f5f9' },
+  ALINDI: { solid: '#2563eb', soft: '#dbeafe' },
+  ATOLYEDE: { solid: '#d97706', soft: '#ffedd5' },
+  HAZIR: { solid: '#0d9488', soft: '#ccfbf1' },
+  TESLIM_EDILDI: { solid: '#16a34a', soft: '#dcfce7' },
+  SORUN_VAR: { solid: '#dc2626', soft: '#fee2e2' },
+  IPTAL_EDILDI: { solid: '#52525b', soft: '#f4f4f5' },
+};
 
-  // Inline CSS styles for consistent coloring
-  const styles = {
-    primaryGradient: {
-      background: 'linear-gradient(135deg, #8B5CF6 0%, #3B82F6 50%, #06B6D4 100%)',
-    },
-    purpleGradient: {
-      background: 'linear-gradient(135deg, #8B5CF6 0%, #7C3AED 100%)',
-    },
-    blueGradient: {
-      background: 'linear-gradient(135deg, #3B82F6 0%, #1D4ED8 100%)',
-    },
-    greenGradient: {
-      background: 'linear-gradient(135deg, #10B981 0%, #059669 100%)',
-    },
-    redGradient: {
-      background: 'linear-gradient(135deg, #EF4444 0%, #DC2626 100%)',
-    },
-    yellowGradient: {
-      background: 'linear-gradient(135deg, #F59E0B 0%, #D97706 100%)',
-    },
-    statusColors: {
-      ALINDI: 'linear-gradient(135deg, #3B82F6 0%, #1D4ED8 100%)',
-      ATÖLYEDE: 'linear-gradient(135deg, #F59E0B 0%, #D97706 100%)',
-      HAZIR: 'linear-gradient(135deg, #10B981 0%, #059669 100%)',
-      TESLIM_EDILDI: 'linear-gradient(135deg, #059669 0%, #047857 100%)',
-      SORUN_VAR: 'linear-gradient(135deg, #EF4444 0%, #DC2626 100%)',
-      KESIM: 'linear-gradient(135deg, #8B5CF6 0%, #7C3AED 100%)',
-      DIKIM: 'linear-gradient(135deg, #3B82F6 0%, #1D4ED8 100%)',
-      BASKI_NAKIS: 'linear-gradient(135deg, #EC4899 0%, #DB2777 100%)',
-      UTU: 'linear-gradient(135deg, #06B6D4 0%, #0891B2 100%)',
-    },
-    priorityColors: {
-      LOW: '#10B981',
-      MEDIUM: '#F59E0B',
-      HIGH: '#EF4444',
-      URGENT: '#DC2626'
-    }
-  };
+const PRIORITY_COLORS: Record<string, string> = {
+  LOW: '#16a34a',
+  MEDIUM: '#d97706',
+  HIGH: '#ea580c',
+  URGENT: '#dc2626',
+};
 
-  useEffect(() => {
-    fetchWorkOrders();
-  }, [searchTerm, statusFilter]);
+const STATUS_OPTIONS = [
+  { value: 'ALL', label: 'Tum Durumlar' },
+  { value: 'BEKLIYOR', label: 'Bekliyor' },
+  { value: 'ALINDI', label: 'Alindi' },
+  { value: 'ATOLYEDE', label: 'Atolyede' },
+  { value: 'HAZIR', label: 'Hazir' },
+  { value: 'TESLIM_EDILDI', label: 'Teslim Edildi' },
+  { value: 'SORUN_VAR', label: 'Sorun Var' },
+  { value: 'IPTAL_EDILDI', label: 'Iptal Edildi' },
+];
 
-  const fetchWorkOrders = async () => {
-    try {
-      setLoading(true);
-      const token = localStorage.getItem('token');
+const MOBILE_OPTIONS: Array<{ value: MobileFilter; label: string }> = [
+  { value: 'MOBILE', label: 'Sadece Mobile Atananlar' },
+  { value: 'ALL', label: 'Tum Is Emirleri' },
+  { value: 'NON_MOBILE', label: 'Mobile Atanmayanlar' },
+];
 
-      const params = new URLSearchParams();
-      if (searchTerm) params.append('search', searchTerm);
-      if (statusFilter) params.append('status', statusFilter);
-      // Show only mobile-assigned work orders in dashboard
-      params.append('mobileAssigned', 'true');
+const DATE_RANGE_OPTIONS: Array<{ value: DateRangeFilter; label: string }> = [
+  { value: 'ALL', label: 'Tum Tarihler' },
+  { value: 'TODAY', label: 'Bugun' },
+  { value: 'THIS_WEEK', label: 'Bu Hafta' },
+  { value: 'THIS_MONTH', label: 'Bu Ay' },
+  { value: 'CUSTOM', label: 'Ozel Aralik' },
+];
 
-      const response = await axios.get(`/api/fason/work-orders?${params.toString()}`, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
+const normalizeStatus = (status?: string | null): string => {
+  if (!status) return 'BEKLIYOR';
+  const upper = status.toUpperCase().replace(/\s+/g, '_');
+  if (upper === 'IPTAL') return 'IPTAL_EDILDI';
+  if (/AT.*LYEDE/.test(upper) || /AT.*OLYEDE/.test(upper)) return 'ATOLYEDE';
+  return upper;
+};
 
-      const workOrdersData = response.data.workOrders || [];
-      setWorkOrders(workOrdersData);
-      calculateStats(workOrdersData);
-    } catch (error) {
-      console.error('İş emirleri yüklenirken hata:', error);
-      setWorkOrders([]);
-      setStats({ total: 0, completed: 0, inProgress: 0, delayed: 0 });
-    } finally {
-      setLoading(false);
-    }
-  };
+const statusLabel = (status?: string): string => {
+  const key = normalizeStatus(status);
+  return STATUS_LABELS[key] ?? key.replaceAll('_', ' ');
+};
 
-  const calculateStats = (orders: WorkOrder[]) => {
-    const total = orders.length;
-    const completed = orders.filter(order => order.status === 'TESLIM_EDILDI').length;
-    const inProgress = orders.filter(order => 
-      !['TESLIM_EDILDI', 'IPTAL'].includes(order.status)
-    ).length;
-    const delayed = orders.filter(order => {
-      if (!order.deliveryDate) return false;
-      return new Date(order.deliveryDate) < new Date() && order.status !== 'TESLIM_EDILDI';
-    }).length;
+const statusColor = (status?: string): { solid: string; soft: string } =>
+  STATUS_COLORS[normalizeStatus(status)] ?? STATUS_COLORS.BEKLIYOR;
 
-    setStats({ total, completed, inProgress, delayed });
-  };
+const formatDate = (value?: string | null): string => {
+  if (!value) return '-';
+  const d = new Date(value);
+  return Number.isNaN(d.getTime()) ? '-' : d.toLocaleDateString('tr-TR');
+};
 
-  const exportToExcel = () => {
-    alert('Excel raporu indiriliyor...');
-  };
+const parseDateValue = (value?: string | null): Date | null => {
+  if (!value) return null;
+  const d = new Date(value);
+  return Number.isNaN(d.getTime()) ? null : d;
+};
 
-  const getPriorityColor = (priority?: string) => {
-    const priorityKey = (priority as keyof typeof styles.priorityColors) || 'LOW';
-    return styles.priorityColors[priorityKey] || '#6b7280';
-  };
+const startOfDay = (date: Date): Date => {
+  const d = new Date(date);
+  d.setHours(0, 0, 0, 0);
+  return d;
+};
 
-  const getStatusStyle = (status: string) => {
-    const styleMap: { [key: string]: React.CSSProperties } = {
-      'ALINDI': { background: styles.statusColors.ALINDI, color: 'white' },
-      'ATÖLYEDE': { background: styles.statusColors.ATÖLYEDE, color: 'white' },
-      'HAZIR': { background: styles.statusColors.HAZIR, color: 'white' },
-      'TESLIM_EDILDI': { background: styles.statusColors.TESLIM_EDILDI, color: 'white' },
-      'SORUN_VAR': { background: styles.statusColors.SORUN_VAR, color: 'white' },
-      'KESIM': { background: styles.statusColors.KESIM, color: 'white' },
-      'DIKIM': { background: styles.statusColors.DIKIM, color: 'white' },
-      'BASKI_NAKIS': { background: styles.statusColors.BASKI_NAKIS, color: 'white' },
-      'UTU': { background: styles.statusColors.UTU, color: 'white' }
-    };
-    return styleMap[status] || { backgroundColor: '#6B7280', color: 'white' };
-  };
+const isInDateRange = (
+  value: string | null | undefined,
+  range: DateRangeFilter,
+  customFrom?: string,
+  customTo?: string
+): boolean => {
+  if (range === 'ALL') return true;
 
-  if (loading) {
-    return (
-      <div style={{ 
-        padding: '32px', 
-        maxWidth: '100%', 
-        background: 'linear-gradient(135deg, #F3F4F6 0%, #E5E7EB 100%)',
-        minHeight: '100vh'
-      }}>
-        <LinearProgress />
-        <div style={{ textAlign: 'center', marginTop: '16px' }}>
-          <p style={{ color: '#6B7280' }}>Fason takip verileri yükleniyor...</p>
-        </div>
-      </div>
-    );
+  const parsed = parseDateValue(value);
+  if (!parsed) return false;
+  const target = startOfDay(parsed);
+  const now = startOfDay(new Date());
+
+  if (range === 'TODAY') {
+    return target.getTime() === now.getTime();
   }
 
+  if (range === 'THIS_WEEK') {
+    const weekStart = new Date(now);
+    const day = weekStart.getDay();
+    const distanceToMonday = day === 0 ? 6 : day - 1;
+    weekStart.setDate(weekStart.getDate() - distanceToMonday);
+    return target >= weekStart && target <= now;
+  }
+
+  if (range === 'THIS_MONTH') {
+    return target.getFullYear() === now.getFullYear() && target.getMonth() === now.getMonth();
+  }
+
+  const from = customFrom ? startOfDay(new Date(customFrom)) : null;
+  const to = customTo ? startOfDay(new Date(customTo)) : null;
+  if (!from && !to) return true;
+  if (from && target < from) return false;
+  if (to && target > to) return false;
+  return true;
+};
+
+const toMillis = (value?: string | null): number => {
+  if (!value) return 0;
+  const d = new Date(value);
+  return Number.isNaN(d.getTime()) ? 0 : d.getTime();
+};
+
+const getLatestTracking = (order: WorkOrder): FasonTracking | null =>
+  order.fasonTrackings?.length ? order.fasonTrackings[0] : null;
+
+const isCompleted = (status: string): boolean => normalizeStatus(status) === 'TESLIM_EDILDI';
+
+const isDelayed = (order: WorkOrder): boolean => {
+  if (!order.deliveryDate) return false;
+  const date = new Date(order.deliveryDate);
+  if (Number.isNaN(date.getTime())) return false;
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  date.setHours(0, 0, 0, 0);
+  return date < today && !isCompleted(order.status);
+};
+
+const parseOrders = (payload: unknown): WorkOrder[] => {
+  const root = (payload as { data?: unknown; workOrders?: unknown }) || {};
+  const list =
+    (Array.isArray(payload) ? payload : null) ||
+    (Array.isArray(root.data) ? root.data : null) ||
+    (Array.isArray(root.workOrders) ? root.workOrders : null) ||
+    (Array.isArray((root.data as { workOrders?: unknown })?.workOrders)
+      ? (root.data as { workOrders: unknown[] }).workOrders
+      : []);
+
+  return (list as Array<Record<string, unknown>>).map((item) => {
+    const trackingsRaw = Array.isArray(item.fasonTrackings) ? item.fasonTrackings : [];
+    const fasonTrackings = (trackingsRaw as Array<Record<string, unknown>>)
+      .map((tracking) => ({
+        id: Number(tracking.id || 0),
+        processType: String(tracking.processType || 'BILINMIYOR'),
+        status: normalizeStatus(String(tracking.status || 'BEKLIYOR')),
+        notes: String(tracking.notes || ''),
+        problemNotes: String(tracking.problemNotes || ''),
+        createdAt: String(tracking.createdAt || '') || null,
+        workshop: tracking.workshop
+          ? {
+              name: String((tracking.workshop as { name?: unknown }).name || ''),
+              specialization: String((tracking.workshop as { specialization?: unknown }).specialization || ''),
+            }
+          : null,
+        user: tracking.user
+          ? {
+              name: String((tracking.user as { name?: unknown }).name || ''),
+              email: String((tracking.user as { email?: unknown }).email || ''),
+            }
+          : null,
+      }))
+      .sort((a, b) => toMillis(b.createdAt) - toMillis(a.createdAt));
+
+    return {
+      id: Number(item.id || 0),
+      orderNo: String(item.orderNo || `#${item.id || 0}`),
+      productCode: String(item.productCode || '-'),
+      productName: String(item.productName || ''),
+      quantity: Number(item.quantity || 0),
+      customerName: String(item.customerName || ''),
+      status: normalizeStatus(String(item.status || 'BEKLIYOR')),
+      priority: String(item.priority || ''),
+      deliveryDate: String(item.deliveryDate || '') || null,
+      createdAt: String(item.createdAt || '') || null,
+      assignedToMobile: Boolean(item.assignedToMobile),
+      fasonTrackings,
+    };
+  });
+};
+
+type TrendPoint = { key: string; label: string; value: number };
+
+const buildTrendSeries = (
+  orders: WorkOrder[],
+  selector: (order: WorkOrder) => string | null | undefined,
+  days = 7
+): TrendPoint[] => {
+  const today = startOfDay(new Date());
+  const points: TrendPoint[] = [];
+  const indexByKey: Record<string, number> = {};
+
+  for (let i = days - 1; i >= 0; i -= 1) {
+    const d = new Date(today);
+    d.setDate(today.getDate() - i);
+    const key = d.toISOString().split('T')[0];
+    const label = d.toLocaleDateString('tr-TR', { day: '2-digit', month: '2-digit' });
+    indexByKey[key] = points.length;
+    points.push({ key, label, value: 0 });
+  }
+
+  orders.forEach((order) => {
+    const rawDate = selector(order);
+    const parsed = parseDateValue(rawDate);
+    if (!parsed) return;
+    const key = startOfDay(parsed).toISOString().split('T')[0];
+    const idx = indexByKey[key];
+    if (typeof idx === 'number') points[idx].value += 1;
+  });
+
+  return points;
+};
+
+const MiniTrendCard = ({
+  title,
+  subtitle,
+  series,
+  color,
+}: {
+  title: string;
+  subtitle: string;
+  series: TrendPoint[];
+  color: string;
+}) => {
+  const max = Math.max(...series.map((s) => s.value), 1);
+
   return (
-    <div style={{ 
-      background: 'linear-gradient(135deg, #F3F4F6 0%, #E5E7EB 100%)',
-      minHeight: '100vh'
-    }}>
-      {/* Header */}
-      <div style={styles.primaryGradient}>
-        <div style={{ padding: '24px 32px' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
+    <Card style={{ borderRadius: 12 }}>
+      <CardContent style={{ padding: 14 }}>
+        <h4 style={{ margin: 0, fontSize: 15 }}>{title}</h4>
+        <p style={{ margin: '2px 0 10px 0', fontSize: 12, color: '#64748b' }}>{subtitle}</p>
+        <div style={{ display: 'grid', gridTemplateColumns: `repeat(${series.length}, minmax(0, 1fr))`, gap: 6, alignItems: 'end', minHeight: 86 }}>
+          {series.map((item) => (
+            <div key={`${title}-${item.key}`} style={{ textAlign: 'center' }}>
+              <div style={{ height: 58, display: 'flex', alignItems: 'flex-end' }}>
+                <div
+                  title={`${item.label}: ${item.value}`}
+                  style={{
+                    width: '100%',
+                    height: `${Math.max((item.value / max) * 100, item.value > 0 ? 16 : 6)}%`,
+                    borderRadius: 6,
+                    background: `linear-gradient(180deg, ${color}CC 0%, ${color} 100%)`,
+                  }}
+                />
+              </div>
+              <div style={{ marginTop: 4, fontSize: 10, color: '#64748b' }}>{item.label}</div>
+              <div style={{ fontSize: 11, fontWeight: 700, color: '#334155' }}>{item.value}</div>
+            </div>
+          ))}
+        </div>
+      </CardContent>
+    </Card>
+  );
+};
+
+const FasonDashboard: React.FC = () => {
+  const router = useRouter();
+  const { user } = useAuth();
+  const [orders, setOrders] = useState<WorkOrder[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [searchInput, setSearchInput] = useState('');
+  const [searchTerm, setSearchTerm] = useState('');
+  const [statusFilter, setStatusFilter] = useState('ALL');
+  const [mobileFilter, setMobileFilter] = useState<MobileFilter>('MOBILE');
+  const [dateRangeFilter, setDateRangeFilter] = useState<DateRangeFilter>('ALL');
+  const [customFromDate, setCustomFromDate] = useState('');
+  const [customToDate, setCustomToDate] = useState('');
+  const [focusFilter, setFocusFilter] = useState<FocusFilter>('NONE');
+
+  useEffect(() => {
+    if (!router.isReady) return;
+    const focusParam = typeof router.query.focus === 'string' ? router.query.focus.toLowerCase() : '';
+    if (focusParam === 'delayed') {
+      setFocusFilter('DELAYED');
+      return;
+    }
+    if (focusParam === 'urgent') {
+      setFocusFilter('URGENT');
+      return;
+    }
+    setFocusFilter('NONE');
+  }, [router.isReady, router.query.focus]);
+
+  useEffect(() => {
+    const id = window.setTimeout(() => setSearchTerm(searchInput.trim()), 250);
+    return () => window.clearTimeout(id);
+  }, [searchInput]);
+
+  const fetchOrders = useCallback(
+    async (silent = false) => {
+      try {
+        setError(null);
+        if (silent) setRefreshing(true);
+        else setLoading(true);
+
+        const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null;
+        const params = new URLSearchParams({ page: '1', limit: '200' });
+        if (searchTerm) params.append('search', searchTerm);
+        if (statusFilter !== 'ALL') params.append('status', statusFilter);
+        if (mobileFilter === 'MOBILE') params.append('assignedToMobile', 'true');
+        if (mobileFilter === 'NON_MOBILE') params.append('assignedToMobile', 'false');
+
+        const response = await axios.get(`/api/fason/work-orders?${params.toString()}`, {
+          headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+          timeout: 15000,
+        });
+
+        setOrders(parseOrders(response.data));
+      } catch (e: unknown) {
+        const err = e as { response?: { status?: number } };
+        if (err.response?.status === 401 && typeof window !== 'undefined') {
+          localStorage.removeItem('token');
+          window.location.href = '/login';
+          return;
+        }
+        setOrders([]);
+        setError('Is emirleri yuklenemedi. Lutfen tekrar deneyin.');
+      } finally {
+        if (silent) setRefreshing(false);
+        else setLoading(false);
+      }
+    },
+    [mobileFilter, searchTerm, statusFilter]
+  );
+
+  useEffect(() => {
+    void fetchOrders(false);
+  }, [fetchOrders]);
+
+  const filteredOrders = useMemo(() => {
+    const q = searchTerm.toLocaleLowerCase('tr-TR');
+    return orders.filter((o) => {
+      const searchHit =
+        !q ||
+        o.orderNo.toLocaleLowerCase('tr-TR').includes(q) ||
+        o.productCode.toLocaleLowerCase('tr-TR').includes(q) ||
+        o.productName?.toLocaleLowerCase('tr-TR').includes(q) ||
+        o.customerName?.toLocaleLowerCase('tr-TR').includes(q);
+      const statusHit = statusFilter === 'ALL' || normalizeStatus(o.status) === statusFilter;
+      const mobileHit =
+        mobileFilter === 'ALL' ||
+        (mobileFilter === 'MOBILE' && o.assignedToMobile) ||
+        (mobileFilter === 'NON_MOBILE' && !o.assignedToMobile);
+      const dateHit = isInDateRange(o.deliveryDate, dateRangeFilter, customFromDate, customToDate);
+      const focusHit =
+        focusFilter === 'NONE' ||
+        (focusFilter === 'DELAYED' && isDelayed(o)) ||
+        (focusFilter === 'URGENT' &&
+          (isDelayed(o) || o.priority === 'URGENT' || normalizeStatus(o.status) === 'SORUN_VAR'));
+      return searchHit && statusHit && mobileHit && dateHit && focusHit;
+    });
+  }, [customFromDate, customToDate, dateRangeFilter, focusFilter, mobileFilter, orders, searchTerm, statusFilter]);
+
+  const stats = useMemo(() => {
+    const total = filteredOrders.length;
+    const completed = filteredOrders.filter((o) => isCompleted(o.status)).length;
+    const delayed = filteredOrders.filter((o) => isDelayed(o)).length;
+    const problems = filteredOrders.filter((o) => normalizeStatus(o.status) === 'SORUN_VAR').length;
+    const completionRate = total ? Math.round((completed / total) * 100) : 0;
+    return { total, completed, delayed, problems, completionRate };
+  }, [filteredOrders]);
+
+  const statusDistribution = useMemo(() => {
+    const map: Record<string, number> = {};
+    filteredOrders.forEach((o) => {
+      const key = normalizeStatus(o.status);
+      map[key] = (map[key] || 0) + 1;
+    });
+    return Object.entries(map).sort((a, b) => b[1] - a[1]);
+  }, [filteredOrders]);
+
+  const workshopSummary = useMemo(() => {
+    const map: Record<string, { qty: number; count: number; problems: number }> = {};
+    filteredOrders.forEach((o) => {
+      const name = getLatestTracking(o)?.workshop?.name;
+      if (!name) return;
+      if (!map[name]) map[name] = { qty: 0, count: 0, problems: 0 };
+      map[name].qty += o.quantity;
+      map[name].count += 1;
+      if (normalizeStatus(o.status) === 'SORUN_VAR') map[name].problems += 1;
+    });
+    return Object.entries(map)
+      .map(([name, v]) => ({ name, ...v }))
+      .sort((a, b) => b.qty - a.qty)
+      .slice(0, 6);
+  }, [filteredOrders]);
+
+  const criticalOrders = useMemo(
+    () => filteredOrders.filter((o) => isDelayed(o) || o.priority === 'URGENT' || normalizeStatus(o.status) === 'SORUN_VAR').slice(0, 6),
+    [filteredOrders]
+  );
+
+  const deliveryTrend = useMemo(() => buildTrendSeries(filteredOrders, (o) => o.deliveryDate, 7), [filteredOrders]);
+  const createdTrend = useMemo(() => buildTrendSeries(filteredOrders, (o) => o.createdAt, 7), [filteredOrders]);
+
+  const exportToExcel = useCallback(async () => {
+    if (filteredOrders.length === 0) {
+      window.alert('Disa aktarilacak kayit bulunamadi.');
+      return;
+    }
+
+    const rows = filteredOrders.map((o) => {
+      const t = getLatestTracking(o);
+      return {
+        IsEmriNo: o.orderNo,
+        Model: `${o.productCode}${o.productName ? ` - ${o.productName}` : ''}`,
+        Musteri: o.customerName || '',
+        Miktar: o.quantity,
+        Durum: statusLabel(o.status),
+        Oncelik: o.priority || '',
+        Termin: formatDate(o.deliveryDate),
+        Atolye: t?.workshop?.name || '',
+        SonSurec: t?.processType || '',
+        Takipci: t?.user?.name || t?.user?.email || '',
+        Not: t?.notes || '',
+        Sorun: t?.problemNotes || '',
+      };
+    });
+
+    try {
+      const XLSX = await import('xlsx');
+      const wb = XLSX.utils.book_new();
+      const ws = XLSX.utils.json_to_sheet(rows);
+      XLSX.utils.book_append_sheet(wb, ws, 'Dış Kaynak Üretim Dashboard');
+      const stamp = new Date().toISOString().split('T')[0];
+      XLSX.writeFile(wb, `fason-dashboard-${stamp}.xlsx`);
+    } catch (exportError) {
+      console.error(exportError);
+      window.alert('Excel olusturulamadi.');
+    }
+  }, [filteredOrders]);
+
+  return (
+    <div
+      style={{
+        minHeight: '100vh',
+        background: 'radial-gradient(circle at top right, rgba(125, 211, 252, 0.2), transparent 50%), linear-gradient(180deg, #f8fafc 0%, #eff6ff 100%)',
+        padding: 20,
+      }}
+    >
+      <div style={{ maxWidth: 1500, margin: '0 auto', display: 'flex', flexDirection: 'column', gap: 14 }}>
+        <div style={{ background: 'linear-gradient(120deg, #0f172a 0%, #1e3a8a 60%, #0284c7 100%)', borderRadius: 16, padding: 20, color: '#fff' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
             <div>
-              <h1 style={{ fontSize: '32px', fontWeight: 'bold', color: 'white', margin: '0 0 8px 0' }}>
-                miraApp
-              </h1>
-              <p style={{ color: 'rgba(255, 255, 255, 0.9)', fontSize: '16px', margin: 0 }}>
-                Dış Üretim Takip Dashboard
+              <p style={{ margin: 0, opacity: 0.75, fontSize: 13 }}>Dış Kaynak Üretim Modulu</p>
+              <h1 style={{ margin: '4px 0', fontSize: 30, fontWeight: 800 }}>Gosterge Paneli</h1>
+              <p style={{ margin: 0, opacity: 0.9, fontSize: 14 }}>
+                {user?.name ? `${user.name},` : 'Ekip,'} aktif dış kaynak üretim operasyonlarini tek ekrandan yonetebilirsiniz.
               </p>
             </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <div style={{ display: 'flex', gap: 8 }}>
               <Tooltip title="Yenile">
-                <IconButton 
-                  onClick={fetchWorkOrders}
-                  style={{ 
-                    backgroundColor: 'rgba(255, 255, 255, 0.2)', 
-                    color: 'white',
-                    backdropFilter: 'blur(10px)'
-                  }}
-                >
-                  <RefreshCw size={20} />
+                <IconButton onClick={() => void fetchOrders(true)} style={{ color: '#fff', background: 'rgba(255,255,255,0.2)', border: '1px solid rgba(255,255,255,0.2)' }}>
+                  {refreshing ? <Loader2 size={18} style={{ animation: 'spin 1s linear infinite' }} /> : <RefreshCw size={18} />}
                 </IconButton>
               </Tooltip>
-              <Tooltip title="Bildirimler">
-                <IconButton 
-                  style={{ 
-                    backgroundColor: 'rgba(255, 255, 255, 0.2)', 
-                    color: 'white',
-                    backdropFilter: 'blur(10px)'
-                  }}
-                >
-                  <Bell size={20} />
+              <Tooltip title="Excel disa aktar">
+                <IconButton onClick={() => void exportToExcel()} style={{ color: '#fff', background: 'rgba(255,255,255,0.2)', border: '1px solid rgba(255,255,255,0.2)' }}>
+                  <Download size={18} />
                 </IconButton>
               </Tooltip>
             </div>
           </div>
-
-          
-          {/* İstatistik Kartları */}
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '24px', marginBottom: '16px' }}>
-            {/* Toplam İş Emri */}
-            <Card style={{ 
-              background: 'linear-gradient(135deg, rgba(255,255,255,0.2) 0%, rgba(255,255,255,0.1) 100%)',
-              backdropFilter: 'blur(10px)',
-              border: '1px solid rgba(255, 255, 255, 0.3)',
-              borderRadius: '16px',
-              color: 'white'
-            }}>
-              <CardContent style={{ padding: '24px' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <div>
-                    <p style={{ color: 'rgba(255, 255, 255, 0.9)', fontSize: '14px', fontWeight: '500', margin: '0 0 8px 0' }}>Toplam İş Emri</p>
-                    <h3 style={{ fontSize: '32px', fontWeight: 'bold', margin: 0 }}>{stats.total}</h3>
-                  </div>
-                  <div style={{ 
-                    backgroundColor: 'rgba(255, 255, 255, 0.3)', 
-                    borderRadius: '50%', 
-                    padding: '12px',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center'
-                  }}>
-                    <TrendingUp size={32} color="white" />
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-
-            {/* Tamamlanan */}
-            <Card style={{ 
-              backgroundColor: 'white',
-              borderRadius: '16px',
-              boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)'
-            }}>
-              <CardContent style={{ padding: '24px' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <div>
-                    <p style={{ color: '#6B7280', fontSize: '14px', fontWeight: '500', margin: '0 0 8px 0' }}>Tamamlanan</p>
-                    <h3 style={{ fontSize: '32px', fontWeight: 'bold', color: '#10B981', margin: 0 }}>{stats.completed}</h3>
-                  </div>
-                  <div style={{ 
-                    backgroundColor: '#D1FAE5', 
-                    borderRadius: '50%', 
-                    padding: '12px',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center'
-                  }}>
-                    <CheckCircle size={32} color="#10B981" />
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-
-            {/* Devam Eden */}
-            <Card style={{ 
-              backgroundColor: 'white',
-              borderRadius: '16px',
-              boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)'
-            }}>
-              <CardContent style={{ padding: '24px' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <div>
-                    <p style={{ color: '#6B7280', fontSize: '14px', fontWeight: '500', margin: '0 0 8px 0' }}>Devam Eden</p>
-                    <h3 style={{ fontSize: '32px', fontWeight: 'bold', color: '#3B82F6', margin: 0 }}>{stats.inProgress}</h3>
-                  </div>
-                  <div style={{ 
-                    backgroundColor: '#DBEAFE', 
-                    borderRadius: '50%', 
-                    padding: '12px',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center'
-                  }}>
-                    <PlayCircle size={32} color="#3B82F6" />
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-
-            {/* Geciken */}
-            <Card style={{ 
-              backgroundColor: 'white',
-              borderRadius: '16px',
-              boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)'
-            }}>
-              <CardContent style={{ padding: '24px' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <div>
-                    <p style={{ color: '#6B7280', fontSize: '14px', fontWeight: '500', margin: '0 0 8px 0' }}>Geciken</p>
-                    <h3 style={{ fontSize: '32px', fontWeight: 'bold', color: '#EF4444', margin: 0 }}>{stats.delayed}</h3>
-                  </div>
-                  <div style={{ 
-                    backgroundColor: '#FEE2E2', 
-                    borderRadius: '50%', 
-                    padding: '12px',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center'
-                  }}>
-                    <AlertCircle size={32} color="#EF4444" />
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-          </div>
         </div>
-      </div>
 
-      {/* Main Content */}
-      <div style={{ padding: '24px 32px' }}>
-        {/* Filtreler */}
-        <Card style={{ 
-          borderRadius: '16px', 
-          boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)',
-          marginBottom: '24px'
-        }}>
-          <CardContent style={{ padding: '24px' }}>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: '16px' }}>
+        {loading && orders.length === 0 ? <LinearProgress /> : null}
+        {error ? <Alert severity="warning">{error}</Alert> : null}
+
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))', gap: 10 }}>
+          {[
+            { label: 'Toplam Is Emri', value: stats.total, key: 'ALINDI', note: `${stats.completed} tamamlandi` },
+            { label: 'Tamamlanma Orani', value: `%${stats.completionRate}`, key: 'TESLIM_EDILDI', note: `${stats.completed} adet teslim edildi` },
+            { label: 'Geciken Isler', value: stats.delayed, key: 'SORUN_VAR', note: stats.delayed ? 'Termin riski var' : 'Terminler normal' },
+            { label: 'Sorunlu Isler', value: stats.problems, key: 'ATOLYEDE', note: `${criticalOrders.length} kritik is emri` },
+          ].map((s) => {
+            const c = statusColor(s.key);
+            return (
+              <Card key={s.label} style={{ borderRadius: 12, border: '1px solid #e2e8f0' }}>
+                <CardContent style={{ padding: 14 }}>
+                  <p style={{ margin: 0, color: '#64748b', fontSize: 13 }}>{s.label}</p>
+                  <p style={{ margin: '8px 0 0 0', fontSize: 28, fontWeight: 800, color: c.solid }}>{s.value}</p>
+                  <p style={{ margin: '4px 0 0 0', color: '#475569', fontSize: 12 }}>{s.note}</p>
+                </CardContent>
+              </Card>
+            );
+          })}
+        </div>
+
+        <Card style={{ borderRadius: 12 }}>
+          <CardContent style={{ padding: 14 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))', gap: 10 }}>
               <TextField
-                placeholder="İş emri, ürün kodu veya müşteri ara..."
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                InputProps={{
-                  startAdornment: (
-                    <InputAdornment position="start">
-                      <Search size={20} color="#6B7280" />
-                    </InputAdornment>
-                  ),
-                  style: { borderRadius: '12px' }
-                }}
-                fullWidth
                 size="small"
-                style={{ backgroundColor: 'white' }}
+                placeholder="Is emri, model veya musteri ara..."
+                value={searchInput}
+                onChange={(e) => setSearchInput(e.target.value)}
+                InputProps={{ startAdornment: <InputAdornment position="start"><Search size={16} color="#64748b" /></InputAdornment> }}
               />
-
               <TextField
                 select
+                size="small"
                 value={statusFilter}
                 onChange={(e) => setStatusFilter(e.target.value)}
-                InputProps={{
-                  startAdornment: (
-                    <InputAdornment position="start">
-                      <Filter size={20} color="#6B7280" />
-                    </InputAdornment>
-                  ),
-                  style: { borderRadius: '12px' }
-                }}
-                SelectProps={{
-                  displayEmpty: true,
-                }}
-                fullWidth
-                size="small"
-                style={{ backgroundColor: 'white' }}
+                InputProps={{ startAdornment: <InputAdornment position="start"><Filter size={16} color="#64748b" /></InputAdornment> }}
               >
-                <MenuItem value="">Tüm Durumlar</MenuItem>
-                <MenuItem value="KESIM">Kesim</MenuItem>
-                <MenuItem value="DIKIM">Dikim</MenuItem>
-                <MenuItem value="BASKI_NAKIS">Baskı/Nakış</MenuItem>
-                <MenuItem value="UTU">Ütü</MenuItem>
-                <MenuItem value="TESLIM_EDILDI">Teslim Edildi</MenuItem>
-                <MenuItem value="SORUN_VAR">Sorun Var</MenuItem>
+                {STATUS_OPTIONS.map((o) => <MenuItem key={o.value} value={o.value}>{o.label}</MenuItem>)}
               </TextField>
-
-              <div style={{ display: 'flex', gap: '8px', gridColumn: 'span 2' }}>
-                <button
-                  onClick={exportToExcel}
+              <TextField select size="small" value={mobileFilter} onChange={(e) => setMobileFilter(e.target.value as MobileFilter)}>
+                {MOBILE_OPTIONS.map((o) => <MenuItem key={o.value} value={o.value}>{o.label}</MenuItem>)}
+              </TextField>
+              <TextField select size="small" value={dateRangeFilter} onChange={(e) => setDateRangeFilter(e.target.value as DateRangeFilter)}>
+                {DATE_RANGE_OPTIONS.map((o) => <MenuItem key={o.value} value={o.value}>{o.label}</MenuItem>)}
+              </TextField>
+              {dateRangeFilter === 'CUSTOM' ? (
+                <TextField
+                  size="small"
+                  type="date"
+                  label="Baslangic"
+                  value={customFromDate}
+                  onChange={(e) => setCustomFromDate(e.target.value)}
+                  InputLabelProps={{ shrink: true }}
+                />
+              ) : null}
+              {dateRangeFilter === 'CUSTOM' ? (
+                <TextField
+                  size="small"
+                  type="date"
+                  label="Bitis"
+                  value={customToDate}
+                  onChange={(e) => setCustomToDate(e.target.value)}
+                  InputLabelProps={{ shrink: true }}
+                />
+              ) : null}
+            </div>
+            {focusFilter !== 'NONE' ? (
+              <div style={{ marginTop: 10, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                <Chip
+                  size="small"
+                  label={focusFilter === 'DELAYED' ? 'Odak: Geciken Isler' : 'Odak: Acil / Sorunlu Isler'}
                   style={{
-                    flex: 1,
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    padding: '8px 16px',
-                    background: 'linear-gradient(135deg, #10B981 0%, #059669 100%)',
-                    color: 'white',
-                    border: 'none',
-                    borderRadius: '12px',
-                    fontWeight: '500',
+                    background: focusFilter === 'DELAYED' ? '#fee2e2' : '#ffedd5',
+                    color: focusFilter === 'DELAYED' ? '#991b1b' : '#9a3412',
+                    fontWeight: 700,
+                  }}
+                />
+                <button
+                  onClick={() => {
+                    setFocusFilter('NONE');
+                    router.replace('/fason/dashboard', undefined, { shallow: true });
+                  }}
+                  style={{
+                    border: '1px solid #cbd5e1',
+                    background: '#fff',
+                    borderRadius: 8,
+                    padding: '4px 10px',
+                    fontSize: 12,
+                    fontWeight: 600,
+                    color: '#334155',
                     cursor: 'pointer',
-                    boxShadow: '0 2px 4px rgba(0, 0, 0, 0.1)'
                   }}
                 >
-                  <Download size={20} style={{ marginRight: '8px' }} />
-                  Excel Raporu İndir
+                  Odagi Temizle
                 </button>
-
-                <div style={{ display: 'flex', gap: '4px' }}>
-                  <Tooltip title="Grid Görünümü">
-                    <IconButton 
-                      onClick={() => setViewMode('grid')}
-                      style={{ 
-                        backgroundColor: viewMode === 'grid' ? '#3B82F6' : 'white',
-                        color: viewMode === 'grid' ? 'white' : '#6B7280',
-                        borderRadius: '8px'
-                      }}
-                    >
-                      <Grid3X3 size={20} />
-                    </IconButton>
-                  </Tooltip>
-                  <Tooltip title="Liste Görünümü">
-                    <IconButton 
-                      onClick={() => setViewMode('list')}
-                      style={{ 
-                        backgroundColor: viewMode === 'list' ? '#3B82F6' : 'white',
-                        color: viewMode === 'list' ? 'white' : '#6B7280',
-                        borderRadius: '8px'
-                      }}
-                    >
-                      <List size={20} />
-                    </IconButton>
-                  </Tooltip>
-                </div>
               </div>
+            ) : null}
+          </CardContent>
+        </Card>
+
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(330px, 1fr))', gap: 10 }}>
+          <Card style={{ borderRadius: 12 }}>
+            <CardContent style={{ padding: 14 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <h3 style={{ margin: 0, fontSize: 16 }}>Durum Dagilimi</h3>
+                <Chip size="small" label={`${filteredOrders.length} is`} />
+              </div>
+              <div style={{ marginTop: 10, display: 'flex', flexDirection: 'column', gap: 8 }}>
+                {statusDistribution.length === 0 ? (
+                  <p style={{ margin: 0, fontSize: 13, color: '#64748b' }}>Veri yok.</p>
+                ) : statusDistribution.map(([key, count]) => {
+                  const c = statusColor(key);
+                  const width = filteredOrders.length ? Math.max((count / filteredOrders.length) * 100, 7) : 0;
+                  return (
+                    <div key={key}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, marginBottom: 4 }}>
+                        <span>{statusLabel(key)}</span><strong style={{ color: c.solid }}>{count}</strong>
+                      </div>
+                      <div style={{ height: 8, borderRadius: 999, background: c.soft, overflow: 'hidden' }}>
+                        <div style={{ width: `${width}%`, height: '100%', background: c.solid }} />
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card style={{ borderRadius: 12 }}>
+            <CardContent style={{ padding: 14 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <h3 style={{ margin: 0, fontSize: 16 }}>Atolye Yuku</h3>
+                <Factory size={18} color="#1e3a8a" />
+              </div>
+              <div style={{ marginTop: 10, display: 'flex', flexDirection: 'column', gap: 8 }}>
+                {workshopSummary.length === 0 ? (
+                  <p style={{ margin: 0, fontSize: 13, color: '#64748b' }}>Atolye bazli veri yok.</p>
+                ) : workshopSummary.map((w) => (
+                  <div key={w.name} style={{ border: '1px solid #e2e8f0', borderRadius: 10, padding: '8px 10px', background: '#f8fafc' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
+                      <strong style={{ fontSize: 13 }}>{w.name}</strong>
+                      <span style={{ fontSize: 12, color: '#475569' }}>{w.count} is</span>
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, marginTop: 3 }}>
+                      <span style={{ fontSize: 12, color: '#475569' }}>Toplam adet: {w.qty}</span>
+                      <span style={{ fontSize: 12, color: w.problems ? '#dc2626' : '#16a34a' }}>Sorunlu: {w.problems}</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 10 }}>
+          <MiniTrendCard
+            title="Son 7 Gun Acilan Isler"
+            subtitle="Olusturma tarihine gore gunluk kayit adedi"
+            series={createdTrend}
+            color="#2563eb"
+          />
+          <MiniTrendCard
+            title="Son 7 Gun Termin Yogunlugu"
+            subtitle="Termin tarihine gore gunluk is adedi"
+            series={deliveryTrend}
+            color="#d97706"
+          />
+        </div>
+
+        <Card style={{ borderRadius: 12 }}>
+          <CardContent style={{ padding: 14 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <h3 style={{ margin: 0, fontSize: 17 }}>Is Emri Listesi</h3>
+              <span style={{ fontSize: 13, color: '#64748b' }}>{filteredOrders.length} kayit</span>
+            </div>
+
+            <div style={{ marginTop: 10, display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {filteredOrders.length === 0 ? (
+                <div style={{ border: '1px dashed #cbd5e1', borderRadius: 10, padding: 18, textAlign: 'center', color: '#64748b' }}>
+                  Filtrelere uygun kayit bulunamadi.
+                </div>
+              ) : filteredOrders.map((o) => {
+                const t = getLatestTracking(o);
+                const cs = statusColor(o.status);
+                const cst = statusColor(t?.status);
+                const pColor = PRIORITY_COLORS[o.priority || ''] || '#64748b';
+                return (
+                  <div key={o.id} style={{ border: '1px solid #e2e8f0', borderRadius: 10, padding: 10, background: '#fff' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap' }}>
+                      <div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                          <strong style={{ fontSize: 17 }}>{o.orderNo}</strong>
+                          {o.priority ? <Chip size="small" label={o.priority} style={{ background: `${pColor}20`, color: pColor, fontWeight: 700, border: `1px solid ${pColor}40` }} /> : null}
+                          {o.assignedToMobile ? <Chip size="small" label="Mobile Atandi" style={{ background: '#dbeafe', color: '#1d4ed8', fontWeight: 700 }} /> : null}
+                        </div>
+                        <p style={{ margin: '4px 0 0 0', fontSize: 13, color: '#475569' }}>
+                          {o.productCode} {o.productName ? `- ${o.productName}` : ''} ({o.quantity} adet)
+                        </p>
+                      </div>
+                      <Chip size="small" label={statusLabel(o.status)} style={{ background: cs.soft, color: cs.solid, fontWeight: 700 }} />
+                    </div>
+
+                    <div style={{ marginTop: 9, display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 8 }}>
+                      <div style={{ display: 'flex', gap: 6, alignItems: 'center', fontSize: 12, color: '#334155' }}><UserRound size={14} />{o.customerName || 'Musteri yok'}</div>
+                      <div style={{ display: 'flex', gap: 6, alignItems: 'center', fontSize: 12, color: '#334155' }}><Package2 size={14} />{o.quantity} adet</div>
+                      <div style={{ display: 'flex', gap: 6, alignItems: 'center', fontSize: 12, color: '#334155' }}><Calendar size={14} />Termin: {formatDate(o.deliveryDate)}</div>
+                    </div>
+
+                    {t ? (
+                      <div style={{ marginTop: 10, borderTop: '1px dashed #e2e8f0', paddingTop: 8, display: 'flex', flexDirection: 'column', gap: 6 }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                            <span style={{ fontSize: 12, fontWeight: 700 }}>Son Surec: {t.processType}</span>
+                            <Chip size="small" label={statusLabel(t.status)} style={{ background: cst.soft, color: cst.solid, fontWeight: 700 }} />
+                          </div>
+                          {t.workshop?.name ? <span style={{ fontSize: 12, color: '#334155', display: 'flex', alignItems: 'center', gap: 5 }}><MapPin size={13} />{t.workshop.name}</span> : null}
+                        </div>
+                        {(t.user?.name || t.user?.email) ? <p style={{ margin: 0, fontSize: 12, color: '#64748b' }}>Takipci: {t.user?.name || t.user?.email}</p> : null}
+                        {t.notes ? <div style={{ background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: 7, padding: '5px 7px', fontSize: 12, color: '#1e3a8a' }}>Not: {t.notes}</div> : null}
+                        {t.problemNotes ? <div style={{ background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 7, padding: '5px 7px', fontSize: 12, color: '#991b1b', display: 'flex', gap: 5, alignItems: 'center' }}><AlertTriangle size={13} />Sorun: {t.problemNotes}</div> : null}
+                      </div>
+                    ) : null}
+                  </div>
+                );
+              })}
             </div>
           </CardContent>
         </Card>
 
-        {/* İş Emirleri Listesi */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
-          {workOrders.map((order) => (
-            <Card key={order.id} style={{ 
-              borderRadius: '16px',
-              boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)',
-              overflow: 'hidden'
-            }}>
-              <div style={{
-                padding: '20px 24px',
-                background: 'linear-gradient(135deg, #F8FAFC 0%, #F1F5F9 100%)',
-                borderBottom: '1px solid #E2E8F0'
-              }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+        <Card style={{ borderRadius: 12 }}>
+          <CardContent style={{ padding: 14 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <h3 style={{ margin: 0, fontSize: 16 }}>Kritik Isler</h3>
+              <AlertTriangle size={17} color={criticalOrders.length ? '#dc2626' : '#16a34a'} />
+            </div>
+            <div style={{ marginTop: 10, display: 'flex', flexDirection: 'column', gap: 7 }}>
+              {criticalOrders.length === 0 ? (
+                <p style={{ margin: 0, color: '#16a34a', fontSize: 13 }}>Kritik seviyede is bulunmuyor.</p>
+              ) : criticalOrders.map((o) => (
+                <div key={`critical-${o.id}`} style={{ border: '1px solid #e2e8f0', borderRadius: 9, padding: '8px 10px', display: 'flex', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap' }}>
                   <div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '8px' }}>
-                      <h3 style={{ fontSize: '20px', fontWeight: 'bold', color: '#1F2937', margin: 0 }}>
-                        İş Emri: {order.orderNo}
-                      </h3>
-                      {order.priority && (
-                        <div 
-                          style={{ 
-                            width: '12px', 
-                            height: '12px', 
-                            borderRadius: '50%',
-                            backgroundColor: getPriorityColor(order.priority)
-                          }}
-                        />
-                      )}
-                    </div>
-                    <p style={{ fontSize: '16px', fontWeight: '600', color: '#374151', margin: '0 0 4px 0' }}>
-                      {order.productCode} - {order.productName} 
-                      <span style={{ marginLeft: '8px', color: '#6B7280', fontWeight: 'normal' }}>
-                        ({order.quantity} adet)
-                      </span>
-                    </p>
-                    <p style={{ fontSize: '14px', color: '#6B7280', margin: 0 }}>
-                      Müşteri: {order.customerName}
-                    </p>
+                    <strong style={{ fontSize: 13 }}>{o.orderNo}</strong>
+                    <p style={{ margin: '3px 0 0 0', fontSize: 12, color: '#64748b' }}>{o.productCode} - {o.customerName || 'Musteri yok'}</p>
                   </div>
-                  <div style={{ textAlign: 'right' }}>
-                    <span style={{
-                      padding: '6px 16px',
-                      borderRadius: '20px',
-                      fontSize: '12px',
-                      fontWeight: '600',
-                      color: 'white',
-                      ...getStatusStyle(order.status)
-                    }}>
-                      {order.status.replace('_', ' ')}
-                    </span>
-                    {order.deliveryDate && (
-                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', marginTop: '8px', color: '#6B7280' }}>
-                        <Calendar size={16} style={{ marginRight: '4px' }} />
-                        <span style={{ fontSize: '14px' }}>
-                          {new Date(order.deliveryDate).toLocaleDateString('tr-TR')}
-                        </span>
-                      </div>
-                    )}
-                  </div>
+                  <Chip size="small" label={statusLabel(o.status)} style={{ background: statusColor(o.status).soft, color: statusColor(o.status).solid, fontWeight: 700 }} />
                 </div>
-              </div>
-              
-              <CardContent style={{ padding: '24px' }}>
-                {/* Fason Takip Süreçleri */}
-                <div style={{ marginBottom: '16px' }}>
-                  <h4 style={{ fontSize: '18px', fontWeight: 'semibold', color: '#1F2937', margin: '0 0 16px 0' }}>
-                    Süreç Takibi:
-                  </h4>
-                  
-                  {order.fasonTrackings.length > 0 ? (
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-                      {order.fasonTrackings.map((tracking) => (
-                        <div 
-                          key={tracking.id} 
-                          style={{
-                            padding: '20px',
-                            background: 'linear-gradient(135deg, #FFFFFF 0%, #F8FAFC 100%)',
-                            borderRadius: '12px',
-                            borderLeft: '4px solid #3B82F6',
-                            boxShadow: '0 2px 4px rgba(0, 0, 0, 0.05)'
-                          }}
-                        >
-                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                            <div style={{ flex: 1 }}>
-                              <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '12px' }}>
-                                <span style={{ fontSize: '16px', fontWeight: '600', color: '#1F2937' }}>
-                                  {tracking.processType.replace('_', ' ')}
-                                </span>
-                                <span style={{
-                                  padding: '4px 12px',
-                                  borderRadius: '16px',
-                                  fontSize: '12px',
-                                  fontWeight: '500',
-                                  color: 'white',
-                                  ...getStatusStyle(tracking.status)
-                                }}>
-                                  {tracking.status.replace('_', ' ')}
-                                </span>
-                              </div>
-                              
-                              {tracking.workshop && (
-                                <div style={{ display: 'flex', alignItems: 'center', color: '#6B7280', marginBottom: '8px' }}>
-                                  <MapPin size={16} style={{ marginRight: '8px' }} />
-                                  <span style={{ fontWeight: '500' }}>{tracking.workshop.name}</span>
-                                  <span style={{ marginLeft: '8px', fontSize: '14px' }}>
-                                    ({tracking.workshop.specialization})
-                                  </span>
-                                </div>
-                              )}
-                              
-                              <p style={{ fontSize: '14px', color: '#6B7280', margin: 0 }}>
-                                <strong>Takipçi:</strong> {tracking.user.name || tracking.user.email}
-                              </p>
-                            </div>
-                            
-                            <div style={{ textAlign: 'right', fontSize: '14px', color: '#6B7280', minWidth: '160px' }}>
-                              {tracking.startDate && (
-                                <p style={{ margin: '0 0 8px 0' }}>
-                                  <strong>Başlangıç:</strong><br />
-                                  {new Date(tracking.startDate).toLocaleDateString('tr-TR')}
-                                </p>
-                              )}
-                              {tracking.endDate && (
-                                <p style={{ margin: 0 }}>
-                                  <strong>Bitiş:</strong><br />
-                                  {new Date(tracking.endDate).toLocaleDateString('tr-TR')}
-                                </p>
-                              )}
-                            </div>
-                          </div>
-                          
-                          {tracking.notes && (
-                            <div style={{ 
-                              marginTop: '12px', 
-                              padding: '12px', 
-                              backgroundColor: '#DBEAFE', 
-                              border: '1px solid #BFDBFE',
-                              borderRadius: '8px'
-                            }}>
-                              <p style={{ fontSize: '14px', color: '#1E40AF', margin: 0 }}>
-                                <strong>Not:</strong> {tracking.notes}
-                              </p>
-                            </div>
-                          )}
-                          
-                          {tracking.problemNotes && (
-                            <div style={{ 
-                              marginTop: '12px', 
-                              padding: '12px', 
-                              backgroundColor: '#FEE2E2', 
-                              border: '1px solid #FECACA',
-                              borderRadius: '8px',
-                              display: 'flex',
-                              alignItems: 'flex-start'
-                            }}>
-                              <AlertTriangle size={16} color="#DC2626" style={{ marginRight: '8px', flexShrink: 0, marginTop: '2px' }} />
-                              <p style={{ fontSize: '14px', color: '#DC2626', margin: 0 }}>
-                                <strong>Sorun:</strong> {tracking.problemNotes}
-                              </p>
-                            </div>
-                          )}
-                        </div>
-                      ))}
-                    </div>
-                  ) : (
-                    <div style={{ 
-                      textAlign: 'center', 
-                      padding: '40px 20px', 
-                      backgroundColor: '#F8FAFC', 
-                      borderRadius: '12px',
-                      border: '2px dashed #CBD5E1'
-                    }}>
-                      <p style={{ color: '#6B7280', fontSize: '16px', fontStyle: 'italic', margin: '0 0 8px 0' }}>
-                        Henüz takip kaydı bulunmamaktadır.
-                      </p>
-                      <p style={{ color: '#9CA3AF', fontSize: '14px', margin: 0 }}>
-                        İlk takip kaydını oluşturmak için mobil uygulamayı kullanın.
-                      </p>
-                    </div>
-                  )}
-                </div>
-              </CardContent>
-            </Card>
-          ))}
-
-          {workOrders.length === 0 && (
-            <Card style={{ 
-              textAlign: 'center', 
-              padding: '48px 24px',
-              borderRadius: '16px',
-              boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)'
-            }}>
-              <CardContent>
-                <div style={{ maxWidth: '400px', margin: '0 auto' }}>
-                  <div style={{ 
-                    backgroundColor: '#F3F4F6', 
-                    borderRadius: '50%', 
-                    width: '80px', 
-                    height: '80px', 
-                    display: 'flex', 
-                    alignItems: 'center', 
-                    justifyContent: 'center',
-                    margin: '0 auto 16px'
-                  }}>
-                    <Search size={32} color="#6B7280" />
-                  </div>
-                  <h3 style={{ fontSize: '20px', fontWeight: 'semibold', color: '#374151', margin: '0 0 8px 0' }}>
-                    Hiç iş emri bulunamadı
-                  </h3>
-                  <p style={{ color: '#6B7280', margin: '0 0 16px 0' }}>
-                    Filtrelerinizi kontrol edin veya yeni iş emri ekleyin.
-                  </p>
-                  <button
-                    onClick={() => {
-                      setSearchTerm('');
-                      setStatusFilter('');
-                    }}
-                    style={{
-                      backgroundColor: '#3B82F6',
-                      color: 'white',
-                      padding: '8px 16px',
-                      border: 'none',
-                      borderRadius: '8px',
-                      fontWeight: '500',
-                      cursor: 'pointer'
-                    }}
-                  >
-                    Filtreleri Temizle
-                  </button>
-                </div>
-              </CardContent>
-            </Card>
-          )}
-        </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
       </div>
     </div>
   );
 };
 
 export default FasonDashboard;
+

@@ -1,9 +1,9 @@
 #!/bin/bash
 
 # ============================================================================
-# FASON İŞ TAKIP SİSTEMİ - BAŞLATMA KOMUTLARI
+# DIS KAYNAK URETIM İŞ TAKIP SİSTEMİ - BAŞLATMA KOMUTLARI
 # ============================================================================
-# Bu script yeni fason özelliklerini kurmanız ve başlatmanız için gereken
+# Bu script yeni dis kaynak uretim özelliklerini kurmanız ve başlatmanız için gereken
 # tüm komutları içerir.
 #
 # Kullanım:
@@ -14,7 +14,7 @@
 
 set -e  # Hata durumunda scripti durdur
 
-echo "🚀 FASON İŞ TAKIP SİSTEMİ - BAŞLATMA"
+echo "🚀 DIS KAYNAK URETIM İŞ TAKIP SİSTEMİ - BAŞLATMA"
 echo "======================================"
 echo ""
 

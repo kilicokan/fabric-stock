@@ -29,6 +29,8 @@ const TabContent: React.FC = () => {
 const styles = {
   content: {
     flex: 1,
+    minHeight: 0,
+    height: '100%',
     overflow: 'auto',
     backgroundColor: '#f8f9fa',
   },

@@ -1,13 +1,22 @@
 import { useEffect, useState } from "react";
 import axios from "axios";
 
+interface DebugInfo {
+  hasToken?: boolean;
+  token?: string | null;
+  apiResponse?: unknown;
+  apiStatus?: string;
+  apiError?: string;
+  apiErrorDetails?: unknown;
+}
+
 const DebugPage = () => {
-  const [info, setInfo] = useState<any>({});
+  const [info, setInfo] = useState<DebugInfo>({});
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     const checkSystem = async () => {
-      const debugInfo: any = {};
+      const debugInfo: DebugInfo = {};
       
       // Check localStorage
       if (typeof window !== 'undefined') {
@@ -27,10 +36,12 @@ const DebugPage = () => {
         } else {
           debugInfo.apiStatus = 'no token';
         }
-      } catch (error: any) {
+      } catch (error: unknown) {
         debugInfo.apiStatus = 'error';
-        debugInfo.apiError = error.message;
-        debugInfo.apiErrorDetails = error.response?.data;
+        debugInfo.apiError = error instanceof Error ? error.message : 'Unknown error';
+        if (typeof error === 'object' && error !== null && 'response' in error) {
+          debugInfo.apiErrorDetails = (error as { response?: { data?: unknown } }).response?.data;
+        }
       }
 
       setInfo(debugInfo);
@@ -60,7 +71,7 @@ const DebugPage = () => {
           <p><strong>API Status:</strong> {info.apiStatus}</p>
           {info.apiResponse && (
             <>
-              <p><strong>Kullanıcı:</strong> {JSON.stringify(info.apiResponse.user, null, 2)}</p>
+              <p><strong>Kullanıcı:</strong> {JSON.stringify((info.apiResponse as { user?: unknown } | undefined)?.user ?? null, null, 2)}</p>
             </>
           )}
           {info.apiError && (

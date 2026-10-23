@@ -1,11 +1,36 @@
 
 import { useState, useEffect } from "react";
 import axios from "axios";
-import Layout from "../../../components/Layout/Layout";
+import Layout from "../../../components/Layout";
+import { buildScaleQueryParams, readScaleSettings, type ScaleReadResponse } from "@/lib/scale";
+
+interface NamedOption {
+  id: number | string;
+  name: string;
+}
+
+type ApiErrorLike = {
+  response?: {
+    data?: {
+      error?: string;
+    };
+  };
+  message?: string;
+};
+
+const getErrorMessage = (error: unknown, fallback: string): string => {
+  if (typeof error === "object" && error !== null) {
+    const candidate = error as ApiErrorLike;
+    const apiMessage = candidate.response?.data?.error;
+    if (typeof apiMessage === "string" && apiMessage.trim()) return apiMessage;
+    if (typeof candidate.message === "string" && candidate.message.trim()) return candidate.message;
+  }
+  return fallback;
+};
 
 const FabricEntryPage = () => {
-  const [fabricTypes, setFabricTypes] = useState<any[]>([]);
-  const [colors, setColors] = useState<any[]>([]);
+  const [fabricTypes, setFabricTypes] = useState<NamedOption[]>([]);
+  const [colors, setColors] = useState<NamedOption[]>([]);
   const [selectedType, setSelectedType] = useState("");
   const [selectedColor, setSelectedColor] = useState("");
   const [weight, setWeight] = useState("0");
@@ -43,10 +68,18 @@ const FabricEntryPage = () => {
   // Dummy scale API’den ağırlık oku
   const loadWeight = async () => {
     try {
-      const { data } = await axios.get("/api/scale");
+      const { data } = await axios.get<ScaleReadResponse>("/api/scale", {
+        params: buildScaleQueryParams(readScaleSettings()),
+      });
+
+      if (data.ok === false) {
+        setWeight("Tartı bağlı değil");
+        return;
+      }
+
       setWeight(data.weight);
-    } catch (error: any) {
-      console.error("Tartı okunamadı:", error.response?.data?.error || error.message);
+    } catch (error: unknown) {
+      console.error("Tarti okunamadi:", getErrorMessage(error, "Scale read error"));
       setWeight("Tartı bağlı değil");
     }
   };
@@ -79,8 +112,8 @@ const FabricEntryPage = () => {
       setSelectedColor("");
       setWeight("0");
       setManualWeight("");
-    } catch (e: any) {
-      setError(e?.response?.data?.error || "Kayıt eklenemedi");
+    } catch (error: unknown) {
+      setError(getErrorMessage(error, "Kayit eklenemedi"));
     } finally {
       setLoading(false);
     }
@@ -116,7 +149,7 @@ const FabricEntryPage = () => {
 
   return (
     <Layout>
-      <div className="p-6 max-w-xl mx-auto">
+      <div className="p-6 w-full min-h-screen">
         <h1 className="text-2xl font-bold mb-4">Kumaş Girişi</h1>
 
         {error && <div className="bg-red-100 text-red-700 p-2 mb-4">{error}</div>}

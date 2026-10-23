@@ -1,6 +1,13 @@
 import type { NextApiRequest, NextApiResponse } from "next";
-import { PrismaClient } from "@prisma/client";
-const prisma = new PrismaClient();
+import prisma from "@/lib/prisma";
+
+const getErrorMessage = (error: unknown): string =>
+  error instanceof Error ? error.message : "Unknown error";
+
+const getErrorCode = (error: unknown): string | undefined =>
+  typeof error === "object" && error !== null && "code" in error
+    ? String((error as { code: unknown }).code)
+    : undefined;
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   try {
@@ -19,9 +26,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
     res.setHeader("Allow", ["GET", "POST"]);
     return res.status(405).json({ error: `Method ${req.method} Not Allowed` });
-  } catch (err: any) {
+  } catch (err: unknown) {
     console.error("TAX-RATES API ERROR:", err);
-    if (err?.code === "P2002") return res.status(409).json({ error: "Bu vergi oranı zaten kayıtlı" });
-    return res.status(500).json({ error: "Internal Server Error", details: err?.message });
+    if (getErrorCode(err) === "P2002") return res.status(409).json({ error: "Bu vergi oranı zaten kayıtlı" });
+    return res.status(500).json({ error: "Internal Server Error", details: getErrorMessage(err) });
   }
 }

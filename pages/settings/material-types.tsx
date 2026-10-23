@@ -6,6 +6,24 @@ interface MaterialType {
   name: string;
 }
 
+type ApiErrorLike = {
+  response?: {
+    data?: {
+      error?: string;
+    };
+  };
+  message?: string;
+};
+
+const getErrorMessage = (error: unknown, fallback: string): string => {
+  if (typeof error === 'object' && error !== null) {
+    const candidate = error as ApiErrorLike;
+    const apiMessage = candidate.response?.data?.error;
+    if (typeof apiMessage === 'string' && apiMessage.trim()) return apiMessage;
+    if (typeof candidate.message === 'string' && candidate.message.trim()) return candidate.message;
+  }
+  return fallback;
+};
 export default function MaterialTypesPage() {
   const [materialTypes, setMaterialTypes] = useState<MaterialType[]>([]);
   const [newMaterialTypeName, setNewMaterialTypeName] = useState<string>('');
@@ -46,8 +64,8 @@ export default function MaterialTypesPage() {
       await axios.post('/api/material-types', { name: newMaterialTypeName.trim() });
       setNewMaterialTypeName('');
       fetchMaterialTypes(); // Listeyi yenile
-    } catch (err: any) {
-      setError(err.response?.data?.error || 'Malzeme türü eklenemedi');
+    } catch (err: unknown) {
+      setError(getErrorMessage(err, 'Malzeme turu eklenemedi'));
       console.error(err);
     } finally {
       setLoading(false);
@@ -74,8 +92,8 @@ export default function MaterialTypesPage() {
       setEditingMaterialType(null);
       setEditName('');
       fetchMaterialTypes(); // Listeyi yenile
-    } catch (err: any) {
-      setError(err.response?.data?.error || 'Malzeme türü güncellenemedi');
+    } catch (err: unknown) {
+      setError(getErrorMessage(err, 'Malzeme turu eklenemedi'));
       console.error(err);
     } finally {
       setLoading(false);
@@ -92,8 +110,8 @@ export default function MaterialTypesPage() {
       setError('');
       await axios.delete(`/api/material-types/${materialTypeId}`);
       fetchMaterialTypes(); // Listeyi yenile
-    } catch (err: any) {
-      setError(err.response?.data?.error || 'Malzeme türü silinemedi');
+    } catch (err: unknown) {
+      setError(getErrorMessage(err, 'Malzeme turu eklenemedi'));
       console.error(err);
     } finally {
       setLoading(false);
@@ -208,14 +226,17 @@ export default function MaterialTypesPage() {
   );
 }
 
-const styles = {
+const styles: Record<string, React.CSSProperties> = {
   container: {
-    maxWidth: '1000px',
-    margin: '2rem auto',
+    width: '100%',
+    maxWidth: '100%',
+    minHeight: '100vh',
+    margin: '0',
     padding: '2rem',
     backgroundColor: '#f8f9fa',
-    borderRadius: '12px',
-    boxShadow: '0 4px 12px rgba(0, 0, 0, 0.1)',
+    borderRadius: '0',
+    boxShadow: 'none',
+    boxSizing: 'border-box',
     fontFamily: "'Segoe UI', Tahoma, Geneva, Verdana, sans-serif"
   },
   title: {
@@ -258,7 +279,9 @@ const styles = {
     display: 'flex',
     gap: '1rem',
     alignItems: 'flex-end',
-    flexWrap: 'wrap' as const
+    flexWrap: 'wrap' as const,
+    width: '100%',
+    maxWidth: '100%'
   },
   inputGroup: {
     display: 'flex',

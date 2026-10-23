@@ -1,8 +1,18 @@
 // pages/api/customers/index.ts
 import type { NextApiRequest, NextApiResponse } from "next";
 import pool from "@/utils/db";
+import { requireApiAuth } from "@/lib/api-auth";
+
+const getErrorMessage = (error: unknown): string =>
+  error instanceof Error ? error.message : "Unknown error";
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
+  const auth = await requireApiAuth(req, res, {
+    requireLicense: true,
+    feature: "stock",
+  });
+  if (!auth) return;
+
   if (req.method === "GET") {
     try {
       const customers = await pool.customer.findMany({
@@ -17,13 +27,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         },
       });
       res.status(200).json(customers);
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error("PostgreSQL GET error:", error);
-      res.status(500).json({ message: "Müşteriler alınamadı", error: error.message });
+      res.status(500).json({ message: "Müşteriler alınamadı", error: getErrorMessage(error) });
     }
-  }
-
-  else if (req.method === "POST") {
+  } else if (req.method === "POST") {
     const { name, contact, address } = req.body;
 
     if (!name) {
@@ -46,13 +54,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       });
 
       res.status(201).json(customer);
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error("PostgreSQL POST error:", error);
-      res.status(500).json({ message: "Müşteri eklenemedi", error: error.message });
+      res.status(500).json({ message: "Müşteri eklenemedi", error: getErrorMessage(error) });
     }
-  }
-
-  else if (req.method === "PUT") {
+  } else if (req.method === "PUT") {
     const { id, name, contact, address } = req.body;
 
     if (!id || !name) {
@@ -61,7 +67,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
     try {
       const customer = await pool.customer.update({
-        where: { id: parseInt(id) },
+        where: { id: parseInt(id, 10) },
         data: {
           name,
           phone: contact || null,
@@ -76,13 +82,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       });
 
       res.status(200).json(customer);
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error("PostgreSQL PUT error:", error);
-      res.status(500).json({ message: "Müşteri güncellenemedi", error: error.message });
+      res.status(500).json({ message: "Müşteri güncellenemedi", error: getErrorMessage(error) });
     }
-  }
-
-  else if (req.method === "DELETE") {
+  } else if (req.method === "DELETE") {
     const { id } = req.body;
 
     if (!id) {
@@ -91,17 +95,15 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
     try {
       await pool.customer.delete({
-        where: { id: parseInt(id) },
+        where: { id: parseInt(id, 10) },
       });
 
       res.status(200).json({ message: "Müşteri başarıyla silindi" });
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error("PostgreSQL DELETE error:", error);
-      res.status(500).json({ message: "Müşteri silinemedi", error: error.message });
+      res.status(500).json({ message: "Müşteri silinemedi", error: getErrorMessage(error) });
     }
-  }
-
-  else {
+  } else {
     res.setHeader("Allow", ["GET", "POST", "PUT", "DELETE"]);
     res.status(405).json({ message: "Method not allowed" });
   }

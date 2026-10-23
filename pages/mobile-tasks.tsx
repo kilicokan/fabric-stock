@@ -15,7 +15,7 @@ export default function MobileTasksPage() {
 
         {/* Kullanıcı ID girişi (Demo için) */}
         <div className="mb-6 p-4 bg-white rounded shadow">
-          <label className="block mb-2 font-medium">Kullanıcı ID'nizi Girin:</label>
+          <label className="block mb-2 font-medium">Kullanici IDnizi Girin:</label>
           <input
             type="text"
             value={userId}
@@ -23,18 +23,14 @@ export default function MobileTasksPage() {
             placeholder="örn: mobile_user_1"
             className="w-full p-2 border rounded mb-3"
           />
-          <p className="text-sm text-gray-500">
-            Web'de iş emri oluştururken bu ID'yi "Atanan Kişi" olarak kullanın.
-          </p>
+          <p className="text-sm text-gray-500">Webde is emri olustururken bu IDyi Atanan Kisi olarak kullanin.</p>
         </div>
 
         {/* İş Emri Listesi */}
         {userId ? (
           <TaskList userId={userId} />
         ) : (
-          <div className="text-center p-8 text-gray-500">
-            İş emirlerinizi görmek için kullanıcı ID'nizi girin.
-          </div>
+          <div className="text-center p-8 text-gray-500">Is emirlerinizi gormek icin kullanici IDnizi girin.</div>
         )}
       </div>
     </main>

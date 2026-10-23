@@ -1,5 +1,5 @@
-import { prisma } from '../../../lib/prisma';
-import { authenticateToken } from '../../../lib/auth';
+import prisma from '../../../lib/prisma';
+import { verifyToken } from '../../../lib/auth';
 import { z } from 'zod';
 
 // Define validation schemas
@@ -23,8 +23,10 @@ const validateRequest = (schema) => async (data) => {
 export default async function handler(req, res) {
   try {
     // Verify authentication token
-    const user = await authenticateToken(req, res);
-    if (!user) return;
+    const user = verifyToken(req.headers.authorization);
+    if (!user) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
 
     const { id } = req.query;
 

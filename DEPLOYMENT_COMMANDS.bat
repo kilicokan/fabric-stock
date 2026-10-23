@@ -1,8 +1,8 @@
 @echo off
 REM ============================================================================
-REM FASON İŞ TAKIP SİSTEMİ - BAŞLATMA KOMUTLARI (Windows)
+REM DIS KAYNAK URETIM İŞ TAKIP SİSTEMİ - BAŞLATMA KOMUTLARI (Windows)
 REM ============================================================================
-REM Bu script yeni fason özelliklerini kurmanız ve başlatmanız için gereken
+REM Bu script yeni dis kaynak uretim özelliklerini kurmanız ve başlatmanız için gereken
 REM tüm komutları içerir.
 REM
 REM Kullanım:
@@ -13,12 +13,12 @@ REM ============================================================================
 
 setlocal enabledelayedexpansion
 color 0A
-title FASON İŞ TAKIP SİSTEMİ - BAŞLATMA
+title DIS KAYNAK URETIM İŞ TAKIP SİSTEMİ - BAŞLATMA
 
 echo.
 echo ============================================================================
 echo.
-echo   🚀 FASON İŞ TAKIP SİSTEMİ - BAŞLATMA
+echo   🚀 DIS KAYNAK URETIM İŞ TAKIP SİSTEMİ - BAŞLATMA
 echo.
 echo ============================================================================
 echo.

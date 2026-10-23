@@ -57,7 +57,7 @@ export default function CreateTaskForm() {
   };
 
   return (
-    <div className="max-w-lg mx-auto p-6 bg-white shadow rounded">
+    <div className="w-full min-h-screen p-6 bg-white">
       <h2 className="text-2xl font-bold mb-6">Yeni İş Emri Oluştur</h2>
 
       <form onSubmit={handleSubmit} className="space-y-4">

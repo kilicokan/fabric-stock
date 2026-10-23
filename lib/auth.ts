@@ -1,20 +1,62 @@
 import jwt from 'jsonwebtoken';
+import { getJwtSecret } from './runtime-config';
 
-export const authenticateToken = async (req: any, res: any) => {
-  const authHeader = req.headers.authorization;
-  if (!authHeader || !authHeader.startsWith('Bearer ')) {
-    res.status(401).json({ error: 'Token gerekli' });
-    return null;
+// ============================================
+// NEW: Robust token verification (case-insensitive)
+// ============================================
+export interface TokenPayload {
+  id: number;
+  email: string;
+  role: string;
+}
+
+/**
+ * Extract and verify JWT token from Authorization header
+ * Handles: "Bearer TOKEN", "bearer TOKEN" (case-insensitive)
+ * Returns decoded token or null if invalid
+ */
+export function verifyToken(
+  authHeader: string | null | undefined
+): TokenPayload | null {
+  const headerToken = extractBearerToken(authHeader);
+  if (headerToken) {
+    return verifyRawToken(headerToken);
   }
+  return null;
+}
 
-  const token = authHeader.substring(7);
+export function verifyTokenFromCookie(
+  cookieHeader: string | null | undefined
+): TokenPayload | null {
+  if (!cookieHeader) return null;
+  const raw = cookieHeader
+    .split(';')
+    .map((part) => part.trim())
+    .find((part) => part.startsWith('token='));
+  if (!raw) return null;
+  const token = raw.slice('token='.length);
+  if (!token) return null;
+  return verifyRawToken(token);
+}
 
+function verifyRawToken(token: string): TokenPayload | null {
   try {
-    const decoded = jwt.verify(token, process.env.JWT_SECRET || 'default-secret-key') as any;
+    const decoded = jwt.verify(
+      token,
+      getJwtSecret()
+    ) as TokenPayload;
     return decoded;
   } catch (error) {
-    console.error('Token doğrulama hatası:', error);
-    res.status(401).json({ error: 'Geçersiz token' });
+    console.error('🔐 Token verification failed:', {
+      error: error instanceof Error ? error.message : 'Unknown error',
+      token: token.substring(0, 20) + '...',
+    });
     return null;
   }
-};
+}
+
+function extractBearerToken(authHeader: string | null | undefined): string | null {
+  if (!authHeader) return null;
+  const match = authHeader.match(/^Bearer\s+(.+)$/i);
+  return match ? match[1] : null;
+}

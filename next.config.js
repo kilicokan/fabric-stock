@@ -1,11 +1,9 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  output: 'standalone',
   reactStrictMode: true,
-  eslint: {
-    ignoreDuringBuilds: true,
-  },
-  typescript: {
-    ignoreBuildErrors: true,
+  experimental: {
+    optimizePackageImports: ["@radix-ui/react-*"],
   },
   webpack: (config) => {
     config.module.rules.push({

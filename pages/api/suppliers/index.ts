@@ -1,6 +1,9 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import pool from "@/utils/db";
 
+const getErrorMessage = (error: unknown): string =>
+  error instanceof Error ? error.message : "Unknown error";
+
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method === "GET") {
     try {
@@ -16,13 +19,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         },
       });
       res.status(200).json(suppliers);
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error("PostgreSQL GET error:", error);
-      res.status(500).json({ message: "Tedarikçiler alınamadı", error: error.message });
+      res.status(500).json({ message: "Tedarikçiler alınamadı", error: getErrorMessage(error) });
     }
-  }
-
-  else if (req.method === "POST") {
+  } else if (req.method === "POST") {
     const { name, phone, email } = req.body;
 
     if (!name) {
@@ -45,13 +46,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       });
 
       res.status(201).json(supplier);
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error("PostgreSQL POST error:", error);
-      res.status(500).json({ message: "Tedarikçi eklenemedi", error: error.message });
+      res.status(500).json({ message: "Tedarikçi eklenemedi", error: getErrorMessage(error) });
     }
-  }
-
-  else if (req.method === "PUT") {
+  } else if (req.method === "PUT") {
     const { id, name, phone, email } = req.body;
 
     if (!id || !name) {
@@ -60,7 +59,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
     try {
       const supplier = await pool.supplier.update({
-        where: { id: parseInt(id) },
+        where: { id: parseInt(id, 10) },
         data: {
           name,
           phone: phone || null,
@@ -75,13 +74,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       });
 
       res.status(200).json(supplier);
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error("PostgreSQL PUT error:", error);
-      res.status(500).json({ message: "Tedarikçi güncellenemedi", error: error.message });
+      res.status(500).json({ message: "Tedarikçi güncellenemedi", error: getErrorMessage(error) });
     }
-  }
-
-  else if (req.method === "DELETE") {
+  } else if (req.method === "DELETE") {
     const { id } = req.body;
 
     if (!id) {
@@ -90,17 +87,15 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
     try {
       await pool.supplier.delete({
-        where: { id: parseInt(id) },
+        where: { id: parseInt(id, 10) },
       });
 
       res.status(200).json({ message: "Tedarikçi başarıyla silindi" });
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error("PostgreSQL DELETE error:", error);
-      res.status(500).json({ message: "Tedarikçi silinemedi", error: error.message });
+      res.status(500).json({ message: "Tedarikçi silinemedi", error: getErrorMessage(error) });
     }
-  }
-
-  else {
+  } else {
     res.setHeader("Allow", ["GET", "POST", "PUT", "DELETE"]);
     res.status(405).json({ message: "Method not allowed" });
   }

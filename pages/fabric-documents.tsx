@@ -20,6 +20,9 @@ type LineItem = {
   note?: string;
 };
 
+const getErrorMessage = (error: unknown): string =>
+  error instanceof Error ? error.message : "Unknown error";
+
 export default function FabricDocumentsPage() {
   const [documents, setDocuments] = useState<Document[]>([]);
   const [loading, setLoading] = useState(true);
@@ -35,8 +38,8 @@ export default function FabricDocumentsPage() {
         }
         const data = await response.json();
         setDocuments(data);
-      } catch (err: any) {
-        setError(err.message);
+      } catch (err: unknown) {
+        setError(getErrorMessage(err));
       } finally {
         setLoading(false);
       }
@@ -111,8 +114,8 @@ export default function FabricDocumentsPage() {
 
       setShowForm(false);
       setCurrentDoc(null);
-    } catch (err: any) {
-      alert(`Hata: ${err.message}`);
+    } catch (err: unknown) {
+      alert(`Hata: ${getErrorMessage(err)}`);
     }
   };
 

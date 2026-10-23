@@ -1,123 +1,178 @@
-import { NextApiRequest, NextApiResponse } from 'next';
-import { PrismaClient } from '@prisma/client';
-import jwt from 'jsonwebtoken';
+import type { NextApiRequest, NextApiResponse } from "next";
+import jwt from "jsonwebtoken";
+import { FasonTracking, OrderStatus } from "@prisma/client";
+import prisma from "@/lib/prisma";
+import { getJwtSecret } from "@/lib/runtime-config";
 
-const prisma = new PrismaClient();
+type SyncAction = "sync_status" | "sync_completion";
 
-// Mira sisteminden ERP'ye veri gönderme endpoint'i
+type SyncRequestBody = {
+  action?: SyncAction;
+  workOrderId?: number | string;
+  status?: string;
+  completionData?: Record<string, unknown>;
+};
+
+const ORDER_STATUS_VALUES = new Set<string>(Object.values(OrderStatus));
+
+const resolveAtolyeStatus = (): OrderStatus => {
+  const status = Object.values(OrderStatus).find((item) => item.toUpperCase().includes("LYEDE"));
+  return (status as OrderStatus | undefined) || OrderStatus.BEKLIYOR;
+};
+
+const mapOrderStatus = (rawStatus: string | undefined): OrderStatus => {
+  if (!rawStatus) return OrderStatus.BEKLIYOR;
+
+  const normalized = rawStatus.trim().toUpperCase();
+  const mapped =
+    {
+      BEKLIYOR: OrderStatus.BEKLIYOR,
+      KESIM: OrderStatus.ALINDI,
+      ALINDI: OrderStatus.ALINDI,
+      DIKIM: resolveAtolyeStatus(),
+      ATOLYEDE: resolveAtolyeStatus(),
+      BASKI_NAKIS: OrderStatus.HAZIR,
+      HAZIR: OrderStatus.HAZIR,
+      TESLIM_EDILDI: OrderStatus.TESLIM_EDILDI,
+      TESLIM: OrderStatus.TESLIM_EDILDI,
+      SORUN_VAR: OrderStatus.SORUN_VAR,
+    }[normalized] || normalized;
+
+  return ORDER_STATUS_VALUES.has(mapped) ? (mapped as OrderStatus) : OrderStatus.BEKLIYOR;
+};
+
+const parsePositiveInt = (value: unknown): number | null => {
+  if (typeof value === "number" && Number.isInteger(value) && value > 0) return value;
+  if (typeof value === "string" && value.trim()) {
+    const parsed = Number(value);
+    if (Number.isInteger(parsed) && parsed > 0) return parsed;
+  }
+  return null;
+};
+
+const isSyncAction = (value: unknown): value is SyncAction =>
+  value === "sync_status" || value === "sync_completion";
+
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
-  if (req.method !== 'POST') {
-    return res.status(405).json({ error: 'Method not allowed' });
+  if (req.method !== "POST") {
+    return res.status(405).json({ error: "Method not allowed" });
   }
 
   try {
-    // JWT token kontrolü
-    const token = req.headers.authorization?.replace('Bearer ', '');
+    const tokenHeader = req.headers.authorization;
+    const token = tokenHeader?.replace(/^Bearer\s+/i, "") || "";
+
     if (!token) {
-      return res.status(401).json({ error: 'Token bulunamadı' });
+      return res.status(401).json({ error: "Token bulunamadi" });
     }
 
-    jwt.verify(token, process.env.JWT_SECRET || 'default-secret-key');
+    jwt.verify(token, getJwtSecret());
 
-    const {
-      action, // 'sync_status', 'sync_completion'
-      workOrderId,
-      status,
-      completionData
-    } = req.body;
-
-    switch (action) {
-      case 'sync_status':
-        return await syncWorkOrderStatus(workOrderId, status, res);
-      case 'sync_completion':
-        return await syncWorkOrderCompletion(workOrderId, completionData, res);
-      default:
-        return res.status(400).json({ error: 'Invalid action' });
+    const body = (req.body || {}) as SyncRequestBody;
+    if (!isSyncAction(body.action)) {
+      return res.status(400).json({ error: "Invalid action" });
     }
 
-  } catch (error) {
-    console.error('ERP Sync Error:', error);
-    return res.status(500).json({ error: 'Internal server error' });
+    const workOrderId = parsePositiveInt(body.workOrderId);
+    if (!workOrderId) {
+      return res.status(400).json({ error: "workOrderId zorunludur" });
+    }
+
+    if (body.action === "sync_status") {
+      return syncWorkOrderStatus(workOrderId, body.status, res);
+    }
+
+    return syncWorkOrderCompletion(workOrderId, body.completionData || {}, res);
+  } catch (error: unknown) {
+    console.error("ERP Sync Error:", error);
+    return res.status(500).json({ error: "Internal server error" });
   }
 }
 
-// İş emri durumunu ERP'ye gönder
-async function syncWorkOrderStatus(workOrderId: number, status: string, res: NextApiResponse) {
+async function syncWorkOrderStatus(workOrderId: number, status: string | undefined, res: NextApiResponse) {
   const workOrder = await prisma.workOrder.findUnique({
     where: { id: workOrderId },
     include: {
       fasonTrackings: {
-        orderBy: { createdAt: 'desc' },
-        take: 1
-      }
-    }
+        orderBy: { createdAt: "desc" },
+        take: 1,
+      },
+    },
   });
 
   if (!workOrder) {
-    return res.status(404).json({ error: 'Work order not found' });
+    return res.status(404).json({ error: "Work order not found" });
   }
 
-  // ERP sistemine HTTP request gönder
+  if (!process.env.ERP_API_URL || !process.env.ERP_API_TOKEN) {
+    return res.status(503).json({ error: "ERP entegrasyon ayarlari eksik" });
+  }
+
   const erpData = {
     externalErpId: workOrder.externalErpId,
     orderNo: workOrder.orderNo,
-    status: status,
+    status: status || workOrder.status,
     lastUpdate: new Date().toISOString(),
-    tracking: workOrder.fasonTrackings[0] || null
+    tracking: workOrder.fasonTrackings[0] || null,
   };
 
   try {
-    // ERP sistemine POST request
-    const erpResponse = await fetch(process.env.ERP_API_URL + '/work-orders/status', {
-      method: 'POST',
+    const erpResponse = await fetch(`${process.env.ERP_API_URL}/work-orders/status`, {
+      method: "POST",
       headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${process.env.ERP_API_TOKEN}`
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${process.env.ERP_API_TOKEN}`,
       },
-      body: JSON.stringify(erpData)
+      body: JSON.stringify(erpData),
     });
 
     if (!erpResponse.ok) {
-      throw new Error(`ERP API error: ${erpResponse.statusText}`);
+      const responseText = await erpResponse.text();
+      throw new Error(`ERP API error: ${erpResponse.status} ${responseText}`);
     }
 
-    // Başarılı sync kaydını tut
     await prisma.workOrder.update({
       where: { id: workOrderId },
-      data: { 
-        status,
-        updatedAt: new Date()
-      }
+      data: {
+        status: mapOrderStatus(status),
+        updatedAt: new Date(),
+      },
     });
 
-    return res.json({ 
+    return res.status(200).json({
       success: true,
-      message: 'Status synced to ERP successfully',
-      erpResponse: await erpResponse.json()
+      message: "Status synced to ERP successfully",
+      erpResponse: await erpResponse.json(),
     });
-
-  } catch (fetchError) {
-    console.error('ERP API Error:', fetchError);
-    return res.status(502).json({ 
-      error: 'Failed to sync with ERP system',
-      details: fetchError instanceof Error ? fetchError.message : 'Unknown error'
+  } catch (fetchError: unknown) {
+    console.error("ERP API Error:", fetchError);
+    return res.status(502).json({
+      error: "Failed to sync with ERP system",
+      details: fetchError instanceof Error ? fetchError.message : "Unknown error",
     });
   }
 }
 
-// İş emri tamamlanma bilgilerini ERP'ye gönder
-async function syncWorkOrderCompletion(workOrderId: number, completionData: any, res: NextApiResponse) {
+async function syncWorkOrderCompletion(
+  workOrderId: number,
+  completionData: Record<string, unknown>,
+  res: NextApiResponse,
+) {
   const workOrder = await prisma.workOrder.findUnique({
     where: { id: workOrderId },
     include: {
       fasonTrackings: {
-        orderBy: { createdAt: 'desc' }
-      }
-    }
+        orderBy: { createdAt: "desc" },
+      },
+    },
   });
 
   if (!workOrder) {
-    return res.status(404).json({ error: 'Work order not found' });
+    return res.status(404).json({ error: "Work order not found" });
+  }
+
+  if (!process.env.ERP_API_URL || !process.env.ERP_API_TOKEN) {
+    return res.status(503).json({ error: "ERP entegrasyon ayarlari eksik" });
   }
 
   const erpData = {
@@ -125,63 +180,60 @@ async function syncWorkOrderCompletion(workOrderId: number, completionData: any,
     orderNo: workOrder.orderNo,
     completionDate: new Date().toISOString(),
     totalProcessTime: calculateTotalProcessTime(workOrder.fasonTrackings),
-    processHistory: workOrder.fasonTrackings.map(tracking => ({
+    processHistory: workOrder.fasonTrackings.map((tracking) => ({
       processType: tracking.processType,
       status: tracking.status,
       startDate: tracking.startDate,
       endDate: tracking.endDate,
       notes: tracking.notes,
-      problemNotes: tracking.problemNotes
+      problemNotes: tracking.problemNotes,
     })),
-    ...completionData
+    ...completionData,
   };
 
   try {
-    const erpResponse = await fetch(process.env.ERP_API_URL + '/work-orders/completion', {
-      method: 'POST',
+    const erpResponse = await fetch(`${process.env.ERP_API_URL}/work-orders/completion`, {
+      method: "POST",
       headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${process.env.ERP_API_TOKEN}`
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${process.env.ERP_API_TOKEN}`,
       },
-      body: JSON.stringify(erpData)
+      body: JSON.stringify(erpData),
     });
 
     if (!erpResponse.ok) {
-      throw new Error(`ERP API error: ${erpResponse.statusText}`);
+      const responseText = await erpResponse.text();
+      throw new Error(`ERP API error: ${erpResponse.status} ${responseText}`);
     }
 
     await prisma.workOrder.update({
       where: { id: workOrderId },
-      data: { 
-        status: 'TESLIM_EDILDI' as any,
-        updatedAt: new Date()
-      }
+      data: {
+        status: OrderStatus.TESLIM_EDILDI,
+        updatedAt: new Date(),
+      },
     });
 
-    return res.json({ 
+    return res.status(200).json({
       success: true,
-      message: 'Completion data synced to ERP successfully',
-      erpResponse: await erpResponse.json()
+      message: "Completion data synced to ERP successfully",
+      erpResponse: await erpResponse.json(),
     });
-
-  } catch (fetchError) {
-    console.error('ERP API Error:', fetchError);
-    return res.status(502).json({ 
-      error: 'Failed to sync completion data with ERP system',
-      details: fetchError instanceof Error ? fetchError.message : 'Unknown error'
+  } catch (fetchError: unknown) {
+    console.error("ERP API Error:", fetchError);
+    return res.status(502).json({
+      error: "Failed to sync completion data with ERP system",
+      details: fetchError instanceof Error ? fetchError.message : "Unknown error",
     });
   }
 }
 
-// Toplam süreç süresini hesapla
-function calculateTotalProcessTime(trackings: any[]): number {
+function calculateTotalProcessTime(trackings: FasonTracking[]): number {
   let totalMinutes = 0;
-  
-  trackings.forEach(tracking => {
+
+  trackings.forEach((tracking) => {
     if (tracking.startDate && tracking.endDate) {
-      const start = new Date(tracking.startDate);
-      const end = new Date(tracking.endDate);
-      const diffMinutes = (end.getTime() - start.getTime()) / (1000 * 60);
+      const diffMinutes = (tracking.endDate.getTime() - tracking.startDate.getTime()) / (1000 * 60);
       totalMinutes += diffMinutes;
     }
   });

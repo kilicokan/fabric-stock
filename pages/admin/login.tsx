@@ -1,14 +1,12 @@
 import { useState } from "react";
 import axios from "axios";
 import { useRouter } from "next/router";
-import SplashScreen from "../../components/splash-screen";
 
 export default function AdminLogin() {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
-  const [showSplash, setShowSplash] = useState(true);
   const router = useRouter();
 
   const handleLogin = async (e: React.FormEvent) => {
@@ -20,10 +18,8 @@ export default function AdminLogin() {
       const res = await axios.post("/api/admin/login", { username, password });
       if (res.data.success) {
         localStorage.setItem("token", res.data.token);
-        setShowSplash(true);
-        setTimeout(() => {
-          router.push("admin/dashboard");
-        }, 3500);
+        sessionStorage.setItem("auth:splash-event", "login");
+        router.push("/admin/dashboard");
       } else {
         setError("Hatalı kullanıcı adı veya şifre");
       }
@@ -37,13 +33,7 @@ export default function AdminLogin() {
 
   return (
     <>
-      {showSplash && (
-        <SplashScreen
-          autoHide={true}
-          onHide={() => setShowSplash(false)}
-        />
-      )}
-      <div style={{ maxWidth: '400px', margin: '0 auto', padding: '20px', border: '1px solid #ddd', borderRadius: '8px' }}>
+      <div style={{ width: '100%', maxWidth: '100%', minHeight: '100vh', margin: '0', padding: '20px', border: 'none', borderRadius: '0', boxShadow: 'none', boxSizing: 'border-box' }}>
         <h1 style={{ fontSize: '1.5rem', fontWeight: 'bold', marginBottom: '1rem', textAlign: 'center' }}>🔑 Admin Giriş</h1>
 
         {error && (

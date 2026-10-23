@@ -3,6 +3,7 @@ import { Table, TableBody, TableCell, TableHead, TableRow, Paper, Typography, Bu
 import ExportButtons from "../../components/ExportButtons";
 import * as XLSX from "xlsx";
 import axios from "axios";
+import { notifyError, notifySuccess } from "../../hooks/useToast";
 
 interface Supply {
   id: string;
@@ -14,6 +15,26 @@ interface Supply {
   quantityMeter: number;
 }
 
+type ApiErrorLike = {
+  response?: {
+    data?: {
+      message?: string;
+    };
+  };
+  message?: string;
+};
+
+type ParsedImportRow = Record<string, string | number | boolean | null | undefined>;
+
+const getErrorMessage = (error: unknown, fallback: string): string => {
+  if (typeof error === "object" && error !== null) {
+    const candidate = error as ApiErrorLike;
+    const apiMessage = candidate.response?.data?.message;
+    if (typeof apiMessage === "string" && apiMessage.trim()) return apiMessage;
+    if (typeof candidate.message === "string" && candidate.message.trim()) return candidate.message;
+  }
+  return fallback;
+};
 function SupplyList() {
   const [supplies, setSupplies] = useState<Supply[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -47,31 +68,33 @@ function SupplyList() {
 
     try {
       const fileExtension = file.name.split('.').pop()?.toLowerCase();
-      let parsedData: any[] = [];
+      let parsedData: ParsedImportRow[] = [];
 
       if (fileExtension === 'csv') {
         const text = await file.text();
         parsedData = parseCSV(text);
       } else if (fileExtension === 'xlsx' || fileExtension === 'xls') {
         const buffer = await file.arrayBuffer();
-        parsedData = XLSX.utils.sheet_to_json(XLSX.read(buffer, { type: 'array' }).Sheets[XLSX.read(buffer, { type: 'array' }).SheetNames[0]]);
+        const workbook = XLSX.read(buffer, { type: 'array' });
+        const worksheet = workbook.Sheets[workbook.SheetNames[0]];
+        parsedData = XLSX.utils.sheet_to_json<ParsedImportRow>(worksheet);
       } else {
-        alert('Desteklenmeyen dosya formatı. Lütfen CSV veya Excel dosyası yükleyin.');
+        notifyError('Desteklenmeyen dosya formatı. Lütfen CSV veya Excel dosyası yükleyin.');
         return;
       }
 
       const response = await axios.post('/api/fabrics/import', { supplies: parsedData });
-      alert(response.data.message);
+      notifySuccess(response.data.message);
       // Refresh the list
       window.location.reload();
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('Import error:', error);
-      alert('İçe aktarma sırasında hata oluştu: ' + (error.response?.data?.message || error.message));
+      notifyError('İçe aktarma sırasında hata oluştu: ' + getErrorMessage(error, 'Bilinmeyen hata'));
     }
   };
 
   // Helper function to parse CSV
-  const parseCSV = (csvContent: string): any[] => {
+  const parseCSV = (csvContent: string): Record<string, string>[] => {
     const lines = csvContent.split('\n').filter(line => line.trim());
     if (lines.length < 2) return [];
 
@@ -80,7 +103,7 @@ function SupplyList() {
 
     return rows.map(row => {
       const values = row.split(',').map(v => v.trim().replace(/"/g, ''));
-      const obj: any = {};
+      const obj: Record<string, string> = {};
       headers.forEach((header, index) => {
         obj[header] = values[index] || '';
       });

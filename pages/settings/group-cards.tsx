@@ -6,6 +6,24 @@ interface Group {
   name: string;
 }
 
+type ApiErrorLike = {
+  response?: {
+    data?: {
+      error?: string;
+    };
+  };
+  message?: string;
+};
+
+const getErrorMessage = (error: unknown, fallback: string): string => {
+  if (typeof error === 'object' && error !== null) {
+    const candidate = error as ApiErrorLike;
+    const apiMessage = candidate.response?.data?.error;
+    if (typeof apiMessage === 'string' && apiMessage.trim()) return apiMessage;
+    if (typeof candidate.message === 'string' && candidate.message.trim()) return candidate.message;
+  }
+  return fallback;
+};
 export default function GroupCardsPage() {
   const [groups, setGroups] = useState<Group[]>([]);
   const [newGroupName, setNewGroupName] = useState<string>('');
@@ -46,8 +64,8 @@ export default function GroupCardsPage() {
       await axios.post('/api/groups', { name: newGroupName.trim() });
       setNewGroupName('');
       fetchGroups(); // Listeyi yenile
-    } catch (err: any) {
-      setError(err.response?.data?.error || 'Grup eklenemedi');
+    } catch (err: unknown) {
+      setError(getErrorMessage(err, 'Grup eklenemedi'));
       console.error(err);
     } finally {
       setLoading(false);
@@ -74,8 +92,8 @@ export default function GroupCardsPage() {
       setEditingGroup(null);
       setEditName('');
       fetchGroups(); // Listeyi yenile
-    } catch (err: any) {
-      setError(err.response?.data?.error || 'Grup güncellenemedi');
+    } catch (err: unknown) {
+      setError(getErrorMessage(err, 'Grup eklenemedi'));
       console.error(err);
     } finally {
       setLoading(false);
@@ -92,8 +110,8 @@ export default function GroupCardsPage() {
       setError('');
       await axios.delete(`/api/groups/${groupId}`);
       fetchGroups(); // Listeyi yenile
-    } catch (err: any) {
-      setError(err.response?.data?.error || 'Grup silinemedi');
+    } catch (err: unknown) {
+      setError(getErrorMessage(err, 'Grup eklenemedi'));
       console.error(err);
     } finally {
       setLoading(false);
@@ -208,14 +226,17 @@ export default function GroupCardsPage() {
   );
 }
 
-const styles = {
+const styles: Record<string, React.CSSProperties> = {
   container: {
-    maxWidth: '1000px',
-    margin: '2rem auto',
+    width: '100%',
+    maxWidth: '100%',
+    minHeight: '100vh',
+    margin: '0',
     padding: '2rem',
     backgroundColor: '#f8f9fa',
-    borderRadius: '12px',
-    boxShadow: '0 4px 12px rgba(0, 0, 0, 0.1)',
+    borderRadius: '0',
+    boxShadow: 'none',
+    boxSizing: 'border-box',
     fontFamily: "'Segoe UI', Tahoma, Geneva, Verdana, sans-serif"
   },
   title: {
@@ -258,7 +279,9 @@ const styles = {
     display: 'flex',
     gap: '1rem',
     alignItems: 'flex-end',
-    flexWrap: 'wrap' as const
+    flexWrap: 'wrap' as const,
+    width: '100%',
+    maxWidth: '100%'
   },
   inputGroup: {
     display: 'flex',

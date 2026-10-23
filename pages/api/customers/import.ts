@@ -1,11 +1,15 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 import prisma from '../../../lib/prisma';
+import type { Customer } from '@prisma/client';
 
 interface ImportCustomer {
   name: string;
   phone?: string;
   email?: string;
 }
+
+const getErrorMessage = (error: unknown): string =>
+  error instanceof Error ? error.message : 'Unknown error';
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   try {
@@ -20,7 +24,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     }
 
     const errors: string[] = [];
-    const successfulImports: any[] = [];
+    const successfulImports: Customer[] = [];
     const duplicateNames: string[] = [];
 
     // Validate and prepare customers for import
@@ -55,8 +59,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           data: importCustomer,
         });
         successfulImports.push(newCustomer);
-      } catch (err: any) {
-        errors.push(`Satır ${rowNumber}: Müşteri eklenirken hata: ${err.message}`);
+      } catch (err: unknown) {
+        errors.push(`Satır ${rowNumber}: Müşteri eklenirken hata: ${getErrorMessage(err)}`);
       }
     }
 
@@ -72,10 +76,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
     return res.status(200).json(result);
 
-  } catch (err: any) {
+  } catch (err: unknown) {
     console.error('Import API Error:', err);
-    return res.status(500).json({ message: 'Sunucu hatası', error: err.message });
-  } finally {
-    await prisma.$disconnect();
+    return res.status(500).json({ message: 'Sunucu hatası', error: getErrorMessage(err) });
   }
 }
+

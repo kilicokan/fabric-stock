@@ -17,11 +17,24 @@ import {
 // Türkçe tarih formatı için locale ayarı
 const turkishLocale = "tr-TR";
 
+const formatSignedQuantity = (transaction: FabricTransaction): string => {
+  const signed =
+    typeof transaction.signedQuantity === "number"
+      ? transaction.signedQuantity
+      : transaction.type === "out"
+        ? -Math.abs(transaction.quantity)
+        : Math.abs(transaction.quantity);
+  const sign = signed > 0 ? "+" : signed < 0 ? "-" : "";
+  return `${sign}${Math.abs(signed)}`;
+};
+
 type FabricTransaction = {
   id: number;
   type: "in" | "out";
+  displayType?: string;
   fabricName: string;
   quantity: number;
+  signedQuantity?: number;
   unit: string;
   color: string;
   supplier?: string;
@@ -29,6 +42,18 @@ type FabricTransaction = {
   transactionDate: string;
   category: string;
   notes?: string;
+};
+type JsPdfWithAutoTable = jsPDF & {
+  autoTable?: (options: {
+    startY: number;
+    head: string[][];
+    body: Array<Array<string | number | undefined>>;
+    styles: { fontSize: number };
+    headStyles: { fillColor: number[] };
+  }) => void;
+  lastAutoTable?: {
+    finalY: number;
+  };
 };
 
 const ReportsPage: React.FC = () => {
@@ -96,18 +121,18 @@ const ReportsPage: React.FC = () => {
     
     const tableData = filteredData.map((t) => [
       t.id.toString(),
-      t.type === 'in' ? 'Giriş' : 'Çıkış',
+      t.displayType || (t.type === 'in' ? 'Giriş (+)' : 'Çıkış (-)'),
       t.fabricName,
       t.color,
-      t.quantity.toString(),
+      formatSignedQuantity(t),
       t.unit,
       t.category,
       t.type === 'in' ? t.supplier : t.customer,
       new Date(t.transactionDate).toLocaleDateString('tr-TR')
     ]);
 
-    // @ts-ignore
-    (doc as any).autoTable({
+    const pdfDoc = doc as JsPdfWithAutoTable;
+    pdfDoc.autoTable?.({
       startY: 35,
       head: [["ID", "Tip", "Kumaş Adı", "Renk", "Miktar", "Birim", "Kategori", "Tedarikçi/Müşteri", "Tarih"]],
       body: tableData,
@@ -115,8 +140,7 @@ const ReportsPage: React.FC = () => {
       headStyles: { fillColor: [66, 135, 245] }
     });
 
-    // @ts-ignore
-    const finalY = (doc as any).lastAutoTable?.finalY ? (doc as any).lastAutoTable.finalY + 10 : 45;
+    const finalY = pdfDoc.lastAutoTable?.finalY ? pdfDoc.lastAutoTable.finalY + 10 : 45;
     doc.setFontSize(10);
     doc.text(`Toplam Giriş (kg): ${totalInKg}`, 14, finalY);
     doc.text(`Toplam Giriş (m): ${totalInM}`, 14, finalY + 6);
@@ -131,7 +155,7 @@ const ReportsPage: React.FC = () => {
   const handleExportExcel = () => {
     const headers = ["ID", "Tip", "Kumaş Adı", "Renk", "Miktar", "Birim", "Kategori", "Tedarikçi/Müşteri", "Tarih", "Notlar"];
     const csvData = filteredData.map((t) =>
-      [t.id, t.type === 'in' ? 'Giriş' : 'Çıkış', t.fabricName, t.color, t.quantity, t.unit, t.category, t.type === 'in' ? t.supplier : t.customer, t.transactionDate, t.notes || ''].join(",")
+      [t.id, t.displayType || (t.type === 'in' ? 'Giriş (+)' : 'Çıkış (-)'), t.fabricName, t.color, formatSignedQuantity(t), t.unit, t.category, t.type === 'in' ? t.supplier : t.customer, t.transactionDate, t.notes || ''].join(",")
     );
     
     const csvContent = [headers.join(","), ...csvData].join("\n");
@@ -148,7 +172,7 @@ const ReportsPage: React.FC = () => {
   const handleExportCSV = () => {
     const headers = ["ID", "Tip", "Kumaş Adı", "Renk", "Miktar", "Birim", "Kategori", "Tedarikçi/Müşteri", "Tarih", "Notlar"];
     const csvData = filteredData.map((t) =>
-      [t.id, t.type === 'in' ? 'Giriş' : 'Çıkış', t.fabricName, t.color, t.quantity, t.unit, t.category, t.type === 'in' ? t.supplier : t.customer, t.transactionDate, t.notes || ''].join(";")
+      [t.id, t.displayType || (t.type === 'in' ? 'Giriş (+)' : 'Çıkış (-)'), t.fabricName, t.color, formatSignedQuantity(t), t.unit, t.category, t.type === 'in' ? t.supplier : t.customer, t.transactionDate, t.notes || ''].join(";")
     );
     
     const csvContent = [headers.join(";"), ...csvData].join("\n");
@@ -193,6 +217,10 @@ const ReportsPage: React.FC = () => {
               <Link href="/reports/stock" style={styles.scaleButton}>
                 <FiPackage style={{ marginRight: '0.5rem' }} />
                 Stok Raporu
+              </Link>
+              <Link href="/reports/order-cutting" style={styles.scaleButton}>
+                <FiTruck style={{ marginRight: '0.5rem' }} />
+                Siparis Kesim Raporu
               </Link>
             </div>
           </div>
@@ -408,7 +436,7 @@ const ReportsPage: React.FC = () => {
                   <thead className="bg-gray-50">
                     <tr>
                       <th className="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">ID</th>
-                      <th className="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Tip</th>
+                      <th className="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Hareket</th>
                       <th className="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Kumaş</th>
                       <th className="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Renk</th>
                       <th className="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Miktar</th>
@@ -432,10 +460,7 @@ const ReportsPage: React.FC = () => {
                               ? 'bg-green-100 text-green-800' 
                               : 'bg-red-100 text-red-800'
                           }`}>
-                            {transaction.type === 'in' ? 
-                              <><FiTrendingUp className="mr-1" /> Giriş</> : 
-                              <><FiTrendingDown className="mr-1" /> Çıkış</>
-                            }
+                            {transaction.displayType || (transaction.type === 'in' ? 'Giriş (+)' : 'Çıkış (-)')}
                           </span>
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
@@ -448,7 +473,9 @@ const ReportsPage: React.FC = () => {
                           </span>
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap">
-                          <span className="text-sm font-semibold text-gray-900">{transaction.quantity}</span>
+                          <span className={`text-sm font-semibold ${transaction.type === 'out' ? 'text-red-700' : 'text-green-700'}`}>
+                            {formatSignedQuantity(transaction)}
+                          </span>
                           <span className="text-gray-500 text-sm ml-1">{transaction.unit}</span>
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap">

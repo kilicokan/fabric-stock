@@ -4,10 +4,10 @@
   "version": "0.1.0",
   "identifier": "com.mira.fabricstock",
   "build": {
-    "frontendDist": "../.next",
+    "frontendDist": "frontend",
     "devUrl": "http://localhost:3000",
     "beforeDevCommand": "next dev --turbopack",
-    "beforeBuildCommand": "next build"
+    "beforeBuildCommand": "npm run tauri:prepare"
   },
   "app": {
     "windows": [
@@ -26,6 +26,10 @@
   "bundle": {
     "active": true,
     "targets": "all",
+    "resources": {
+      "../.next/standalone": "web",
+      "../.next/tauri-runtime/node.exe": "node.exe"
+    },
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",

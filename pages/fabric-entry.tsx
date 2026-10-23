@@ -1,6 +1,8 @@
 import { useState, useEffect } from "react";
 import type { CSSProperties } from "react";
-import axios from "axios";
+import toast from "react-hot-toast";
+import api from "@/lib/api";
+import { buildScaleQueryParams, readScaleSettings, type ScaleReadResponse } from "@/lib/scale";
 
 // Form veri tipi
 interface FabricEntryFormData {
@@ -10,6 +12,47 @@ interface FabricEntryFormData {
   lengthMeter: string;
   supplier: string;
 }
+
+interface NamedOption {
+  name: string;
+}
+
+type ApiErrorLike = {
+  response?: {
+    status?: number;
+    data?: {
+      message?: string;
+      error?: string;
+    };
+  };
+  message?: string;
+};
+
+const getErrorMessage = (error: unknown, fallback: string): string => {
+  if (typeof error === "object" && error !== null) {
+    const candidate = error as ApiErrorLike;
+    const apiMessage = candidate.response?.data?.message || candidate.response?.data?.error;
+    if (typeof apiMessage === "string" && apiMessage.trim()) return apiMessage;
+    if (typeof candidate.message === "string" && candidate.message.trim()) return candidate.message;
+  }
+  return fallback;
+};
+
+const getErrorStatus = (error: unknown): number | null => {
+  if (typeof error === "object" && error !== null) {
+    const candidate = error as ApiErrorLike;
+    const status = candidate.response?.status;
+    return typeof status === "number" ? status : null;
+  }
+  return null;
+};
+
+const parseLocaleNumber = (value: string): number | null => {
+  const normalized = String(value || "").trim().replace(",", ".");
+  if (!normalized) return null;
+  const parsed = Number(normalized);
+  return Number.isFinite(parsed) ? parsed : null;
+};
 
 export default function FabricEntry() {
   const [formData, setFormData] = useState<FabricEntryFormData>({
@@ -37,15 +80,19 @@ export default function FabricEntry() {
     const fetchData = async () => {
       try {
         const [fabricsRes, colorsRes, suppliersRes] = await Promise.all([
-          axios.get('/api/fabrics'),
-          axios.get('/api/colors'),
-          axios.get('/api/suppliers')
+          api.get('/fabrics'),
+          api.get('/colors'),
+          api.get('/suppliers')
         ]);
-        setFabricTypes(fabricsRes.data.map((f: any) => f.name));
-        setColors(colorsRes.data.map((c: any) => c.name));
-        setSuppliers(suppliersRes.data.map((s: any) => s.name));
+        setFabricTypes((fabricsRes.data as NamedOption[]).map((f: NamedOption) => f.name));
+        setColors((colorsRes.data as NamedOption[]).map((c: NamedOption) => c.name));
+        setSuppliers((suppliersRes.data as NamedOption[]).map((s: NamedOption) => s.name));
       } catch (error) {
-        console.error('Error fetching data:', error);
+        if (getErrorStatus(error) === 401) {
+          setErrorMessage("Oturum suresi dolmus. Lutfen tekrar giris yapin.");
+        } else {
+          console.error('Error fetching data:', error);
+        }
         // Fallback to empty or default
         setFabricTypes([]);
         setColors([]);
@@ -73,26 +120,48 @@ export default function FabricEntry() {
       return;
     }
 
+    const parsedWeight = parseLocaleNumber(formData.weightKg);
+    if (parsedWeight === null || parsedWeight <= 0) {
+      setErrorMessage("Agirlik (kg) alani icin gecerli bir deger girin.");
+      return;
+    }
+
+    const parsedLength = parseLocaleNumber(formData.lengthMeter);
+
     // Prepare data for API (convert numbers if needed)
     const payload = {
       ...formData,
-      weightKg: parseFloat(formData.weightKg) || 0,
-      // lengthMeter boşsa null olarak gönder
-      lengthMeter: formData.lengthMeter ? parseFloat(formData.lengthMeter) : null,
+      weightKg: parsedWeight,
+      quantityKg: parsedWeight,
+      // lengthMeter bossa null olarak gonder
+      lengthMeter: parsedLength,
     };
 
     try {
       console.log("Sending payload:", payload);
-      const response = await axios.post("/api/fabric-entry", payload, {
+      const response = await api.post("/fabric-entry", payload, {
         headers: { "Content-Type": "application/json" },
       });
       console.log("API response:", response.data);
-      alert("Kumaş girişi başarıyla kaydedildi!");
+      toast.success(response.data?.message || "Kumaş girişi başarıyla kaydedildi!", {
+        duration: 2200,
+        style: {
+          borderRadius: "14px",
+          border: "1px solid #86efac",
+          background: "#ecfdf5",
+          color: "#14532d",
+          fontWeight: 700,
+          boxShadow: "0 12px 30px rgba(16, 185, 129, 0.18)",
+        },
+        iconTheme: {
+          primary: "#16a34a",
+          secondary: "#ecfdf5",
+        },
+      });
       setFormData({ fabricType: "", color: "", weightKg: "", lengthMeter: "", supplier: "" });
-    } catch (err: any) {
-      console.error("Submission error:", err.response || err.message || err);
-      const errorMsg = err.response?.data?.message || err.message || "Kayıt sırasında hata oluştu!";
-      setErrorMessage(errorMsg);
+    } catch (err: unknown) {
+      console.error("Submission error:", err);
+      setErrorMessage(getErrorMessage(err, "Kayit sirasinda hata olustu!"));
     }
   };
 
@@ -101,11 +170,20 @@ export default function FabricEntry() {
     setLoadingScale(true);
     setErrorMessage("");
     try {
-      const { data } = await axios.get<{ weight: number }>("/api/scale");
-      setFormData((prev) => ({ ...prev, weightKg: data.weight.toString() }));
-    } catch (err: any) {
-      console.error("Scale error:", err.response || err.message || err);
-      setErrorMessage("Tartıdan veri alınamadı!");
+      const { data } = await api.get<ScaleReadResponse>("/scale", {
+        params: buildScaleQueryParams(readScaleSettings()),
+      });
+
+      if (data.ok === false) {
+        const failure = data as { error?: string };
+        setErrorMessage(failure.error || "Tartidan veri alinamadi!");
+        return;
+      }
+
+      setFormData((prev) => ({ ...prev, weightKg: data.weight }));
+    } catch (err: unknown) {
+      console.error("Scale error:", err);
+      setErrorMessage(getErrorMessage(err, "Tartidan veri alinamadi!"));
     } finally {
       setLoadingScale(false);
     }
@@ -119,7 +197,7 @@ export default function FabricEntry() {
       return;
     }
     try {
-      await axios.post('/api/fabric-types', { name: newType });
+      await api.post('/fabric-types', { name: newType });
       setFabricTypes((prev) => [...prev, newType]);
       setFormData((prev) => ({ ...prev, fabricType: newType }));
       setNewType("");
@@ -138,7 +216,7 @@ export default function FabricEntry() {
       return;
     }
     try {
-      await axios.post('/api/colors', { name: newColor });
+      await api.post('/colors', { name: newColor });
       setColors((prev) => [...prev, newColor]);
       setFormData((prev) => ({ ...prev, color: newColor }));
       setNewColor("");
@@ -157,7 +235,7 @@ export default function FabricEntry() {
       return;
     }
     try {
-      await axios.post('/api/suppliers', { name: newSupplier });
+      await api.post('/suppliers', { name: newSupplier });
       setSuppliers((prev) => [...prev, newSupplier]);
       setFormData((prev) => ({ ...prev, supplier: newSupplier }));
       setNewSupplier("");
@@ -350,12 +428,15 @@ export default function FabricEntry() {
 // Stiller aynı kalıyor
 const styles = {
   container: {
-    maxWidth: "500px",
-    margin: "2rem auto",
+    width: "100%",
+    maxWidth: "100%",
+    minHeight: "100vh",
+    margin: "0",
     padding: "2rem",
     backgroundColor: "#f8f9fa",
-    borderRadius: "12px",
-    boxShadow: "0 4px 12px rgba(0, 0, 0, 0.1)",
+    borderRadius: "0",
+    boxShadow: "none",
+    boxSizing: "border-box",
     fontFamily: "'Segoe UI', Tahoma, Geneva, Verdana, sans-serif"
   },
   title: {
@@ -367,7 +448,9 @@ const styles = {
   form: {
     display: "flex",
     flexDirection: "column",
-    gap: "1.2rem"
+    gap: "1.2rem",
+    width: "100%",
+    maxWidth: "100%"
   },
   inputGroup: {
     display: "flex",
@@ -469,3 +552,6 @@ const styles = {
     borderRadius: "6px"
   }
 } as const;
+
+
+

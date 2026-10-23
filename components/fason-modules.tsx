@@ -4,7 +4,7 @@ import { BarChart3, Smartphone, MapPin, Settings, Users, FileText, ArrowRight } 
 
 const modules = [
   {
-    title: "Fason Dashboard",
+    title: "Dış Kaynak Üretim Dashboard",
     description: "İş emirlerini görüntüleyin, süreçleri takip edin ve detaylı raporlar oluşturun",
     icon: BarChart3,
     href: "/fason/dashboard",
@@ -19,7 +19,7 @@ const modules = [
   },
   {
     title: "Atölye Yönetimi",
-    description: "Fason atölyelerini kaydedin, düzenleyin ve performanslarını izleyin",
+    description: "Dış Kaynak Üretim atölyelerini kaydedin, düzenleyin ve performanslarını izleyin",
     icon: MapPin,
     href: "/fason/workshops",
     color: "chart-5",
@@ -33,14 +33,14 @@ const modules = [
   },
   {
     title: "Takipçi Yönetimi",
-    description: "Fason takipçilerini yönetin, görevler atayın ve performans takibi yapın",
+    description: "Dış Kaynak Üretim takipçilerini yönetin, görevler atayın ve performans takibi yapın",
     icon: Users,
     href: "/fason/trackers",
     color: "chart-4",
   },
   {
-    title: "Fason Raporları",
-    description: "Detaylı fason takip raporları, analizler ve performans metrikleri",
+    title: "Dış Kaynak Üretim Raporları",
+    description: "Detaylı dış kaynak üretim takip raporları, analizler ve performans metrikleri",
     icon: FileText,
     href: "/fason/reports",
     color: "chart-3",

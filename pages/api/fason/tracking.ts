@@ -1,43 +1,50 @@
 import { NextApiRequest, NextApiResponse } from 'next';
 import prisma from '@/lib/prisma';
-import jwt from 'jsonwebtoken';
+import { TokenPayload, verifyToken } from '@/lib/auth';
+import { successResponse, errorResponse } from '@/lib/api-response';
+import { withCors } from '@/lib/cors';
+import { OrderStatus, Prisma, ProcessStatus, ProcessType } from '@prisma/client';
 
-const verifyToken = (req: NextApiRequest) => {
-    const token = req.headers.authorization?.replace('Bearer ', '');
-    if (!token) throw new Error('Token bulunamadı');
+const isProcessType = (value: unknown): value is ProcessType =>
+    typeof value === 'string' && Object.values(ProcessType).includes(value as ProcessType);
 
-    return jwt.verify(token, process.env.JWT_SECRET || 'default-secret-key') as any;
-};
+const isProcessStatus = (value: unknown): value is ProcessStatus =>
+    typeof value === 'string' && Object.values(ProcessStatus).includes(value as ProcessStatus);
 
-export default async function handler(req: NextApiRequest, res: NextApiResponse) {
+async function handler(req: NextApiRequest, res: NextApiResponse) {
+
+    const user = verifyToken(req.headers.authorization);
+    if (!user) {
+        return res.status(401).json(errorResponse('Unauthorized', 'UNAUTHORIZED'));
+    }
+
     try {
-        const user = verifyToken(req);
-
         switch (req.method) {
             case 'GET':
                 return handleGet(req, res, user);
             case 'POST':
                 return handlePost(req, res, user);
             case 'PUT':
+            case 'PATCH':
                 return handlePut(req, res, user);
             default:
-                return res.status(405).json({ error: 'Method not allowed' });
+                return res.status(405).json(errorResponse('Method not allowed'));
         }
     } catch (error) {
-        console.error('API Error:', error);
-        return res.status(401).json({ error: 'Unauthorized' });
+        console.error('💥 API Error:', error);
+        return res.status(500).json(errorResponse('Internal server error'));
     }
 }
 
 // Takip kayıtlarını listele (mobil app için)
-async function handleGet(req: NextApiRequest, res: NextApiResponse, user: any) {
+async function handleGet(req: NextApiRequest, res: NextApiResponse, user: TokenPayload) {
     const { workOrderId, userId, processType, status, forDashboard } = req.query;
 
-    const where: any = {};
+    const where: Prisma.FasonTrackingWhereInput = {};
     if (workOrderId) where.workOrderId = parseInt(workOrderId as string);
     if (userId) where.userId = parseInt(userId as string);
-    if (processType) where.processType = processType;
-    if (status) where.status = status;
+    if (isProcessType(processType)) where.processType = processType;
+    if (isProcessStatus(status)) where.status = status;
 
     // Eğer kullanıcı FASON_TRACKER ise sadece kendi kayıtlarını görebilir
     if (user.role === 'FASON_TRACKER') {
@@ -57,7 +64,7 @@ async function handleGet(req: NextApiRequest, res: NextApiResponse, user: any) {
     // Dashboard için: Benzersiz iş emirlerini döndür
     if (forDashboard === 'true') {
         // Her workOrder için en son tracking kaydını al
-        const trackingMap = new Map();
+        const trackingMap = new Map<number, (typeof trackings)[number]>();
         trackings.forEach(tracking => {
             if (!trackingMap.has(tracking.workOrderId)) {
                 trackingMap.set(tracking.workOrderId, tracking);
@@ -65,14 +72,14 @@ async function handleGet(req: NextApiRequest, res: NextApiResponse, user: any) {
         });
 
         const uniqueTrackings = Array.from(trackingMap.values());
-        return res.json(uniqueTrackings);
+        return res.json(successResponse(uniqueTrackings));
     }
 
-    return res.json(trackings);
+    return res.json(successResponse(trackings));
 }
 
 // Yeni takip kaydı oluştur (mobil app'den)
-async function handlePost(req: NextApiRequest, res: NextApiResponse, user: any) {
+async function handlePost(req: NextApiRequest, res: NextApiResponse, user: TokenPayload) {
     const {
         workOrderId,
         workshopId,
@@ -90,7 +97,7 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse, user: any) 
 
     // Validasyon: Gerekli alanları kontrol et
     if (!workOrderId || !processType || !status) {
-        return res.status(400).json({ error: 'workOrderId, processType ve status alanları zorunludur' });
+        return res.status(400).json(errorResponse('workOrderId, processType ve status alanları zorunludur', 'VALIDATION_ERROR'));
     }
 
     // WorkOrder'ın varlığını kontrol et
@@ -99,7 +106,7 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse, user: any) 
     });
 
     if (!workOrder) {
-        return res.status(404).json({ error: 'İş emri bulunamadı' });
+        return res.status(404).json(errorResponse('İş emri bulunamadı', 'NOT_FOUND'));
     }
 
     // Workshop varsa varlığını kontrol et
@@ -108,11 +115,11 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse, user: any) 
             where: { id: parseInt(workshopId) }
         });
         if (!workshop) {
-            return res.status(404).json({ error: 'Atölye bulunamadı' });
+            return res.status(404).json(errorResponse('Atölye bulunamadı', 'NOT_FOUND'));
         }
     }
 
-    const tracking = await prisma.fasonTracking.create({
+const tracking = await prisma.fasonTracking.create({
         data: {
             workOrderId: parseInt(workOrderId),
             workshopId: workshopId ? parseInt(workshopId) : null,
@@ -130,15 +137,24 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse, user: any) 
         }
     });
 
-    // İş emrinin durumunu güncelle
-    if (status === 'TESLIM_EDILDI') {
-        const nextStatus = getNextOrderStatus(processType);
-        if (nextStatus) {
-            await prisma.workOrder.update({
-                where: { id: parseInt(workOrderId) },
-                data: { status: nextStatus }
-            });
-        }
+    // İş emrinin durumunu doğrudan kullanıcının seçtiği status ile güncelle
+    // ProcessStatus'tan OrderStatus'a dönüştür
+    const statusMapping: Record<ProcessStatus, OrderStatus> = {
+        'BEKLIYOR': OrderStatus.BEKLIYOR,
+        'ALINDI': OrderStatus.ALINDI,
+        'ATÖLYEDE': OrderStatus.ATÖLYEDE,
+        'HAZIR': OrderStatus.HAZIR,
+        'TESLIM_EDILDI': OrderStatus.TESLIM_EDILDI,
+        'SORUN_VAR': OrderStatus.SORUN_VAR,
+        'IPTAL_EDILDI': OrderStatus.SORUN_VAR
+    };
+
+    // Geçerli bir status ise workOrder'ı güncelle
+    if (isProcessStatus(status) && statusMapping[status]) {
+        await prisma.workOrder.update({
+            where: { id: parseInt(workOrderId) },
+            data: { status: statusMapping[status] }
+        });
     }
 
     // Durum 'ALINDI' ise müşteri bakiyesinden düş
@@ -156,19 +172,36 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse, user: any) 
 
         if (totalAssigned > 0) {
             // Müşteriyi ada göre bul
-            const customer = await prisma.customer.findFirst({
-                where: { name: workOrder.customerName }
-            });
+            const customerNames = (workOrder.customerName || '')
+                .split(',')
+                .map(name => name.trim())
+                .filter(Boolean);
 
-            if (customer) {
-                await prisma.customer.update({
-                    where: { id: customer.id },
-                    data: {
-                        balance: {
-                            decrement: totalAssigned
+            const customers = customerNames.length > 0
+                ? await prisma.customer.findMany({
+                    where: {
+                        name: {
+                            in: customerNames
                         }
-                    } as any
-                });
+                    }
+                })
+                : [];
+
+            if (customers.length > 0) {
+                const decrementAmount = totalAssigned / customers.length;
+
+                await prisma.$transaction(
+                    customers.map((customer) =>
+                        prisma.customer.update({
+                            where: { id: customer.id },
+                            data: {
+                                balance: {
+                                    decrement: decrementAmount
+                                }
+                            }
+                        })
+                    )
+                );
             }
         }
 
@@ -179,44 +212,72 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse, user: any) 
         });
     }
 
-    return res.status(201).json(tracking);
+    return res.status(201).json(successResponse(tracking));
 }
 
 // Takip kaydı güncelle
-async function handlePut(req: NextApiRequest, res: NextApiResponse, user: any) {
-    const { id, ...updateData } = req.body;
+async function handlePut(req: NextApiRequest, res: NextApiResponse, user: TokenPayload) {
+    const { id, ...updateData } = req.body as Record<string, unknown>;
 
-    // Kullanıcı sadece kendi kayıtlarını güncelleyebilir (FASON_TRACKER ise)
-    const where: any = { id: parseInt(id) };
-    if (user.role === 'FASON_TRACKER') {
-        where.userId = user.id;
+    if (!id) {
+        return res.status(400).json(errorResponse('ID is required', 'VALIDATION_ERROR'));
+    }
+
+    const parsedId = Number(id);
+    if (Number.isNaN(parsedId)) {
+        return res.status(400).json(errorResponse('Invalid ID', 'VALIDATION_ERROR'));
+    }
+
+    const existing = await prisma.fasonTracking.findUnique({
+        where: { id: parsedId },
+        select: { id: true, userId: true }
+    });
+
+    if (!existing) {
+        return res.status(404).json(errorResponse('Kayit bulunamadi', 'NOT_FOUND'));
+    }
+
+    if (user.role === 'FASON_TRACKER' && existing.userId !== user.id) {
+        return res.status(403).json(errorResponse('Bu kaydi guncelleme yetkiniz yok', 'FORBIDDEN'));
     }
 
     const tracking = await prisma.fasonTracking.update({
-        where,
+        where: { id: parsedId },
         data: {
-            ...updateData,
-            startDate: updateData.startDate ? new Date(updateData.startDate) : undefined,
-            endDate: updateData.endDate ? new Date(updateData.endDate) : undefined,
-            pickupDate: updateData.pickupDate ? new Date(updateData.pickupDate) : undefined,
-            deliveryDate: updateData.deliveryDate ? new Date(updateData.deliveryDate) : undefined,
-            latitude: updateData.latitude ? parseFloat(updateData.latitude) : undefined,
-            longitude: updateData.longitude ? parseFloat(updateData.longitude) : undefined,
+            processType: isProcessType(updateData.processType) ? updateData.processType : undefined,
+            status: isProcessStatus(updateData.status) ? updateData.status : undefined,
+            notes: typeof updateData.notes === 'string' ? updateData.notes : undefined,
+            problemNotes: typeof updateData.problemNotes === 'string' ? updateData.problemNotes : undefined,
+            startDate: updateData.startDate ? new Date(String(updateData.startDate)) : undefined,
+            endDate: updateData.endDate ? new Date(String(updateData.endDate)) : undefined,
+            pickupDate: updateData.pickupDate ? new Date(String(updateData.pickupDate)) : undefined,
+            deliveryDate: updateData.deliveryDate ? new Date(String(updateData.deliveryDate)) : undefined,
+            latitude: updateData.latitude ? parseFloat(String(updateData.latitude)) : undefined,
+            longitude: updateData.longitude ? parseFloat(String(updateData.longitude)) : undefined,
             updatedAt: new Date()
         }
     });
 
-    return res.json(tracking);
+    return res.json(successResponse(tracking));
 }
 
 // Süreç durumuna göre iş emrinin bir sonraki durumunu belirle
-function getNextOrderStatus(processType: string): any {
-    const statusMap: { [key: string]: any } = {
-        'KESIM': 'DIKIM',
-        'DIKIM': 'BASKI_NAKIS',
-        'BASKI_NAKIS': 'UTU',
-        'UTU': 'TESLIM_EDILDI'
+function getNextOrderStatus(processType: string): OrderStatus | null {
+    const statusMap: Record<ProcessType, OrderStatus> = {
+        KESIM: OrderStatus.ALINDI,
+        DIKIM: OrderStatus['ATÖLYEDE'],
+        BASKI_NAKIS: OrderStatus.HAZIR,
+        UTU: OrderStatus.TESLIM_EDILDI,
+        BASKI: OrderStatus.HAZIR,
+        NAKIS: OrderStatus.HAZIR,
+        ILIK_DUGME: OrderStatus.HAZIR,
+        OZEL: OrderStatus['ATÖLYEDE']
     };
 
-    return statusMap[processType] || null;
+    return isProcessType(processType) ? statusMap[processType] : null;
 }
+
+export default withCors(handler);
+
+
+

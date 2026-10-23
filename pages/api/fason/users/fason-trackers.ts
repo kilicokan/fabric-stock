@@ -1,29 +1,31 @@
 import { NextApiRequest, NextApiResponse } from 'next';
-import { PrismaClient } from '@prisma/client';
+import prisma from "@/lib/prisma";
 import jwt from 'jsonwebtoken';
+import { successResponse, errorResponse } from '@/lib/api-response';
+import { getJwtSecret } from '@/lib/runtime-config';
 
-const prisma = new PrismaClient();
 
 // JWT token doğrulama middleware
 const verifyToken = (req: NextApiRequest) => {
   const token = req.headers.authorization?.replace('Bearer ', '');
   if (!token) throw new Error('Token bulunamadı');
 
-  return jwt.verify(token, process.env.JWT_SECRET || 'default-secret-key');
+  return jwt.verify(token, getJwtSecret());
 };
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   try {
-    const user = verifyToken(req);
+    verifyToken(req);
 
     if (req.method !== 'GET') {
       return res.status(405).json({ error: 'Method not allowed' });
     }
 
-    // FASON_TRACKER rolüne sahip kullanıcıları getir
+    // List active system users who are allowed to use the mobile app.
     const fasonTrackers = await prisma.user.findMany({
       where: {
-        role: 'FASON_TRACKER'
+        isActive: true,
+        mobileAccess: true,
       },
       select: {
         id: true,
@@ -36,9 +38,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       }
     });
 
-    return res.json({ fasonTrackers });
-  } catch (error) {
+    return res.json(successResponse(fasonTrackers));
+    } catch (error) {
     console.error('API Error:', error);
-    return res.status(401).json({ error: 'Unauthorized' });
+    return res.status(401).json(errorResponse('Unauthorized', 'UNAUTHORIZED'));
   }
 }

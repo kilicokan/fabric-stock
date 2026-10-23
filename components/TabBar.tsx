@@ -1,7 +1,9 @@
+'use client';
+
 import React from 'react';
 import { useTabs, Tab } from './TabContext';
 import { useAuth } from './AuthContext';
-import { X, User, ChevronDown, LogOut, MoreVertical } from 'lucide-react';
+import { X, User, ChevronDown, LogOut } from 'lucide-react';
 
 interface TabBarProps {
   onLogout: () => void;
@@ -49,24 +51,25 @@ const TabBar: React.FC<TabBarProps> = ({ onLogout }) => {
   }, []);
 
   return (
-    <div style={styles.tabBar}>
+    <div className="flex items-center bg-white dark:bg-secondary-900 border-b border-secondary-200 dark:border-secondary-700 px-4 h-12 sticky top-0 z-50">
       {/* Tabs */}
-      <div style={styles.tabsContainer}>
+      <div className="flex flex-1 overflow-x-auto scrollbar-hide gap-0.5">
         {tabs.map((tab) => (
           <div
             key={tab.id}
-            style={{
-              ...styles.tab,
-              ...(activeTab === tab.id ? styles.activeTab : {}),
-            }}
             onClick={() => handleTabClick(tab.id)}
             onContextMenu={(e) => handleContextMenu(e, tab.id)}
+            className={`flex items-center px-4 py-2 min-w-max max-w-xs rounded-t-lg cursor-pointer transition-all duration-200 border-b-2 ${
+              activeTab === tab.id
+                ? 'bg-white dark:bg-secondary-800 text-primary-700 dark:text-primary-300 border-b-primary-500'
+                : 'bg-secondary-50 dark:bg-secondary-800 text-secondary-600 dark:text-secondary-400 border-b-secondary-200 dark:border-b-secondary-700 hover:bg-secondary-100 dark:hover:bg-secondary-700'
+            }`}
           >
-            <span style={styles.tabTitle}>{tab.title}</span>
+            <span className="flex-1 truncate text-sm font-medium">{tab.title}</span>
             {tab.closable && (
               <button
-                style={styles.closeButton}
                 onClick={(e) => handleTabClose(e, tab.id)}
+                className="ml-2 p-1 rounded hover:bg-secondary-200 dark:hover:bg-secondary-600 transition-colors text-secondary-500 dark:text-secondary-400"
                 title="Sekmeyi kapat"
               >
                 <X size={14} />
@@ -77,30 +80,46 @@ const TabBar: React.FC<TabBarProps> = ({ onLogout }) => {
       </div>
 
       {/* User Info */}
-      <div style={styles.userSection}>
-        <div
-          style={styles.userInfo}
+      <div className="relative ml-4">
+        <button
           onClick={(e) => {
             e.stopPropagation();
             setUserMenuOpen(!userMenuOpen);
           }}
+          className="flex items-center gap-2 px-3 py-1.5 bg-secondary-50 dark:bg-secondary-800 border border-secondary-200 dark:border-secondary-700 rounded-lg cursor-pointer transition-all duration-200 hover:bg-secondary-100 dark:hover:bg-secondary-700"
         >
-          <div style={styles.avatar}>
-            <User size={16} />
+          <div className="w-6 h-6 bg-primary-500 rounded-full flex items-center justify-center text-white">
+            <User size={14} />
           </div>
-          <span style={styles.userName}>{user?.name || user?.email}</span>
-          <ChevronDown size={14} style={{...styles.chevron, transform: userMenuOpen ? 'rotate(180deg)' : 'rotate(0deg)'}} />
-        </div>
+          <span className="text-sm font-medium text-secondary-700 dark:text-secondary-300 max-w-xs truncate">
+            {user?.name || user?.email}
+          </span>
+          <ChevronDown
+            size={14}
+            className={`text-secondary-500 dark:text-secondary-400 transition-transform duration-200 ${
+              userMenuOpen ? 'rotate-180' : ''
+            }`}
+          />
+        </button>
 
         {/* User Dropdown */}
         {userMenuOpen && (
-          <div style={styles.userDropdown}>
-            <div style={styles.userDetails}>
-              <p style={styles.userDetailName}>{user?.name || user?.email}</p>
-              <p style={styles.userDetailEmail}>{user?.email}</p>
-              <span style={styles.userRole}>{user?.role}</span>
+          <div className="absolute right-0 top-full mt-1 w-48 bg-white dark:bg-secondary-800 border border-secondary-200 dark:border-secondary-700 rounded-lg shadow-lg z-50">
+            <div className="px-4 py-3 border-b border-secondary-200 dark:border-secondary-700">
+              <p className="text-sm font-semibold text-secondary-900 dark:text-secondary-100">
+                {user?.name || user?.email}
+              </p>
+              <p className="text-xs text-secondary-600 dark:text-secondary-400 mt-1">
+                {user?.email}
+              </p>
+              <span className="inline-block mt-2 px-2 py-1 bg-primary-50 dark:bg-primary-900 text-primary-700 dark:text-primary-300 text-xs font-medium rounded-full">
+                {user?.role}
+              </span>
             </div>
-            <button style={styles.logoutButton} onClick={onLogout}>
+            <button
+              onClick={onLogout}
+              className="w-full flex items-center gap-2 px-4 py-2 text-sm text-error-600 dark:text-error-400 hover:bg-error-50 dark:hover:bg-error-900/20 transition-colors"
+            >
               <LogOut size={14} />
               Çıkış Yap
             </button>
@@ -111,16 +130,22 @@ const TabBar: React.FC<TabBarProps> = ({ onLogout }) => {
       {/* Context Menu */}
       {contextMenu && (
         <div
+          className="fixed bg-white dark:bg-secondary-800 border border-secondary-200 dark:border-secondary-700 rounded-lg shadow-lg z-50 min-w-max"
           style={{
-            ...styles.contextMenu,
-            left: contextMenu.x,
-            top: contextMenu.y,
+            left: `${contextMenu.x}px`,
+            top: `${contextMenu.y}px`,
           }}
         >
-          <button style={styles.contextMenuItem} onClick={handleCloseOthers}>
+          <button
+            onClick={handleCloseOthers}
+            className="block w-full text-left px-4 py-2 text-sm text-secondary-700 dark:text-secondary-300 hover:bg-secondary-100 dark:hover:bg-secondary-700 transition-colors first:rounded-t-lg"
+          >
             Diğer sekmeleri kapat
           </button>
-          <button style={styles.contextMenuItem} onClick={handleCloseAll}>
+          <button
+            onClick={handleCloseAll}
+            className="block w-full text-left px-4 py-2 text-sm text-secondary-700 dark:text-secondary-300 hover:bg-secondary-100 dark:hover:bg-secondary-700 transition-colors border-t border-secondary-200 dark:border-secondary-700 last:rounded-b-lg"
+          >
             Tüm sekmeleri kapat
           </button>
         </div>
@@ -128,189 +153,5 @@ const TabBar: React.FC<TabBarProps> = ({ onLogout }) => {
     </div>
   );
 };
-
-const styles = {
-  tabBar: {
-    display: 'flex',
-    alignItems: 'center',
-    backgroundColor: '#ffffff',
-    borderBottom: '1px solid #e1e5e9',
-    padding: '0 16px',
-    height: '48px',
-    position: 'sticky' as const,
-    top: 0,
-    zIndex: 1000,
-  },
-  tabsContainer: {
-    display: 'flex',
-    flex: 1,
-    overflowX: 'auto',
-    scrollbarWidth: 'none' as const,
-    msOverflowStyle: 'none' as const,
-  },
-  tab: {
-    display: 'flex',
-    alignItems: 'center',
-    padding: '8px 16px',
-    marginRight: '2px',
-    backgroundColor: '#f8f9fa',
-    border: '1px solid #e1e5e9',
-    borderBottom: 'none',
-    borderRadius: '6px 6px 0 0',
-    cursor: 'pointer',
-    minWidth: '120px',
-    maxWidth: '200px',
-    position: 'relative' as const,
-    transition: 'all 0.2s ease',
-  },
-  activeTab: {
-    backgroundColor: '#ffffff',
-    borderBottom: '2px solid #007bff',
-    marginBottom: '-1px',
-  },
-  tabTitle: {
-    flex: 1,
-    fontSize: '14px',
-    fontWeight: '500',
-    color: '#495057',
-    whiteSpace: 'nowrap' as const,
-    overflow: 'hidden',
-    textOverflow: 'ellipsis',
-  },
-  closeButton: {
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    width: '20px',
-    height: '20px',
-    backgroundColor: 'transparent',
-    border: 'none',
-    borderRadius: '3px',
-    cursor: 'pointer',
-    color: '#6c757d',
-    marginLeft: '8px',
-    transition: 'all 0.2s ease',
-  },
-  userSection: {
-    position: 'relative' as const,
-  },
-  userInfo: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: '8px',
-    padding: '6px 12px',
-    backgroundColor: '#f8f9fa',
-    border: '1px solid #e1e5e9',
-    borderRadius: '6px',
-    cursor: 'pointer',
-    transition: 'all 0.2s ease',
-  },
-  avatar: {
-    width: '24px',
-    height: '24px',
-    backgroundColor: '#007bff',
-    borderRadius: '50%',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    color: 'white',
-  },
-  userName: {
-    fontSize: '14px',
-    fontWeight: '500',
-    color: '#495057',
-    maxWidth: '120px',
-    whiteSpace: 'nowrap' as const,
-    overflow: 'hidden',
-    textOverflow: 'ellipsis',
-  },
-  chevron: {
-    color: '#6c757d',
-    transition: 'transform 0.2s ease',
-  },
-  userDropdown: {
-    position: 'absolute' as const,
-    right: 0,
-    top: '100%',
-    marginTop: '4px',
-    width: '200px',
-    backgroundColor: 'white',
-    border: '1px solid #e1e5e9',
-    borderRadius: '6px',
-    boxShadow: '0 4px 12px rgba(0, 0, 0, 0.15)',
-    padding: '8px 0',
-    zIndex: 1001,
-  },
-  userDetails: {
-    padding: '12px 16px',
-    borderBottom: '1px solid #e9ecef',
-  },
-  userDetailName: {
-    fontSize: '14px',
-    fontWeight: '600',
-    color: '#495057',
-    margin: '0 0 4px 0',
-  },
-  userDetailEmail: {
-    fontSize: '12px',
-    color: '#6c757d',
-    margin: '0 0 8px 0',
-  },
-  userRole: {
-    display: 'inline-block',
-    backgroundColor: '#e3f2fd',
-    color: '#1976d2',
-    fontSize: '11px',
-    padding: '2px 6px',
-    borderRadius: '10px',
-    fontWeight: '500',
-  },
-  logoutButton: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: '8px',
-    width: '100%',
-    padding: '8px 16px',
-    backgroundColor: 'transparent',
-    border: 'none',
-    color: '#dc3545',
-    cursor: 'pointer',
-    fontSize: '14px',
-    transition: 'background-color 0.2s ease',
-  },
-  contextMenu: {
-    position: 'fixed' as const,
-    backgroundColor: 'white',
-    border: '1px solid #e1e5e9',
-    borderRadius: '6px',
-    boxShadow: '0 4px 12px rgba(0, 0, 0, 0.15)',
-    padding: '4px 0',
-    zIndex: 1002,
-    minWidth: '160px',
-  },
-  contextMenuItem: {
-    display: 'block',
-    width: '100%',
-    padding: '8px 16px',
-    backgroundColor: 'transparent',
-    border: 'none',
-    textAlign: 'left' as const,
-    cursor: 'pointer',
-    fontSize: '14px',
-    color: '#495057',
-    transition: 'background-color 0.2s ease',
-  },
-} as const;
-
-// Add CSS for scrollbar hiding
-if (typeof document !== 'undefined') {
-  const style = document.createElement('style');
-  style.textContent = `
-    .tabs-container::-webkit-scrollbar {
-      display: none;
-    }
-  `;
-  document.head.appendChild(style);
-}
 
 export default TabBar;

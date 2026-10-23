@@ -1,52 +1,40 @@
 import React from 'react';
-import { TabProvider, useTabs } from './TabContext';
+import { Tab, TabProvider } from './TabContext';
 import TabBar from './TabBar';
 import TabContent from './TabContent';
 import Sidebar from './Layout/Sidebar';
 import { useAuth } from './AuthContext';
+import ErpAssistant from './ErpAssistant';
 
 interface TabbedLayoutProps {
-  children?: React.ReactNode;
+  initialTab?: Omit<Tab, 'id'>;
 }
 
-const TabbedLayoutInner: React.FC<TabbedLayoutProps> = ({ children }) => {
-  const { user, logout } = useAuth();
-  const { addTab } = useTabs();
+const TabbedLayoutInner: React.FC = () => {
+  const { logout } = useAuth();
 
   const handleLogout = () => {
     logout();
   };
 
   return (
-    <div style={styles.container}>
+    <div className="flex h-screen overflow-hidden bg-white dark:bg-secondary-950">
       <Sidebar />
-      <div style={styles.mainArea}>
+      <div className="flex flex-col flex-1 min-h-0">
         <TabBar onLogout={handleLogout} />
         <TabContent />
       </div>
+      <ErpAssistant />
     </div>
   );
 };
 
-const TabbedLayout: React.FC<TabbedLayoutProps> = ({ children }) => {
+const TabbedLayout: React.FC<TabbedLayoutProps> = ({ initialTab }) => {
   return (
-    <TabProvider>
-      <TabbedLayoutInner>{children}</TabbedLayoutInner>
+    <TabProvider initialTab={initialTab}>
+      <TabbedLayoutInner />
     </TabProvider>
   );
-};
-
-const styles = {
-  container: {
-    display: 'flex',
-    height: '100vh',
-    overflow: 'hidden',
-  },
-  mainArea: {
-    flex: 1,
-    display: 'flex',
-    flexDirection: 'column' as const,
-  },
 };
 
 export default TabbedLayout;

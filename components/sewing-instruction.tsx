@@ -1,425 +1,391 @@
 "use client"
 
-import React, { useState, useRef } from "react"
-import { Stage, Layer, Line, Text, Image as KonvaImage } from "react-konva"
-import Konva from "konva"
+import React, { useState } from "react"
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
-import { Plus, Minus } from "lucide-react"
+import { Plus, Minus, Share2, Printer, Mail, MessageCircle } from "lucide-react"
 
-interface Annotation {
-  id: string
-  x: number
-  y: number
+export interface ChecklistItem {
   text: string
-  linePoints: number[]
+  checkedBy?: string
+  checkedAt?: string
 }
 
-interface ImageData {
-  front: string | null
-  back: string | null
+export interface SewingNotesData {
+  modelInfo: {
+    modelNo: string
+    modelName: string
+    fabricContent: string
+    washingInstruction: string
+    weightMeter: string
+    threadNote: string
+    productImage?: string
+    productCode?: string
+    productName?: string
+  }
+  checklist: ChecklistItem[]
+  sizeChart: { size: string; chest: string; waist: string; hip: string; length: string }[]
+  generalNotes: string
 }
 
-export default function SewingInstruction() {
-  const [modelInfo, setModelInfo] = useState({
+export const defaultSewingNotes = (): SewingNotesData => ({
+  modelInfo: {
     modelNo: "",
     modelName: "",
     fabricContent: "",
     washingInstruction: "",
     weightMeter: "",
     threadNote: "",
-  })
+    productImage: "",
+    productCode: "",
+    productName: "",
+  },
+  checklist: [
+    { text: "YAKA BİYESİNİN ESNEMEMESİ" },
+    { text: "ADIM AYARLARI AÇIK OLMAYACAK" },
+    { text: "YIKAMA TALİMATI" },
+    { text: "İPLİK TEMİZLEME" },
+    { text: "SAĞ SOL KOL EŞİTLİĞİ" },
+  ],
+  sizeChart: [
+    { size: "S", chest: "", waist: "", hip: "", length: "" },
+    { size: "M", chest: "", waist: "", hip: "", length: "" },
+    { size: "L", chest: "", waist: "", hip: "", length: "" },
+    { size: "XL", chest: "", waist: "", hip: "", length: "" },
+  ],
+  generalNotes: "",
+})
 
-  const [trackingData, setTrackingData] = useState([
-    { process: "FASON", action: "TESLİM EDEN", name: "", quantity: "" },
-    { process: "FASON", action: "TESLİM ALAN", name: "", quantity: "" },
-    { process: "ÜTÜ", action: "TESLİM EDEN", name: "", quantity: "" },
-    { process: "ÜTÜ", action: "TESLİM ALAN", name: "", quantity: "" },
-  ])
-
-  const [checklist, setChecklist] = useState<string[]>([
-    "YAKA BİYESİNİN ESNEMEMESİ",
-    "ADIM AYARLARI ACIK OLMAYACAK",
-    "YIKAMA TALİMATI",
-    "İPLİK TEMİZLEME",
-    "SAĞ SOL KOL EŞİTLİĞİ",
-  ])
-
-  const [images, setImages] = useState<ImageData>({ front: null, back: null })
-  const [annotations, setAnnotations] = useState<{ front: Annotation[]; back: Annotation[] }>({
-    front: [],
-    back: [],
-  })
-  const [currentView, setCurrentView] = useState<"front" | "back">("front")
-  const [isDrawing, setIsDrawing] = useState(false)
-  const [newAnnotation, setNewAnnotation] = useState<Partial<Annotation> | null>(null)
-
-  const stageRef = useRef<Konva.Stage>(null)
-  const imageRefs = useRef<{ front: Konva.Image | null; back: Konva.Image | null }>({ front: null, back: null })
-
-  const handleImageUpload = (view: "front" | "back", event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0]
-    if (file) {
-      const reader = new FileReader()
-      reader.onload = (e) => {
-        setImages(prev => ({ ...prev, [view]: e.target?.result as string }))
-      }
-      reader.readAsDataURL(file)
-    }
-  }
-
-  const handleStageClick = (e: Konva.KonvaEventObject<MouseEvent>) => {
-    if (!isDrawing) return
-
-    const stage = e.target.getStage()
-    if (!stage) return
-
-    const pointer = stage.getPointerPosition()
-    if (!pointer) return
-
-    if (!newAnnotation) {
-      // Start drawing line
-      setNewAnnotation({
-        id: Date.now().toString(),
-        x: pointer.x,
-        y: pointer.y,
-        text: "",
-        linePoints: [pointer.x, pointer.y],
-      })
-    } else {
-      // Finish line and add text
-      const text = prompt("Açıklama girin:")
-      if (text) {
-        const updatedAnnotation: Annotation = {
-          ...newAnnotation,
-          text,
-          linePoints: [...newAnnotation.linePoints!, pointer.x, pointer.y],
-        } as Annotation
-
-        setAnnotations(prev => ({
-          ...prev,
-          [currentView]: [...prev[currentView], updatedAnnotation],
-        }))
-      }
-      setNewAnnotation(null)
-    }
-  }
-
-  const addChecklistItem = () => {
-    setChecklist(prev => [...prev, ""])
-  }
-
-  const updateChecklistItem = (index: number, value: string) => {
-    setChecklist(prev => prev.map((item, i) => i === index ? value : item))
-  }
-
-  const removeChecklistItem = (index: number) => {
-    setChecklist(prev => prev.filter((_, i) => i !== index))
-  }
-
-  return (
-    <div className="max-w-[1400px] mx-auto bg-white shadow-lg">
-      {/* Header with Logo */}
-      <div className="border-b-2 border-gray-300 p-6 bg-gradient-to-r from-blue-50 to-white">
-        <div className="flex items-center gap-4">
-          <div className="w-48 h-16 bg-gray-200 flex items-center justify-center rounded">
-            <span className="text-2xl font-bold text-blue-600">TURKUVAZ</span>
-          </div>
-          <div className="text-sm text-gray-600">giyim</div>
-        </div>
-      </div>
-
-      <div className="grid grid-cols-12 gap-0 border-collapse">
-        {/* Left Section - Model Info */}
-        <div className="col-span-3 border-r border-gray-300">
-          <div className="p-4 space-y-3">
-            <EditableInfoRow
-              label="MODEL NO"
-              value={modelInfo.modelNo}
-              onChange={(value) => setModelInfo(prev => ({ ...prev, modelNo: value }))}
-            />
-            <EditableInfoRow
-              label="MODEL İSMİ"
-              value={modelInfo.modelName}
-              onChange={(value) => setModelInfo(prev => ({ ...prev, modelName: value }))}
-            />
-            <EditableInfoRow
-              label="KUMAŞ İÇERİĞİ"
-              value={modelInfo.fabricContent}
-              onChange={(value) => setModelInfo(prev => ({ ...prev, fabricContent: value }))}
-            />
-            <EditableInfoRow
-              label="YIKAMA TALİMATI"
-              value={modelInfo.washingInstruction}
-              onChange={(value) => setModelInfo(prev => ({ ...prev, washingInstruction: value }))}
-            />
-            <EditableInfoRow
-              label="GRAMAJ & METRE"
-              value={modelInfo.weightMeter}
-              onChange={(value) => setModelInfo(prev => ({ ...prev, weightMeter: value }))}
-            />
-            <div className="pt-2">
-              <Textarea
-                placeholder="İplik notu..."
-                value={modelInfo.threadNote}
-                onChange={(e) => setModelInfo(prev => ({ ...prev, threadNote: e.target.value }))}
-                className="text-sm font-semibold text-center border-t border-gray-200 resize-none"
-                rows={2}
-              />
-            </div>
-          </div>
-        </div>
-
-        {/* Middle Section - Tracking Tables */}
-        <div className="col-span-4 border-r border-gray-300">
-          {/* NUMUNE Table */}
-          <div className="border-b border-gray-300">
-            <table className="w-full text-xs">
-              <thead>
-                <tr className="bg-gray-100">
-                  <th colSpan={3} className="border border-gray-300 p-2 font-bold">
-                    NUMUNE
-                  </th>
-                  <th className="border border-gray-300 p-2 font-bold">FASONA TESLİM EDİLEN ADET</th>
-                </tr>
-              </thead>
-              <tbody>
-                {trackingData.map((row, index) => (
-                  <tr key={index}>
-                    <td className="border border-gray-300 p-2 font-semibold">{row.process}</td>
-                    <td className="border border-gray-300 p-2">{row.action}</td>
-                    <td className="border border-gray-300 p-2">
-                      <Input
-                        value={row.name}
-                        onChange={(e) => {
-                          const updated = [...trackingData]
-                          updated[index].name = e.target.value
-                          setTrackingData(updated)
-                        }}
-                        className="text-xs h-6"
-                      />
-                    </td>
-                    <td className="border border-gray-300 p-2">
-                      <Input
-                        value={row.quantity}
-                        onChange={(e) => {
-                          const updated = [...trackingData]
-                          updated[index].quantity = e.target.value
-                          setTrackingData(updated)
-                        }}
-                        className="text-xs h-6"
-                      />
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-
-          {/* Control Checklist */}
-          <div className="p-4">
-            <div className="bg-gray-100 border border-gray-300 p-2 text-center font-bold text-sm mb-2">
-              KONTROL EDİLECEKLER
-            </div>
-            <div className="space-y-1 text-xs">
-              {checklist.map((item, index) => (
-                <div key={index} className="flex items-center gap-2 border border-gray-300 p-1.5">
-                  <div className="w-4 h-4 border border-gray-400 flex-shrink-0 mt-0.5"></div>
-                  <Input
-                    value={item}
-                    onChange={(e) => updateChecklistItem(index, e.target.value)}
-                    className="flex-1 text-xs h-6 border-none p-0"
-                  />
-                  <Button
-                    onClick={() => removeChecklistItem(index)}
-                    size="sm"
-                    variant="ghost"
-                    className="h-4 w-4 p-0"
-                  >
-                    <Minus className="w-3 h-3" />
-                  </Button>
-                </div>
-              ))}
-              <Button onClick={addChecklistItem} size="sm" variant="outline" className="w-full mt-2">
-                <Plus className="w-4 h-4 mr-1" />
-                Ekle
-              </Button>
-            </div>
-          </div>
-        </div>
-
-        {/* Right Section - Product Images with Instructions */}
-        <div className="col-span-5">
-          <div className="p-4">
-            <div className="grid grid-cols-2 gap-4">
-              {/* Front View */}
-              <div className="relative">
-                <div className="bg-gray-100 rounded-lg p-4 h-[500px] flex flex-col">
-                  <div className="mb-2">
-                    <label className="block text-sm font-medium mb-1">Ön Görünüm</label>
-                    <input
-                      type="file"
-                      accept="image/*"
-                      onChange={(e) => handleImageUpload("front", e)}
-                      className="text-xs"
-                    />
-                  </div>
-                  <div className="flex-1 relative">
-                    <Stage
-                      width={200}
-                      height={400}
-                      ref={stageRef}
-                      onClick={handleStageClick}
-                      className="border border-gray-300 rounded"
-                    >
-                      <Layer>
-                        {images.front && (
-                          <KonvaImage
-                            image={new window.Image()}
-                            x={0}
-                            y={0}
-                            width={200}
-                            height={400}
-                            ref={(ref) => {
-                              if (ref && images.front) {
-                                const img = new window.Image()
-                                img.src = images.front
-                                img.onload = () => {
-                                  ref.image(img)
-                                  ref.getLayer()?.batchDraw()
-                                }
-                              }
-                            }}
-                          />
-                        )}
-                        {annotations.front.map((annotation) => (
-                          <React.Fragment key={annotation.id}>
-                            <Line
-                              points={annotation.linePoints}
-                              stroke="red"
-                              strokeWidth={2}
-                            />
-                            <Text
-                              x={annotation.x}
-                              y={annotation.y}
-                              text={annotation.text}
-                              fontSize={10}
-                              fill="black"
-                              backgroundFill="white"
-                              padding={2}
-                            />
-                          </React.Fragment>
-                        ))}
-                      </Layer>
-                    </Stage>
-                  </div>
-                  <Button
-                    onClick={() => setCurrentView("front")}
-                    variant={currentView === "front" ? "default" : "outline"}
-                    size="sm"
-                    className="mt-2"
-                  >
-                    Çizim Modu
-                  </Button>
-                </div>
-              </div>
-
-              {/* Back View */}
-              <div className="relative">
-                <div className="bg-gray-100 rounded-lg p-4 h-[500px] flex flex-col">
-                  <div className="mb-2">
-                    <label className="block text-sm font-medium mb-1">Arka Görünüm</label>
-                    <input
-                      type="file"
-                      accept="image/*"
-                      onChange={(e) => handleImageUpload("back", e)}
-                      className="text-xs"
-                    />
-                  </div>
-                  <div className="flex-1 relative">
-                    <Stage
-                      width={200}
-                      height={400}
-                      onClick={handleStageClick}
-                      className="border border-gray-300 rounded"
-                    >
-                      <Layer>
-                        {images.back && (
-                          <KonvaImage
-                            image={new window.Image()}
-                            x={0}
-                            y={0}
-                            width={200}
-                            height={400}
-                            ref={(ref) => {
-                              if (ref && images.back) {
-                                const img = new window.Image()
-                                img.src = images.back
-                                img.onload = () => {
-                                  ref.image(img)
-                                  ref.getLayer()?.batchDraw()
-                                }
-                              }
-                            }}
-                          />
-                        )}
-                        {annotations.back.map((annotation) => (
-                          <React.Fragment key={annotation.id}>
-                            <Line
-                              points={annotation.linePoints}
-                              stroke="red"
-                              strokeWidth={2}
-                            />
-                            <Text
-                              x={annotation.x}
-                              y={annotation.y}
-                              text={annotation.text}
-                              fontSize={10}
-                              fill="black"
-                              backgroundFill="white"
-                              padding={2}
-                            />
-                          </React.Fragment>
-                        ))}
-                      </Layer>
-                    </Stage>
-                  </div>
-                  <Button
-                    onClick={() => setCurrentView("back")}
-                    variant={currentView === "back" ? "default" : "outline"}
-                    size="sm"
-                    className="mt-2"
-                  >
-                    Çizim Modu
-                  </Button>
-                </div>
-              </div>
-            </div>
-            <div className="mt-4 text-center">
-              <Button
-                onClick={() => setIsDrawing(!isDrawing)}
-                variant={isDrawing ? "outline" : "default"}
-              >
-                {isDrawing ? "Çizimi Durdur" : "Çizim Başlat"}
-              </Button>
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
-  )
+interface Props {
+  value?: SewingNotesData
+  onChange?: (data: SewingNotesData) => void
+  readOnly?: boolean
+  currentUser?: string
+  productImage?: string
+  productCode?: string
+  productName?: string
 }
 
-function EditableInfoRow({ label, value, onChange }: { label: string; value: string; onChange: (value: string) => void }) {
+export default function SewingInstruction({ value, onChange, readOnly = false, currentUser = "admin", productImage, productCode, productName }: Props) {
+  const [internal, setInternal] = useState<SewingNotesData>(() => {
+    const initial = value ?? defaultSewingNotes();
+    return {
+      ...initial,
+      checklist: Array.isArray(initial.checklist)
+        ? initial.checklist.map((item) => {
+            if (typeof item === "string") return { text: item };
+            if (item && typeof item === "object") {
+              const obj = item as { text?: unknown; checkedBy?: unknown; checkedAt?: unknown };
+              return {
+                text: typeof obj.text === "string" ? obj.text : "",
+                checkedBy: typeof obj.checkedBy === "string" ? obj.checkedBy : undefined,
+                checkedAt: typeof obj.checkedAt === "string" ? obj.checkedAt : undefined,
+              };
+            }
+            return { text: "" };
+          })
+        : [],
+    };
+  });
+  const [showPreview, setShowPreview] = useState(false)
+
+  const rawData = value ?? internal
+  const normalizeData = (d: SewingNotesData): SewingNotesData => ({
+    ...d,
+    checklist: Array.isArray(d.checklist)
+      ? d.checklist.map((item) => {
+          if (typeof item === "string") return { text: item };
+          if (item && typeof item === "object") {
+            const obj = item as { text?: unknown; checkedBy?: unknown; checkedAt?: unknown };
+            return {
+              text: typeof obj.text === "string" ? obj.text : "",
+              checkedBy: typeof obj.checkedBy === "string" ? obj.checkedBy : undefined,
+              checkedAt: typeof obj.checkedAt === "string" ? obj.checkedAt : undefined,
+            };
+          }
+          return { text: "" };
+        })
+      : [],
+  });
+  const data = value ? normalizeData(rawData) : rawData
+  const update = (next: SewingNotesData) => {
+    if (!value) setInternal(next)
+    onChange?.(next)
+  }
+
+  const modelImage = productImage || data.modelInfo.productImage
+  const modelCode = productCode || data.modelInfo.productCode || data.modelInfo.modelNo
+  const modelName = productName || data.modelInfo.productName || data.modelInfo.modelName
+
+  const setModelInfo = (field: keyof SewingNotesData["modelInfo"], val: string) =>
+    update({ ...data, modelInfo: { ...data.modelInfo, [field]: val } })
+
+  const toggleCheckItem = (i: number) => {
+    const c = [...data.checklist]
+    const item = c[i]
+    if (item.checkedBy) {
+      c[i] = { ...item, checkedBy: undefined, checkedAt: undefined }
+    } else {
+      c[i] = { ...item, checkedBy: currentUser, checkedAt: new Date().toLocaleString("tr-TR") }
+    }
+    update({ ...data, checklist: c })
+  }
+
+  const updateChecklist = (i: number, val: string) => {
+    const c = [...data.checklist]
+    c[i] = { ...c[i], text: val }
+    update({ ...data, checklist: c })
+  }
+  const addChecklist = () => update({ ...data, checklist: [...data.checklist, { text: "" }] })
+  const removeChecklist = (i: number) =>
+    update({ ...data, checklist: data.checklist.filter((_, idx) => idx !== i) })
+
+  const updateSize = (i: number, field: keyof SewingNotesData["sizeChart"][0], val: string) => {
+    const rows = data.sizeChart.map((r, idx) => (idx === i ? { ...r, [field]: val } : r))
+    update({ ...data, sizeChart: rows })
+  }
+  const addSizeRow = () =>
+    update({ ...data, sizeChart: [...data.sizeChart, { size: "", chest: "", waist: "", hip: "", length: "" }] })
+  const removeSizeRow = (i: number) =>
+    update({ ...data, sizeChart: data.sizeChart.filter((_, idx) => idx !== i) })
+
+  const handleShareWhatsApp = () => {
+    const text = `${modelCode} - ${modelName}\n\nDikim Talimatları:\n${data.checklist.map((item, i) => `${item.checkedBy ? "[✓]" : "[ ]"} ${item.text}${item.checkedBy ? ` (${item.checkedBy} - ${item.checkedAt})` : ""}`).join("\n")}\n\n${data.generalNotes}`
+    window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, "_blank")
+  }
+
+  const handleShareEmail = () => {
+    const subject = `Dikim Talimatı - ${modelCode} ${modelName}`
+    const body = `${modelCode} - ${modelName}\n\nDikim Talimatları:\n${data.checklist.map((item, i) => `${item.checkedBy ? "[✓]" : "[ ]"} ${item.text}${item.checkedBy ? ` (${item.checkedBy} - ${item.checkedAt})` : ""}`).join("\n")}\n\nGenel Notlar:\n${data.generalNotes}`
+    window.open(`mailto:?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`, "_blank")
+  }
+
+  const handlePrint = () => {
+    window.print()
+  }
+
   return (
-    <div className="grid grid-cols-5 gap-2 text-xs">
-      <div className="col-span-2 font-semibold text-right pr-2">{label}</div>
-      <div className="col-span-3">
-        <Input
-          value={value}
-          onChange={(e) => onChange(e.target.value)}
-          className="border-b border-gray-300 pb-1 border-l-0 border-r-0 border-t-0 rounded-none h-auto px-0"
+    <div className="space-y-6">
+{/* Paylaşım ve Baskı Araçları */}
+      <div className="flex flex-wrap items-center gap-2">
+        <Button onClick={() => setShowPreview(true)} variant="outline" size="sm" className="gap-1">
+          <Share2 className="h-3 w-3" /> Önizle ve Paylaş
+        </Button>
+        <Button variant="outline" size="sm" className="gap-1" onClick={() => {
+          const text = data.checklist.map((item, i) => `${item.checkedBy ? "[✓]" : "[ ]"} ${item.text}${item.checkedBy ? ` (${item.checkedBy} - ${item.checkedAt})` : ""}`).join("\n");
+          navigator.clipboard.writeText(text);
+        }}>
+          <Share2 className="h-3 w-3" /> Kopyala
+        </Button>
+      </div>
+
+      {/* Önizleme Modalı */}
+      {showPreview && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={() => setShowPreview(false)}>
+          <div className="bg-white rounded-xl shadow-xl max-w-3xl w-full mx-4 max-h-[90vh] overflow-y-auto p-6" onClick={(e) => e.stopPropagation()}>
+            <div className="flex justify-between items-center mb-4">
+              <h2 className="text-lg font-bold text-slate-800">Dikim Talimatı Önizleme</h2>
+              <button onClick={() => setShowPreview(false)} className="text-slate-500 hover:text-slate-800 text-xl">&times;</button>
+            </div>
+
+            {modelImage && (
+              <div className="mb-4">
+                <img src={modelImage} alt={modelName} className="max-h-40 object-contain rounded border border-slate-200" />
+              </div>
+            )}
+            <p className="text-sm font-bold text-slate-700 mb-2">{modelCode} - {modelName}</p>
+
+            <h3 className="text-sm font-semibold text-slate-700 mb-2">Kontrol Edilecekler</h3>
+            <div className="space-y-1 mb-4">
+              {data.checklist.map((item, i) => (
+                <div key={i} className="flex items-center gap-2 text-sm">
+                  <span className={item.checkedBy ? "text-green-600" : "text-slate-400"}>
+                    {item.checkedBy ? "☑" : "☐"}
+                  </span>
+                  <span className={item.checkedBy ? "line-through text-slate-500" : ""}>{item.text}</span>
+                  {item.checkedBy && (
+                    <span className="text-xs text-slate-400">Kontrol edildi ({item.checkedBy}) - {item.checkedAt}</span>
+                  )}
+                </div>
+              ))}
+            </div>
+
+            {data.generalNotes && (
+              <>
+                <h3 className="text-sm font-semibold text-slate-700 mb-2">Genel Notlar</h3>
+                <p className="text-sm text-slate-600 mb-4 whitespace-pre-wrap">{data.generalNotes}</p>
+              </>
+            )}
+
+            <div className="flex flex-wrap gap-2 pt-4 border-t border-slate-200">
+              <Button onClick={handleShareWhatsApp} variant="outline" size="sm">
+                <MessageCircle className="h-3 w-3 mr-1" /> WhatsApp
+              </Button>
+              <Button onClick={handleShareEmail} variant="outline" size="sm">
+                <Mail className="h-3 w-3 mr-1" /> E-posta
+              </Button>
+              <Button onClick={handlePrint} variant="outline" size="sm">
+                <Printer className="h-3 w-3 mr-1" /> Yazdır
+              </Button>
+              <Button variant="outline" size="sm" onClick={() => {
+                const text = data.checklist.map((item, i) => `${item.checkedBy ? "[✓]" : "[ ]"} ${item.text}${item.checkedBy ? ` (${item.checkedBy} - ${item.checkedAt})` : ""}`).join("\n");
+                navigator.clipboard.writeText(text);
+              }}>
+                <Share2 className="h-3 w-3 mr-1" /> Kopyala
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Ürün Görseli */}
+      {modelImage && (
+        <div className="rounded-lg border border-slate-200 p-3 flex items-center gap-4 bg-white">
+          <img src={modelImage} alt={modelName} className="h-20 w-20 object-contain rounded border border-slate-200" />
+          <div>
+            <p className="font-semibold text-sm text-slate-800">{modelCode} - {modelName}</p>
+            <p className="text-xs text-slate-500">Ürün görseli</p>
+          </div>
+        </div>
+      )}
+
+      {/* Model Bilgileri */}
+      <div className="rounded-lg border border-slate-200 p-4">
+        <h3 className="mb-3 text-sm font-semibold text-slate-700">Model Bilgileri</h3>
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-3">
+          {(
+            [
+              ["modelNo", "Model No"],
+              ["modelName", "Model İsmi"],
+              ["fabricContent", "Kumaş İçeriği"],
+              ["washingInstruction", "Yıkama Talimatı"],
+              ["weightMeter", "Gramaj & Metre"],
+            ] as [keyof SewingNotesData["modelInfo"], string][]
+          ).map(([field, label]) => (
+            <div key={field}>
+              <label className="mb-1 block text-xs font-medium text-slate-600">{label}</label>
+              <Input
+                value={data.modelInfo[field]}
+                onChange={(e) => setModelInfo(field, e.target.value)}
+                disabled={readOnly}
+                className="text-sm"
+              />
+            </div>
+          ))}
+          <div>
+            <label className="mb-1 block text-xs font-medium text-slate-600">İplik Notu</label>
+            <Textarea
+              value={data.modelInfo.threadNote}
+              onChange={(e) => setModelInfo("threadNote", e.target.value)}
+              disabled={readOnly}
+              rows={2}
+              className="text-sm"
+            />
+          </div>
+        </div>
+      </div>
+
+      {/* Ölçü Tablosu */}
+      <div className="rounded-lg border border-slate-200 p-4">
+        <div className="mb-3 flex items-center justify-between">
+          <h3 className="text-sm font-semibold text-slate-700">Ölçü Tablosu</h3>
+          {!readOnly && (
+            <Button onClick={addSizeRow} size="sm" variant="outline">
+              <Plus className="mr-1 h-3 w-3" /> Beden Ekle
+            </Button>
+          )}
+        </div>
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="bg-slate-50 text-xs font-semibold text-slate-600">
+                <th className="border border-slate-200 px-3 py-2 text-left">Beden</th>
+                <th className="border border-slate-200 px-3 py-2 text-left">Göğüs (cm)</th>
+                <th className="border border-slate-200 px-3 py-2 text-left">Bel (cm)</th>
+                <th className="border border-slate-200 px-3 py-2 text-left">Kalça (cm)</th>
+                <th className="border border-slate-200 px-3 py-2 text-left">Boy (cm)</th>
+                {!readOnly && <th className="border border-slate-200 px-2 py-2"></th>}
+              </tr>
+            </thead>
+            <tbody>
+              {data.sizeChart.map((row, i) => (
+                <tr key={i} className="hover:bg-slate-50">
+                  {(["size", "chest", "waist", "hip", "length"] as const).map((field) => (
+                    <td key={field} className="border border-slate-200 px-2 py-1">
+                      <Input
+                        value={row[field]}
+                        onChange={(e) => updateSize(i, field, e.target.value)}
+                        disabled={readOnly}
+                        className="h-7 border-none p-0 text-sm focus:ring-0"
+                      />
+                    </td>
+                  ))}
+                  {!readOnly && (
+                    <td className="border border-slate-200 px-2 py-1">
+                      <Button onClick={() => removeSizeRow(i)} size="sm" variant="ghost" className="h-6 w-6 p-0">
+                        <Minus className="h-3 w-3" />
+                      </Button>
+                    </td>
+                  )}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {/* Kontrol Listesi */}
+      <div className="rounded-lg border border-slate-200 p-4">
+        <div className="mb-3 flex items-center justify-between">
+          <h3 className="text-sm font-semibold text-slate-700">Kontrol Edilecekler</h3>
+          {!readOnly && (
+            <Button onClick={addChecklist} size="sm" variant="outline">
+              <Plus className="mr-1 h-3 w-3" /> Ekle
+            </Button>
+          )}
+        </div>
+        <div className="space-y-1">
+          {data.checklist.map((item, i) => (
+            <div key={i} className="flex items-center gap-2 rounded border border-slate-200 px-3 py-1.5">
+              <input
+                type="checkbox"
+                checked={!!item.checkedBy}
+                onChange={() => !readOnly && toggleCheckItem(i)}
+                disabled={readOnly}
+                className="h-4 w-4 rounded border-slate-400 text-blue-600 focus:ring-blue-500"
+              />
+              <Input
+                value={item.text}
+                onChange={(e) => updateChecklist(i, e.target.value)}
+                disabled={readOnly}
+                className="h-6 flex-1 border-none p-0 text-xs focus:ring-0"
+              />
+              {item.checkedBy && (
+                <span className="text-xs text-slate-500 whitespace-nowrap">
+                  Kontrol edildi ({item.checkedBy}) - {item.checkedAt}
+                </span>
+              )}
+              {!readOnly && (
+                <Button onClick={() => removeChecklist(i)} size="sm" variant="ghost" className="h-5 w-5 p-0">
+                  <Minus className="h-3 w-3" />
+                </Button>
+              )}
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Genel Notlar */}
+      <div className="rounded-lg border border-slate-200 p-4">
+        <h3 className="mb-3 text-sm font-semibold text-slate-700">Genel Notlar</h3>
+        <Textarea
+          value={data.generalNotes}
+          onChange={(e) => update({ ...data, generalNotes: e.target.value })}
+          disabled={readOnly}
+          rows={4}
+          placeholder="Atölyeye iletilecek özel notlar..."
+          className="text-sm"
         />
       </div>
     </div>

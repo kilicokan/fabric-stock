@@ -15,12 +15,14 @@ interface AuthGuardProps {
   children: React.ReactNode;
   requireAuth?: boolean;
   requiredAccess?: 'stock' | 'fason' | 'both';
+  requiredRole?: string;
 }
 
 const AuthGuard: React.FC<AuthGuardProps> = ({ 
   children, 
   requireAuth = true, 
-  requiredAccess 
+  requiredAccess,
+  requiredRole,
 }) => {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
@@ -31,15 +33,6 @@ const AuthGuard: React.FC<AuthGuardProps> = ({
     checkAuth();
   }, []);
 
-  const isTokenExpired = (token: string): boolean => {
-    try {
-      const payload = JSON.parse(atob(token.split('.')[1]));
-      return payload.exp < Date.now() / 1000;
-    } catch (e) {
-      return true; // invalid token
-    }
-  };
-
   const checkAuth = async () => {
     if (!requireAuth) {
       setLoading(false);
@@ -49,15 +42,8 @@ const AuthGuard: React.FC<AuthGuardProps> = ({
 
     try {
       const token = localStorage.getItem('token');
-
+      
       if (!token) {
-        redirectToLogin();
-        return;
-      }
-
-      // Check if token is expired
-      if (isTokenExpired(token)) {
-        localStorage.removeItem('token');
         redirectToLogin();
         return;
       }
@@ -76,6 +62,11 @@ const AuthGuard: React.FC<AuthGuardProps> = ({
           router.push('/');
           return;
         }
+      }
+
+      if (requiredRole && userData.role !== requiredRole) {
+        router.push('/');
+        return;
       }
 
       setAuthenticated(true);

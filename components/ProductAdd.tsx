@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import type { CSSProperties } from 'react';
 import axios from 'axios';
 
 interface ProductFormData {
@@ -39,14 +40,21 @@ export default function ProductAdd({ onProductAdded }: { onProductAdded?: () => 
   const [loading, setLoading] = useState<boolean>(false);
   const [imagePreview, setImagePreview] = useState<string>('');
 
+  const getAuthHeaders = (): { Authorization: string } | undefined => {
+    if (typeof window === 'undefined') return undefined;
+    const token = localStorage.getItem('token') || localStorage.getItem('authToken');
+    return token ? { Authorization: `Bearer ${token}` } : undefined;
+  };
+
   // Dropdown verilerini yükle
   useEffect(() => {
     const fetchSettings = async () => {
       try {
         setLoading(true);
-        const materialResponse = await axios.get<DropdownItem[]>('/api/settings/material-types');
-        const groupResponse = await axios.get<DropdownItem[]>('/api/settings/groups');
-        const taxRateResponse = await axios.get<DropdownItem[]>('/api/settings/tax-rates');
+        const headers = getAuthHeaders();
+        const materialResponse = await axios.get<DropdownItem[]>('/api/settings/material-types', { headers });
+        const groupResponse = await axios.get<DropdownItem[]>('/api/settings/groups', { headers });
+        const taxRateResponse = await axios.get<DropdownItem[]>('/api/settings/tax-rates', { headers });
         setMaterialTypes(materialResponse.data || []);
         setGroups(groupResponse.data || []);
         setTaxRates(taxRateResponse.data || []);
@@ -72,7 +80,9 @@ export default function ProductAdd({ onProductAdded }: { onProductAdded?: () => 
       while (!isUnique) {
         const randomNum = Math.floor(1000 + Math.random() * 9000); // 1000-9999 arası rastgele sayı
         newCode = `PRD-${randomNum}`;
-        const response = await axios.get(`/api/products/check-code?code=${newCode}`);
+        const response = await axios.get(`/api/products/check-code?code=${newCode}`, {
+          headers: getAuthHeaders(),
+        });
         if (response.data.isAvailable) {
           isUnique = true;
         }
@@ -130,7 +140,10 @@ export default function ProductAdd({ onProductAdded }: { onProductAdded?: () => 
       };
       console.log('Sending product payload:', payload);
       const response = await axios.post('/api/products', payload, {
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          ...getAuthHeaders(),
+        },
       });
       console.log('Product add response:', response.data);
       alert('Ürün başarıyla eklendi!');
@@ -156,7 +169,11 @@ export default function ProductAdd({ onProductAdded }: { onProductAdded?: () => 
     }
     try {
       setLoading(true);
-      const response = await axios.post('/api/settings/material-types', { name: newMaterial });
+      const response = await axios.post(
+        '/api/settings/material-types',
+        { name: newMaterial },
+        { headers: getAuthHeaders() }
+      );
       const newItem = response.data;
       setMaterialTypes((prev) => [...prev, newItem]);
       setFormData((prev) => ({ ...prev, materialTypeId: newItem.id.toString() }));
@@ -179,7 +196,7 @@ export default function ProductAdd({ onProductAdded }: { onProductAdded?: () => 
     }
     try {
       setLoading(true);
-      const response = await axios.post('/api/settings/groups', { name: newGroup });
+      const response = await axios.post('/api/settings/groups', { name: newGroup }, { headers: getAuthHeaders() });
       const newItem = response.data;
       setGroups((prev) => [...prev, newItem]);
       setFormData((prev) => ({ ...prev, groupId: newItem.id.toString() }));
@@ -202,7 +219,7 @@ export default function ProductAdd({ onProductAdded }: { onProductAdded?: () => 
     }
     try {
       setLoading(true);
-      const response = await axios.post('/api/settings/tax-rates', { name: newTaxRate });
+      const response = await axios.post('/api/settings/tax-rates', { name: newTaxRate }, { headers: getAuthHeaders() });
       const newItem = response.data;
       setTaxRates((prev) => [...prev, newItem]);
       setFormData((prev) => ({ ...prev, taxRateId: newItem.id.toString() }));
@@ -424,14 +441,17 @@ export default function ProductAdd({ onProductAdded }: { onProductAdded?: () => 
   );
 }
 
-const styles = {
+const styles: Record<string, CSSProperties> = {
   container: {
-    maxWidth: '500px',
-    margin: '2rem auto',
+    width: '100%',
+    maxWidth: '100%',
+    minHeight: '100vh',
+    margin: '0',
     padding: '2rem',
     backgroundColor: '#f8f9fa',
-    borderRadius: '12px',
-    boxShadow: '0 4px 12px rgba(0, 0, 0, 0.1)',
+    borderRadius: '0',
+    boxShadow: 'none',
+    boxSizing: 'border-box',
     fontFamily: "'Segoe UI', Tahoma, Geneva, Verdana, sans-serif",
   },
   title: {
@@ -444,6 +464,8 @@ const styles = {
     display: 'flex',
     flexDirection: 'column' as const,
     gap: '1.2rem',
+    width: '100%',
+    maxWidth: '100%',
   },
   inputGroup: {
     display: 'flex',

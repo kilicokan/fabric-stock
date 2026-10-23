@@ -1,22 +1,402 @@
-@import "tailwindcss";
+@import './cutting-workshop-dashboard.css';
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@import url('https://rsms.me/inter/inter.css');
 
 :root {
-  --color-primary: #3b82f6; /* Modern blue */
-  --color-primary-dark: #2563eb;
-  --color-secondary: #f3f4f6; /* Light gray */
-  --color-background: #ffffff;
-  --color-text: #111827; /* Dark gray */
-  --color-accent: #10b981; /* Green for accents */
-  --font-family: 'Inter', sans-serif;
+  color-scheme: light;
+  --fs-color-bg: #f8fafc;
+  --fs-color-surface: #ffffff;
+  --fs-color-surface-soft: #f3f6fb;
+  --fs-color-border: #e5e7eb;
+  --fs-color-border-strong: #cfd8e3;
+  --fs-color-text: #111827;
+  --fs-color-text-muted: #6b7280;
+  --fs-color-primary: #2563eb;
+  --fs-color-primary-strong: #1d4ed8;
+  --fs-color-primary-soft: #dbeafe;
+  --fs-color-warning: #d97706;
+  --fs-color-danger: #dc2626;
+  --fs-color-success: #059669;
+}
+
+html.dark {
+  color-scheme: dark;
+  --fs-color-bg: #0b1220;
+  --fs-color-surface: #0f172a;
+  --fs-color-surface-soft: #1e293b;
+  --fs-color-border: #334155;
+  --fs-color-border-strong: #475569;
+  --fs-color-text: #e2e8f0;
+  --fs-color-text-muted: #94a3b8;
+  --fs-color-primary: #60a5fa;
+  --fs-color-primary-strong: #3b82f6;
+  --fs-color-primary-soft: rgba(59, 130, 246, 0.2);
+  --fs-color-warning: #f59e0b;
+  --fs-color-danger: #f87171;
+  --fs-color-success: #34d399;
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
 }
 
 body {
-  margin: 0;
-  font-family: var(--font-family);
-  background-color: var(--color-background);
-  color: var(--color-text);
+  background-color: #fff;
+  color: #111827;
+  font-family: Inter, system-ui, sans-serif;
+  line-height: 1.5;
+}
+
+html.dark body {
+  background-color: #0f172a;
+  color: #f1f5f9;
 }
 
 a {
   cursor: pointer;
+}
+
+*:focus-visible {
+  outline: 2px solid #3b82f6;
+  outline-offset: 2px;
+}
+
+html.dark *:focus-visible {
+  outline-color: #60a5fa;
+}
+
+::selection {
+  background-color: #3b82f6;
+  color: #fff;
+}
+
+.scrollbar-hide {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;
+}
+
+.fs-entity-shell {
+  width: 100%;
+  max-width: 100%;
+  min-height: 100vh;
+  margin: 0;
+  padding: 20px;
+  border-radius: 0;
+  border: none;
+  background: linear-gradient(180deg, var(--fs-color-surface) 0%, var(--fs-color-bg) 100%);
+  box-shadow: none;
+  box-sizing: border-box;
+}
+
+.fs-entity-title {
+  margin: 0 0 14px;
+  font-size: 1.6rem;
+  font-weight: 700;
+  color: var(--fs-color-text);
+}
+
+.fs-entity-subtitle {
+  margin: 22px 0 12px;
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: var(--fs-color-text);
+}
+
+.fs-message {
+  border-radius: 10px;
+  border: 1px solid;
+  padding: 10px 12px;
+  font-size: 0.9rem;
+  margin-bottom: 14px;
+}
+
+.fs-message-error {
+  background: #fef2f2;
+  border-color: #fecaca;
+  color: #b91c1c;
+}
+
+.fs-message-success {
+  background: #ecfdf3;
+  border-color: #a7f3d0;
+  color: #047857;
+}
+
+.fs-entity-form {
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+  border-radius: 14px;
+  border: 1px solid var(--fs-color-border);
+  background: var(--fs-color-surface);
+}
+
+.fs-field-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.fs-field-label {
+  font-size: 0.82rem;
+  color: var(--fs-color-text-muted);
+  font-weight: 600;
+}
+
+.fs-field-input {
+  min-height: 40px;
+  border: 1px solid var(--fs-color-border-strong);
+  border-radius: 10px;
+  background: var(--fs-color-surface-soft);
+  color: var(--fs-color-text);
+  padding: 8px 10px;
+  font-size: 0.95rem;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease, background-color 0.2s ease;
+}
+
+.fs-field-input:focus {
+  outline: none;
+  border-color: var(--fs-color-primary);
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.15);
+  background: var(--fs-color-surface);
+}
+
+.fs-form-actions {
+  display: flex;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 6px;
+}
+
+.fs-toolbar {
+  margin: 14px 0 10px;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.fs-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 38px;
+  border-radius: 10px;
+  border: 1px solid var(--fs-color-border-strong);
+  background: var(--fs-color-surface);
+  color: var(--fs-color-text);
+  font-size: 0.9rem;
+  font-weight: 600;
+  padding: 0 14px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.fs-btn:disabled {
+  opacity: 0.7;
+  cursor: not-allowed;
+}
+
+.fs-btn-primary {
+  border-color: var(--fs-color-primary-strong);
+  background: linear-gradient(180deg, #3b82f6 0%, var(--fs-color-primary) 100%);
+  color: #fff;
+}
+
+.fs-btn-primary:hover:not(:disabled) {
+  filter: brightness(0.96);
+}
+
+.fs-btn-secondary {
+  border-color: #93c5fd;
+  background: #eff6ff;
+  color: var(--fs-color-primary-strong);
+}
+
+.fs-btn-secondary:hover:not(:disabled) {
+  background: var(--fs-color-primary-soft);
+}
+
+.fs-btn-warning {
+  border-color: #fcd34d;
+  background: #fef3c7;
+  color: #92400e;
+}
+
+.fs-btn-warning:hover:not(:disabled) {
+  background: #fde68a;
+}
+
+.fs-btn-danger {
+  border-color: #fecaca;
+  background: #fee2e2;
+  color: #b91c1c;
+}
+
+.fs-btn-danger:hover:not(:disabled) {
+  background: #fecaca;
+}
+
+.fs-export-wrap .export-buttons {
+  display: inline-flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.fs-export-wrap .export-buttons .btn {
+  min-height: 38px;
+  border-radius: 10px;
+  border: 1px solid var(--fs-color-border-strong);
+  background: var(--fs-color-surface);
+  color: var(--fs-color-text);
+  font-size: 0.86rem;
+  font-weight: 600;
+  padding: 0 14px;
+}
+
+.fs-export-wrap .export-buttons .btn:hover:not(:disabled) {
+  border-color: #93c5fd;
+  background: #eff6ff;
+}
+
+.fs-entity-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.fs-view-toggle {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 12px;
+  flex-wrap: wrap;
+}
+
+.fs-entity-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  padding: 12px;
+  border-radius: 12px;
+  border: 1px solid var(--fs-color-border);
+  background: var(--fs-color-surface);
+}
+
+.fs-entity-main {
+  min-width: 0;
+}
+
+.fs-entity-name {
+  margin: 0;
+  font-size: 0.98rem;
+  font-weight: 700;
+  color: var(--fs-color-text);
+}
+
+.fs-entity-meta {
+  margin-top: 2px;
+  font-size: 0.88rem;
+  color: var(--fs-color-text-muted);
+  word-break: break-word;
+}
+
+.fs-entity-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.fs-supplier-card-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 12px;
+}
+
+.fs-supplier-card {
+  border: 1px solid var(--fs-color-border);
+  border-radius: 12px;
+  background: var(--fs-color-surface);
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.fs-supplier-card-main {
+  min-width: 0;
+}
+
+.fs-supplier-card-meta {
+  margin-top: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.fs-supplier-card-meta-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 0.88rem;
+  color: var(--fs-color-text-muted);
+}
+
+.fs-supplier-card-meta-row strong {
+  color: var(--fs-color-text);
+  font-weight: 600;
+  text-align: right;
+  word-break: break-word;
+}
+
+.fs-supplier-card-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.fs-loading-text {
+  text-align: center;
+  border: 1px dashed var(--fs-color-border-strong);
+  border-radius: 12px;
+  background: var(--fs-color-surface);
+  color: var(--fs-color-text-muted);
+  padding: 18px;
+}
+
+@media (max-width: 768px) {
+  .fs-entity-shell {
+    padding: 14px;
+  }
+
+  .fs-entity-item {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .fs-supplier-card {
+    padding: 12px;
+  }
+
+  .fs-supplier-card-meta-row {
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  .fs-entity-actions,
+  .fs-supplier-card-actions,
+  .fs-form-actions,
+  .fs-toolbar {
+    width: 100%;
+  }
 }

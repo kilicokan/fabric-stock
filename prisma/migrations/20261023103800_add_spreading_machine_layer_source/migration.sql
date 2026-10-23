@@ -1,0 +1,2 @@
+ALTER TABLE "SpreadingMachine"
+ADD COLUMN "layerSource" TEXT NOT NULL DEFAULT 'MANUAL';

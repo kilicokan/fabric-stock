@@ -4,6 +4,8 @@ import { useState, useEffect, CSSProperties } from "react";
 import axios from "axios";
 import ExportButtons from "../../components/ExportButtons";
 import * as XLSX from "xlsx";
+import { useRouter } from "next/router";
+import { notifySuccess, notifyError } from "../../hooks/useToast";
 
 interface Fabric {
   id: number;
@@ -13,9 +15,24 @@ interface Fabric {
   width?: number;
   length?: number;
   depot?: string;
+  warehouseId?: number | null;
+  warehouse?: {
+    id: number;
+    code: string;
+    name: string;
+  } | null;
   unit?: string;
   stockQuantity: number;
+  defectiveQuantity?: number;
+  averageGrammage?: number | null;
   createdAt: string;
+}
+
+interface WarehouseOption {
+  id: number;
+  code: string;
+  name: string;
+  isActive: boolean;
 }
 
 interface FabricForm {
@@ -25,8 +42,10 @@ interface FabricForm {
   width: string;
   length: string;
   depot: string;
+  warehouseId: string;
   unit: string;
   stockQuantity: string;
+  averageGrammage: string;
 }
 
 interface FabricListProps {
@@ -38,6 +57,7 @@ interface FabricAddProps {
   fabrics: Fabric[];
   setFabrics: React.Dispatch<React.SetStateAction<Fabric[]>>;
   setActiveTab: React.Dispatch<React.SetStateAction<string>>;
+  warehouses: WarehouseOption[];
 }
 
 interface FabricEditProps {
@@ -46,44 +66,135 @@ interface FabricEditProps {
   onCancel: () => void;
 }
 
-// CSV parsing utility
-function parseCSV(csvText: string): any[] {
-  const lines = csvText.split('\n').filter(line => line.trim());
+type ParsedImportRow = Record<string, string | number | boolean | null | undefined>;
+
+const getAuthHeaders = (): { Authorization: string } | undefined => {
+  if (typeof window === "undefined") return undefined;
+  const token = localStorage.getItem("token") || localStorage.getItem("authToken");
+  return token ? { Authorization: `Bearer ${token}` } : undefined;
+};
+
+const normalizeHeaderKey = (value: string): string =>
+  value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/\u0131/g, "i")
+    .replace(/\u0130/g, "i")
+    .replace(/\s+/g, "")
+    .toLowerCase();
+
+const pickRowValue = (
+  row: ParsedImportRow,
+  aliases: string[]
+): string | number | boolean | null | undefined => {
+  const directMatch = aliases.find((alias) => alias in row);
+  if (directMatch) return row[directMatch];
+
+  const normalizedAliasSet = new Set(aliases.map((alias) => normalizeHeaderKey(alias)));
+  for (const [rawKey, rawValue] of Object.entries(row)) {
+    if (normalizedAliasSet.has(normalizeHeaderKey(rawKey))) {
+      return rawValue;
+    }
+  }
+  return undefined;
+};
+
+const normalizeNumericText = (
+  value: string | number | boolean | null | undefined
+): string | null => {
+  if (value === null || value === undefined || value === "") return null;
+  if (typeof value === "number") return String(value);
+  if (typeof value === "boolean") return value ? "1" : "0";
+
+  const raw = String(value).trim();
+  if (!raw) return null;
+
+  const compact = raw.replace(/\s+/g, "");
+  const lastComma = compact.lastIndexOf(",");
+  const lastDot = compact.lastIndexOf(".");
+
+  if (lastComma > -1 && lastDot > -1) {
+    if (lastComma > lastDot) {
+      return compact.replace(/\./g, "").replace(",", ".");
+    }
+    return compact.replace(/,/g, "");
+  }
+  if (lastComma > -1) {
+    return compact.replace(",", ".");
+  }
+  return compact;
+};
+
+const parseCsvWithXlsx = (csvText: string): ParsedImportRow[] => {
+  const lines = csvText
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
   if (lines.length === 0) return [];
 
-  const headers = lines[0].split(',').map(h => h.trim().replace(/"/g, ''));
-  const rows = lines.slice(1).map(line => {
-    const values = line.split(',').map(v => v.trim().replace(/"/g, ''));
-    const obj: any = {};
-    headers.forEach((header, index) => {
-      obj[header] = values[index] || '';
-    });
-    return obj;
-  });
+  const header = lines[0];
+  const commaCount = (header.match(/,/g) || []).length;
+  const semicolonCount = (header.match(/;/g) || []).length;
+  const fs = semicolonCount > commaCount ? ";" : ",";
 
-  return rows;
-}
+  const workbook = XLSX.read(csvText, { type: "string", FS: fs });
+  const sheetName = workbook.SheetNames[0];
+  const worksheet = workbook.Sheets[sheetName];
+  return XLSX.utils.sheet_to_json<ParsedImportRow>(worksheet, { defval: "", raw: false });
+};
 
 // Ana Kumaşlar Bileşeni
 export default function FabricsPage() {
+  const router = useRouter();
   const [activeTab, setActiveTab] = useState("list"); // "list" veya "add"
   const [fabrics, setFabrics] = useState<Fabric[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [warehouses, setWarehouses] = useState<WarehouseOption[]>([]);
+  const [, setLoading] = useState(true);
 
   useEffect(() => {
     fetchFabrics();
+    fetchWarehouses();
   }, []);
+
+  const handleUnauthorized = () => {
+    localStorage.removeItem("token");
+    localStorage.removeItem("authToken");
+    router.replace("/login");
+  };
 
   const fetchFabrics = async () => {
     try {
       setLoading(true);
-      const response = await axios.get('/api/fabrics');
+      const response = await axios.get('/api/fabrics', {
+        headers: getAuthHeaders(),
+      });
       setFabrics(response.data as Fabric[]);
     } catch (error) {
       console.error('Kumaşlar yüklenirken hata:', error);
-      alert('Kumaşlar yüklenirken hata oluştu');
+      if ((error as { response?: { status?: number } })?.response?.status === 401) {
+        handleUnauthorized();
+        return;
+      }
+      notifyError('Kumaşlar yüklenirken hata oluştu');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const fetchWarehouses = async () => {
+    try {
+      const response = await axios.get('/api/warehouses?withSummary=false', {
+        headers: getAuthHeaders(),
+      });
+      const list = Array.isArray(response.data) ? (response.data as WarehouseOption[]) : [];
+      setWarehouses(list.filter((warehouse) => warehouse.isActive));
+    } catch (error) {
+      console.error('Depolar yuklenirken hata:', error);
+      if ((error as { response?: { status?: number } })?.response?.status === 401) {
+        handleUnauthorized();
+        return;
+      }
+      setWarehouses([]);
     }
   };
 
@@ -91,19 +202,35 @@ export default function FabricsPage() {
     <div style={styles.container}>
       <h2 style={styles.mainTitle}>Kumaş Yönetimi</h2>
 
-      {/* Sekmeler */}
-      <div style={styles.tabContainer}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
+        <div style={styles.tabContainer}>
+          <button
+            style={activeTab === "list" ? {...styles.tabButton, ...styles.activeTab} : styles.tabButton}
+            onClick={() => setActiveTab("list")}
+          >
+            Kumaşlar
+          </button>
+          <button
+            style={activeTab === "add" ? {...styles.tabButton, ...styles.activeTab} : styles.tabButton}
+            onClick={() => setActiveTab("add")}
+          >
+            Kumaş Ekle
+          </button>
+        </div>
         <button
-          style={activeTab === "list" ? {...styles.tabButton, ...styles.activeTab} : styles.tabButton}
-          onClick={() => setActiveTab("list")}
+          onClick={() => { window.location.href = '/fabrics/defective-stock'; }}
+          style={{
+            background: '#b91c1c',
+            color: '#fff',
+            border: 'none',
+            borderRadius: 8,
+            padding: '8px 12px',
+            fontSize: 12,
+            fontWeight: 700,
+            cursor: 'pointer',
+          }}
         >
-          Kumaşlar
-        </button>
-        <button
-          style={activeTab === "add" ? {...styles.tabButton, ...styles.activeTab} : styles.tabButton}
-          onClick={() => setActiveTab("add")}
-        >
-          Kumaş Ekle
+          Hatalı Kumaş Stokları
         </button>
       </div>
 
@@ -111,7 +238,12 @@ export default function FabricsPage() {
       <div style={styles.content}>
         {activeTab === "list" ?
           <FabricList fabrics={fabrics} setFabrics={setFabrics} /> :
-          <FabricAdd fabrics={fabrics} setFabrics={setFabrics} setActiveTab={setActiveTab} />
+          <FabricAdd
+            fabrics={fabrics}
+            setFabrics={setFabrics}
+            setActiveTab={setActiveTab}
+            warehouses={warehouses}
+          />
         }
       </div>
     </div>
@@ -132,16 +264,29 @@ function FabricList({ fabrics, setFabrics }: FabricListProps) {
     setEditingFabric(fabric);
   };
 
-  const handleUpdate = (updatedFabric: Fabric) => {
-    setFabrics(fabrics.map((f: Fabric) => f.id === updatedFabric.id ? updatedFabric : f));
-    setEditingFabric(null);
-    alert("Kumaş başarıyla güncellendi!");
+  const handleUpdate = async (updatedFabric: Fabric) => {
+    try {
+      const response = await axios.put('/api/fabrics', updatedFabric, { headers: getAuthHeaders() });
+      const savedFabric = response.data.fabric || response.data;
+      setFabrics(fabrics.map((f: Fabric) => f.id === updatedFabric.id ? savedFabric : f));
+      setEditingFabric(null);
+      notifySuccess("Kumaş başarıyla güncellendi!");
+    } catch (error) {
+      console.error("Kumaş güncellenirken hata:", error);
+      if ((error as { response?: { status?: number } })?.response?.status === 401) {
+        localStorage.removeItem("token");
+        localStorage.removeItem("authToken");
+        window.location.href = "/login";
+        return;
+      }
+      notifyError("Kumaş güncellenemedi.");
+    }
   };
 
   const handleDelete = (id: number) => {
     if (window.confirm("Bu kumaşı silmek istediğinize emin misiniz?")) {
       setFabrics(fabrics.filter((f: Fabric) => f.id !== id));
-      alert("Kumaş başarıyla silindi!");
+      notifySuccess("Kumaş başarıyla silindi!");
     }
   };
 
@@ -153,52 +298,86 @@ function FabricList({ fabrics, setFabrics }: FabricListProps) {
     try {
       const fileExtension = file.name.split('.').pop()?.toLowerCase();
 
-      let parsedData: any[] = [];
+      let parsedData: ParsedImportRow[] = [];
 
       if (fileExtension === 'csv') {
         const text = await file.text();
-        parsedData = parseCSV(text);
+        parsedData = parseCsvWithXlsx(text);
       } else if (fileExtension === 'xlsx' || fileExtension === 'xls') {
         const arrayBuffer = await file.arrayBuffer();
         const workbook = XLSX.read(arrayBuffer, { type: 'array' });
         const sheetName = workbook.SheetNames[0];
         const worksheet = workbook.Sheets[sheetName];
-        parsedData = XLSX.utils.sheet_to_json(worksheet);
+        parsedData = XLSX.utils.sheet_to_json<ParsedImportRow>(worksheet, { defval: "", raw: false });
       } else {
-        alert('Sadece CSV ve Excel dosyaları desteklenir.');
+        notifyError('Sadece CSV ve Excel dosyaları desteklenir.');
         return;
       }
 
       if (parsedData.length === 0) {
-        alert('Dosya boş veya geçersiz format.');
+        notifyError('Dosya boş veya geçersiz format.');
         return;
       }
 
       // Transform data to match API expectations
-      const fabricsToImport = parsedData.map(row => ({
-        code: row['Kod'] || row['code'] || row['Code'],
-        name: row['Ad'] || row['name'] || row['Name'],
-        property: row['Özellik'] || row['property'] || row['Property'],
-        width: row['En'] || row['width'] || row['Width'],
-        length: row['Boy'] || row['length'] || row['Length'],
-        depot: row['Depo'] || row['depot'] || row['Depot'],
-        unit: row['Birim'] || row['unit'] || row['Unit'],
-        stockQuantity: row['Stok Miktarı'] || row['stockQuantity'] || row['StockQuantity']
-      }));
+      const fabricsToImport = parsedData.map(row => {
+        const rowValues = Object.values(row);
+        const codeValue = pickRowValue(row, ['Kod', 'code', 'Code']) ?? rowValues[0];
+        const nameValue = pickRowValue(row, ['Ad', 'Kumas Adi', 'Urun Adi', 'name', 'Name']) ?? rowValues[1];
+        const propertyValue = pickRowValue(row, ['Ozellik', 'property', 'Property']) ?? rowValues[2];
+        const widthValue = pickRowValue(row, ['En', 'width', 'Width']) ?? rowValues[3];
+        const lengthValue = pickRowValue(row, ['Boy', 'length', 'Length']) ?? rowValues[4];
+        const depotValue = pickRowValue(row, ['Depo', 'depot', 'Depot', 'Warehouse', 'Ambar']) ?? rowValues[5];
+        const unitValue = pickRowValue(row, ['Birim', 'unit', 'Unit']) ?? rowValues[6];
+        const stockQuantityValue =
+          pickRowValue(row, ['Stok Miktari', 'stockQuantity', 'StockQuantity', 'Quantity', 'Miktar']) ?? rowValues[7];
 
-      const response = await axios.post('/api/fabrics/import', { fabrics: fabricsToImport });
+        return {
+          code: codeValue,
+          name: nameValue,
+          property: propertyValue,
+          width: normalizeNumericText(widthValue),
+          length: normalizeNumericText(lengthValue),
+          depot: depotValue,
+          unit: unitValue,
+          stockQuantity: normalizeNumericText(stockQuantityValue),
+        };
+      });
+
+      const response = await axios.post('/api/fabrics/import', { fabrics: fabricsToImport }, {
+        headers: getAuthHeaders(),
+      });
 
       if (response.data.success > 0) {
-        alert(response.data.message);
+        notifySuccess(response.data.message);
         // Refresh the fabrics list
         window.location.reload();
       } else {
-        alert(`İçe aktarma başarısız: ${response.data.importErrors.join(', ')}`);
+        const importErrors = Array.isArray(response.data.importErrors) ? response.data.importErrors : [];
+        const duplicateNames = Array.isArray(response.data.duplicateNames) ? response.data.duplicateNames : [];
+        if (importErrors.length > 0) {
+          notifyError(`İçe aktarma başarısız: ${importErrors.join(', ')}`);
+        } else if (duplicateNames.length > 0) {
+          notifyError(`İçe aktarılan satırların adları zaten mevcut: ${duplicateNames.join(', ')}`);
+        } else {
+          notifyError(response.data.message || "İçe aktarma başarısız.");
+        }
       }
 
     } catch (error) {
       console.error('Import error:', error);
-      alert('İçe aktarma sırasında hata oluştu.');
+      if ((error as { response?: { status?: number } })?.response?.status === 401) {
+        localStorage.removeItem("token");
+        localStorage.removeItem("authToken");
+        window.location.href = "/login";
+        return;
+      }
+      const message = axios.isAxiosError(error)
+        ? (error.response?.data?.error ||
+          error.response?.data?.message ||
+          error.message)
+        : 'İçe aktarma sırasında hata oluştu.';
+      notifyError(String(message || 'İçe aktarma sırasında hata oluştu.'));
     } finally {
       setImporting(false);
       // Reset file input
@@ -209,7 +388,10 @@ function FabricList({ fabrics, setFabrics }: FabricListProps) {
   const filteredFabrics = fabrics.filter(fabric => {
     const matchesName = filters.name === '' || fabric.name.toLowerCase().includes(filters.name.toLowerCase());
     const matchesProperty = filters.property === '' || (fabric.property && fabric.property.toLowerCase().includes(filters.property.toLowerCase()));
-    const matchesDepot = filters.depot === '' || (fabric.depot && fabric.depot.toLowerCase().includes(filters.depot.toLowerCase()));
+    const depotSearchPool = [fabric.depot || "", fabric.warehouse?.code || "", fabric.warehouse?.name || ""]
+      .join(" ")
+      .toLowerCase();
+    const matchesDepot = filters.depot === '' || depotSearchPool.includes(filters.depot.toLowerCase());
     return matchesName && matchesProperty && matchesDepot;
   });
 
@@ -219,7 +401,7 @@ function FabricList({ fabrics, setFabrics }: FabricListProps) {
     'Özellik': fabric.property || '',
     'En': fabric.width || '',
     'Boy': fabric.length || '',
-    'Depo': fabric.depot || '',
+    'Depo': fabric.warehouse ? `${fabric.warehouse.code} - ${fabric.warehouse.name}` : fabric.depot || '',
     'Birim': fabric.unit || '',
     'Stok Miktarı': fabric.stockQuantity,
     'Oluşturulma Tarihi': new Date(fabric.createdAt).toLocaleDateString('tr-TR')
@@ -282,55 +464,59 @@ function FabricList({ fabrics, setFabrics }: FabricListProps) {
 
           <div style={styles.tableContainer}>
             <table style={styles.table}>
-              <thead>
-                <tr>
-                  <th style={styles.th}>Kod</th>
-                  <th style={styles.th}>Ad</th>
-                  <th style={styles.th}>Özellik</th>
-                  <th style={styles.th}>En</th>
-                  <th style={styles.th}>Boy</th>
-                  <th style={styles.th}>Depo</th>
-                  <th style={styles.th}>Birim</th>
-                  <th style={styles.th}>Stok Miktarı</th>
-                  <th style={styles.th}>İşlemler</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filteredFabrics.length > 0 ? (
-                  filteredFabrics.map(fabric => (
-                    <tr key={fabric.id}>
-                      <td style={styles.td}>{fabric.code || '-'}</td>
-                      <td style={styles.td}>{fabric.name}</td>
-                      <td style={styles.td}>{fabric.property || '-'}</td>
-                      <td style={styles.td}>{fabric.width || '-'}</td>
-                      <td style={styles.td}>{fabric.length || '-'}</td>
-                      <td style={styles.td}>{fabric.depot || '-'}</td>
-                      <td style={styles.td}>{fabric.unit || '-'}</td>
-                      <td style={styles.td}>{fabric.stockQuantity}</td>
-                      <td style={styles.td}>
-                        <button
-                          style={{...styles.smallButton, marginRight: '0.5rem'}}
-                          onClick={() => handleEdit(fabric)}
-                        >
-                          Düzenle
-                        </button>
-                        <button
-                          style={{...styles.smallButton, backgroundColor: '#dc3545'}}
-                          onClick={() => handleDelete(fabric.id)}
-                        >
-                          Sil
-                        </button>
-                      </td>
-                    </tr>
-                  ))
-                ) : (
-                  <tr>
-                    <td colSpan={9} style={{...styles.td, textAlign: 'center'}}>
-                      Filtrelemeye uygun kumaş bulunamadı.
-                    </td>
-                  </tr>
-                )}
-              </tbody>
+               <thead>
+                 <tr>
+                   <th style={styles.th}>Kod</th>
+                   <th style={styles.th}>Ad</th>
+                   <th style={styles.th}>Özellik</th>
+                   <th style={styles.th}>En</th>
+                   <th style={styles.th}>Boy</th>
+                   <th style={styles.th}>Depo</th>
+                   <th style={styles.th}>Birim</th>
+                   <th style={styles.th}>Stok Miktarı</th>
+                   <th style={styles.th}>Hatalı Stok</th>
+                   <th style={styles.th}>İşlemler</th>
+                 </tr>
+               </thead>
+               <tbody>
+                 {filteredFabrics.length > 0 ? (
+                   filteredFabrics.map(fabric => (
+                     <tr key={fabric.id}>
+                       <td style={styles.td}>{fabric.code || '-'}</td>
+                       <td style={styles.td}>{fabric.name}</td>
+                       <td style={styles.td}>{fabric.property || '-'}</td>
+                       <td style={styles.td}>{fabric.width || '-'}</td>
+                       <td style={styles.td}>{fabric.length || '-'}</td>
+                       <td style={styles.td}>
+                         {fabric.warehouse ? `${fabric.warehouse.code} - ${fabric.warehouse.name}` : fabric.depot || '-'}
+                       </td>
+                       <td style={styles.td}>{fabric.unit || '-'}</td>
+                       <td style={styles.td}>{fabric.stockQuantity}</td>
+                       <td style={{...styles.td, color: '#dc3545'}}>{fabric.defectiveQuantity || 0}</td>
+                       <td style={styles.td}>
+                         <button
+                           style={{...styles.smallButton, marginRight: '0.5rem'}}
+                           onClick={() => handleEdit(fabric)}
+                         >
+                           Düzenle
+                         </button>
+                         <button
+                           style={{...styles.smallButton, backgroundColor: '#dc3545'}}
+                           onClick={() => handleDelete(fabric.id)}
+                         >
+                           Sil
+                         </button>
+                       </td>
+                     </tr>
+                   ))
+                 ) : (
+                   <tr>
+                     <td colSpan={10} style={{...styles.td, textAlign: 'center'}}>
+                       Filtrelemeye uygun kumaş bulunamadı.
+                     </td>
+                   </tr>
+                 )}
+               </tbody>
             </table>
           </div>
 
@@ -344,7 +530,7 @@ function FabricList({ fabrics, setFabrics }: FabricListProps) {
 }
 
 // Kumaş Ekleme Bileşeni
-function FabricAdd({ fabrics, setFabrics, setActiveTab }: FabricAddProps) {
+function FabricAdd({ fabrics, setFabrics, setActiveTab, warehouses }: FabricAddProps) {
   const [form, setForm] = useState<FabricForm>({
     code: "",
     name: "",
@@ -352,8 +538,10 @@ function FabricAdd({ fabrics, setFabrics, setActiveTab }: FabricAddProps) {
     width: "",
     length: "",
     depot: "",
+    warehouseId: "",
     unit: "",
-    stockQuantity: ""
+    stockQuantity: "",
+    averageGrammage: ""
   });
 
   const [isManualCode, setIsManualCode] = useState(false);
@@ -369,11 +557,15 @@ function FabricAdd({ fabrics, setFabrics, setActiveTab }: FabricAddProps) {
         width: form.width ? parseFloat(form.width) : null,
         length: form.length ? parseFloat(form.length) : null,
         depot: form.depot,
+        warehouseId: form.warehouseId ? Number(form.warehouseId) : null,
         unit: form.unit,
         stockQuantity: parseFloat(form.stockQuantity) || 0
+        , averageGrammage: form.averageGrammage ? parseFloat(form.averageGrammage) : null
+      }, {
+        headers: getAuthHeaders(),
       });
 
-      alert("Kumaş başarıyla eklendi!");
+      notifySuccess("Kumaş başarıyla eklendi!");
       setFabrics([...fabrics, response.data.fabric]);
 
       // Formu temizle
@@ -384,8 +576,10 @@ function FabricAdd({ fabrics, setFabrics, setActiveTab }: FabricAddProps) {
         width: "",
         length: "",
         depot: "",
+        warehouseId: "",
         unit: "",
-        stockQuantity: ""
+        stockQuantity: "",
+        averageGrammage: ""
       });
       setIsManualCode(false);
 
@@ -393,12 +587,27 @@ function FabricAdd({ fabrics, setFabrics, setActiveTab }: FabricAddProps) {
       setActiveTab("list");
     } catch (error) {
       console.error('Kumaş eklenirken hata:', error);
-      alert('Kumaş eklenirken hata oluştu');
+      if ((error as { response?: { status?: number } })?.response?.status === 401) {
+        localStorage.removeItem("token");
+        localStorage.removeItem("authToken");
+        window.location.href = "/login";
+        return;
+      }
+      notifyError('Kumaş eklenirken hata oluştu');
     }
   };
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     const { name, value } = e.target;
+    if (name === "warehouseId") {
+      const selectedWarehouse = warehouses.find((warehouse) => String(warehouse.id) === value);
+      setForm((prev) => ({
+        ...prev,
+        warehouseId: value,
+        depot: selectedWarehouse ? selectedWarehouse.code : "",
+      }));
+      return;
+    }
     setForm(prev => ({ ...prev, [name]: value }));
   };
 
@@ -503,14 +712,22 @@ function FabricAdd({ fabrics, setFabrics, setActiveTab }: FabricAddProps) {
         <div style={{display: 'flex', gap: '1rem'}}>
           <div style={{...styles.inputGroup, flex: 1}}>
             <label style={styles.label}>Depo</label>
-            <input
-              type="text"
-              name="depot"
-              value={form.depot}
+            <select
+              name="warehouseId"
+              value={form.warehouseId}
               onChange={handleChange}
-              style={styles.input}
-              placeholder="Depo bilgisi"
-            />
+              style={styles.select}
+            >
+              <option value="">Depo seciniz</option>
+              {warehouses.map((warehouse) => (
+                <option key={warehouse.id} value={warehouse.id}>
+                  {warehouse.code} - {warehouse.name}
+                </option>
+              ))}
+            </select>
+            <small style={{ color: '#6c757d' }}>
+              {form.depot ? `Kod: ${form.depot}` : 'Depo kodu secime gore atanir.'}
+            </small>
           </div>
           <div style={{...styles.inputGroup, flex: 1}}>
             <label style={styles.label}>Birim</label>
@@ -539,6 +756,10 @@ function FabricAdd({ fabrics, setFabrics, setActiveTab }: FabricAddProps) {
             required
           />
         </div>
+        <div style={styles.inputGroup}>
+          <label style={styles.label}>Kumaş Ortalama Gramajı (g/m²)</label>
+          <input type="number" name="averageGrammage" value={form.averageGrammage} onChange={handleChange} style={styles.input} step="0.01" min="0" />
+        </div>
 
         {/* Butonlar */}
         <div style={{display: 'flex', justifyContent: 'space-between', marginTop: '1.5rem'}}>
@@ -553,8 +774,10 @@ function FabricAdd({ fabrics, setFabrics, setActiveTab }: FabricAddProps) {
                 width: "",
                 length: "",
                 depot: "",
+                warehouseId: "",
                 unit: "",
-                stockQuantity: ""
+                stockQuantity: "",
+                averageGrammage: ""
               });
               setIsManualCode(false);
             }}
@@ -582,8 +805,10 @@ function FabricEdit({ fabric, onSave, onCancel }: FabricEditProps) {
     width: fabric.width?.toString() || "",
     length: fabric.length?.toString() || "",
     depot: fabric.depot || "",
+    warehouseId: fabric.warehouseId ? String(fabric.warehouseId) : "",
     unit: fabric.unit || "",
-    stockQuantity: fabric.stockQuantity.toString()
+    stockQuantity: fabric.stockQuantity.toString(),
+    averageGrammage: fabric.averageGrammage?.toString() || ""
   });
 
   const handleSubmit = (e: React.FormEvent<HTMLFormElement>) => {
@@ -596,8 +821,10 @@ function FabricEdit({ fabric, onSave, onCancel }: FabricEditProps) {
       width: form.width ? parseFloat(form.width) : undefined,
       length: form.length ? parseFloat(form.length) : undefined,
       depot: form.depot,
+      warehouseId: form.warehouseId ? Number(form.warehouseId) : null,
       unit: form.unit,
       stockQuantity: parseFloat(form.stockQuantity)
+      , averageGrammage: form.averageGrammage ? parseFloat(form.averageGrammage) : null
     };
     onSave(updatedFabric);
   };
@@ -708,6 +935,10 @@ function FabricEdit({ fabric, onSave, onCancel }: FabricEditProps) {
               required
             />
           </div>
+          <div style={styles.inputGroup}>
+            <label style={styles.label}>Kumaş Ortalama Gramajı (g/m²)</label>
+            <input type="number" name="averageGrammage" value={form.averageGrammage} onChange={handleChange} style={styles.input} step="0.01" min="0" />
+          </div>
 
           <div style={{display: 'flex', justifyContent: 'space-between', marginTop: '1.5rem'}}>
             <button
@@ -733,12 +964,15 @@ function FabricEdit({ fabric, onSave, onCancel }: FabricEditProps) {
 // Stiller
 const styles: Record<string, CSSProperties> = {
   container: {
-    maxWidth: "1200px",
-    margin: "2rem auto",
+    width: "100%",
+    maxWidth: "100%",
+    minHeight: "100vh",
+    margin: "0",
     padding: "1.5rem",
     backgroundColor: "#fff",
-    borderRadius: "12px",
-    boxShadow: "0 4px 12px rgba(0, 0, 0, 0.1)",
+    borderRadius: "0",
+    boxShadow: "none",
+    boxSizing: "border-box",
     fontFamily: "'Segoe UI', Tahoma, Geneva, Verdana, sans-serif"
   },
   mainTitle: {
@@ -792,7 +1026,9 @@ const styles: Record<string, CSSProperties> = {
   form: {
     display: "flex",
     flexDirection: "column",
-    gap: "1.2rem"
+    gap: "1.2rem",
+    width: "100%",
+    maxWidth: "100%"
   },
   inputGroup: {
     display: "flex",
